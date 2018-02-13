@@ -96,6 +96,10 @@
 	cpu-supply = <&buck2_reg>;
 };
 
+&dcss {
+	status = "okay";
+};
+
 &fec1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_fec1>;
@@ -133,6 +137,10 @@
 		gpios = <29 GPIO_ACTIVE_HIGH>;
 		output-high;
 	};
+};
+
+&hdmi {
+	status ="okay";
 };
 
 &i2c1 {
