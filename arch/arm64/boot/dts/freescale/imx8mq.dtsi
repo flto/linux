@@ -265,6 +265,11 @@
 		arm,no-tick-in-suspend;
 	};
 
+	display-subsystem {
+		compatible = "fsl,imx-display-subsystem";
+		ports = <&dcss_disp0>;
+	};
+
 	soc@0 {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -870,6 +875,64 @@
 				fsl,num-irqs = <64>;
 				interrupt-controller;
 				#interrupt-cells = <1>;
+			};
+
+			hdmi: hdmi@32c00001 {
+				compatible = "fsl,imx8mq-hdmi";
+				reg = <0x32c00000 0x33800>,	/* HDP registers */
+				      <0x32e40000 0x40000>,	/* HDP SEC register */
+				      <0x32e2f000 0x10>;	/* RESET register */
+				interrupts = <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>,
+				             <GIC_SPI 25 IRQ_TYPE_LEVEL_HIGH>;
+				interrupt-names = "plug_in", "plug_out";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+
+				port@0 {
+					reg = <0>;
+					hdmi_disp: endpoint {
+						remote-endpoint = <&dcss_disp0_hdmi>;
+					};
+				};
+			};
+
+			dcss: dcss@32e00000 {
+				compatible = "nxp,imx8mq-dcss";
+				reg = <0x32e00000 0x30000>;
+				interrupts = <3>, <4>, <5>, <6>, <8>;
+				interrupt-names = "dpr_dc_ch0",
+				                  "dpr_dc_ch1",
+				                  "dpr_dc_ch2",
+				                  "ctx_ld",
+				                  "dtg_prg1";
+				interrupt-parent = <&irqsteer>;
+				clocks = <&clk IMX8MQ_CLK_DISP_APB_ROOT>,
+				         <&clk IMX8MQ_CLK_DISP_AXI_ROOT>,
+				         <&clk IMX8MQ_CLK_DISP_RTRM_ROOT>,
+				         <&clk IMX8MQ_CLK_DC_PIXEL>,
+				         <&clk IMX8MQ_CLK_DISP_DTRC>;
+				clock-names = "apb", "axi", "rtrm",
+				              "pixel", "dtrc";
+				assigned-clocks = <&clk IMX8MQ_CLK_DC_PIXEL>,
+				                  <&clk IMX8MQ_CLK_DISP_AXI>,
+				                  <&clk IMX8MQ_CLK_DISP_RTRM>;
+				assigned-clock-parents = <&clk IMX8MQ_VIDEO_PLL1_OUT>,
+				                         <&clk IMX8MQ_SYS1_PLL_800M>,
+				                         <&clk IMX8MQ_SYS1_PLL_800M>;
+				assigned-clock-rates = <594000000>,
+				                       <800000000>,
+				                       <400000000>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+
+				dcss_disp0: port@0 {
+					reg = <0>;
+					dcss_disp0_hdmi: endpoint {
+						remote-endpoint = <&hdmi_disp>;
+					};
+				};
 			};
 		};
 
