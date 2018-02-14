@@ -20,13 +20,14 @@
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_probe_helper.h>
 #include <video/imx-ipu-v3.h>
+#include <video/imx-dcss.h>
 
 #include "imx-drm.h"
-#include "ipuv3-plane.h"
+#include "ipuv3/ipuv3-plane.h"
 
 #define MAX_CRTC	4
 
-static int legacyfb_depth = 16;
+static int legacyfb_depth = 32;
 module_param(legacyfb_depth, int, 0444);
 
 DEFINE_DRM_GEM_CMA_FOPS(imx_drm_driver_fops);
@@ -61,11 +62,6 @@ static int imx_drm_atomic_check(struct drm_device *dev,
 	if (ret)
 		return ret;
 
-	/* Assign PRG/PRE channels and check if all constrains are satisfied. */
-	ret = ipu_planes_assign_pre(dev, state);
-	if (ret)
-		return ret;
-
 	return ret;
 }
 
@@ -91,11 +87,6 @@ static void imx_drm_atomic_commit_tail(struct drm_atomic_state *state)
 
 	drm_atomic_helper_commit_modeset_enables(dev, state);
 
-	for_each_oldnew_plane_in_state(state, plane, old_plane_state, new_plane_state, i) {
-		if (drm_atomic_plane_disabling(old_plane_state, new_plane_state))
-			plane_disabling = true;
-	}
-
 	/*
 	 * The flip done wait is only strictly required by imx-drm if a deferred
 	 * plane disable is in-flight. As the core requires blocking commits
@@ -104,12 +95,6 @@ static void imx_drm_atomic_commit_tail(struct drm_atomic_state *state)
 	 * non-blocking commits, but we accept that for the sake of simplicity.
 	 */
 	drm_atomic_helper_wait_for_flip_done(dev, state);
-
-	if (plane_disabling) {
-		for_each_old_plane_in_state(state, plane, old_plane_state, i)
-			ipu_plane_disable_deferred(plane);
-
-	}
 
 	drm_atomic_helper_commit_hw_done(state);
 }
@@ -182,6 +167,10 @@ static int compare_of(struct device *dev, void *data)
 		struct ipu_client_platformdata *pdata = dev->platform_data;
 
 		return pdata->of_node == np;
+	} else if (strcmp(dev->driver->name, "imx-dcss-crtc") == 0) {
+		struct dcss_client_platformdata *pdata = dev->platform_data;
+
+		return pdata->of_node == np;
 	}
 
 	/* Special case for LDB, one device for two channels */
@@ -222,7 +211,7 @@ static int imx_drm_bind(struct device *dev)
 	drm->mode_config.min_height = 1;
 	drm->mode_config.max_width = 4096;
 	drm->mode_config.max_height = 4096;
-	drm->mode_config.funcs = &imx_drm_mode_config_funcs;
+	//drm->mode_config.funcs = &imx_drm_mode_config_funcs;
 	drm->mode_config.helper_private = &imx_drm_mode_config_helpers;
 	drm->mode_config.allow_fb_modifiers = true;
 	drm->mode_config.normalize_zpos = true;
@@ -345,7 +334,7 @@ static struct platform_driver imx_drm_pdrv = {
 
 static struct platform_driver * const drivers[] = {
 	&imx_drm_pdrv,
-	&ipu_drm_driver,
+	//&ipu_drm_driver,
 };
 
 static int __init imx_drm_init(void)

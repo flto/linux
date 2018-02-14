@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __IPUV3_PLANE_H__
 #define __IPUV3_PLANE_H__
 
@@ -19,13 +18,11 @@ struct ipu_plane {
 
 	struct ipu_soc		*ipu;
 	struct ipuv3_channel	*ipu_ch;
-	struct ipuv3_channel	*alpha_ch;
 	struct dmfc_channel	*dmfc;
 	struct ipu_dp		*dp;
 
 	int			dma;
 	int			dp_flow;
-
 	bool			disabling;
 };
 
