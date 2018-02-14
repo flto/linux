@@ -273,6 +273,8 @@ imx_hdp_connector_detect(struct drm_connector *connector, bool force)
 	int ret;
 	u8 hpd = 0xf;
 
+	return connector_status_connected;
+
 	ret = imx_hdp_call(hdp, get_hpd_state, &hdp->state, &hpd);
 	if (ret > 0)
 		return connector_status_unknown;
