@@ -138,6 +138,14 @@ struct drm_etnaviv_gem_submit_reloc {
 	__u32 flags;          /* in, placeholder for now, no defined values */
 };
 
+struct drm_etnaviv_gem_submit_ext_reloc {
+	__u32 reloc_idx;      /* in, index of reloc bo */
+	__u32 target_idx;     /* in, index of buffer to write reloc to */
+	__u64 reloc_offset;   /* in, offset from address of reloc_bo */
+	__u64 target_offset;  /* in, offset inside the target bo */
+	__u64 pad[2];         /* reserved for further expansion */
+};
+
 /* Each buffer referenced elsewhere in the cmdstream submit (ie. the
  * cmdstream buffer(s) themselves or reloc entries) has one (and only
  * one) entry in the submit->bos[] table.
@@ -197,7 +205,8 @@ struct drm_etnaviv_gem_submit {
 	__s32 fence_fd;       /* in/out, fence fd (see ETNA_SUBMIT_FENCE_FD_x) */
 	__u64 pmrs;           /* in, ptr to array of submit_pmr's */
 	__u32 nr_pmrs;        /* in, number of submit_pmr's */
-	__u32 pad;
+	__u32 nr_ext_relocs;  /* in, number of ext reloc's */
+	__u64 ext_relocs;     /* in, ptr to array of ext reloc's */
 };
 
 /* The normal way to synchronize with the GPU is just to CPU_PREP on

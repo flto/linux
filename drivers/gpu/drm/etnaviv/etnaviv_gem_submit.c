@@ -297,6 +297,51 @@ static int submit_reloc(struct etnaviv_gem_submit *submit, void *stream,
 	return 0;
 }
 
+static int submit_ext_reloc(struct etnaviv_gem_submit *submit,
+	const struct drm_etnaviv_gem_submit_ext_reloc *relocs,
+	u32 nr_relocs)
+{
+	unsigned int i;
+	u32 *ptr;
+	int ret;
+
+
+	for (i = 0; i < nr_relocs; i++) {
+		const struct drm_etnaviv_gem_submit_ext_reloc *r = relocs + i;
+		struct etnaviv_gem_submit_bo *reloc_bo, *target_bo;
+		u32 off;
+
+		if (unlikely(r->pad[0] || r->pad[1])) {
+			DRM_ERROR("pad not zero filled\n");
+			return -EINVAL;
+		}
+
+		ret = submit_bo(submit, r->reloc_idx, &reloc_bo);
+		if (ret)
+			return ret;
+
+		ret = submit_bo(submit, r->target_idx, &target_bo);
+		if (ret)
+			return ret;
+
+		if (r->reloc_offset > reloc_bo->obj->base.size - sizeof(*ptr)) {
+			DRM_ERROR("relocation %u outside object\n", i);
+			return -EINVAL;
+		}
+
+		off = r->target_offset / 4;
+		if (off >= target_bo->obj->base.size) {
+			DRM_ERROR("invalid offset %u at reloc %u\n", off, i);
+			return -EINVAL;
+		}
+
+		ptr = etnaviv_gem_vmap(&target_bo->obj->base);
+		ptr[off] = reloc_bo->mapping->iova + r->reloc_offset;
+	}
+
+	return 0;
+}
+
 static int submit_perfmon_validate(struct etnaviv_gem_submit *submit,
 		u32 exec_state, const struct drm_etnaviv_gem_submit_pmr *pmrs)
 {
@@ -397,6 +442,7 @@ int etnaviv_ioctl_gem_submit(struct drm_device *dev, void *data,
 	struct etnaviv_file_private *ctx = file->driver_priv;
 	struct etnaviv_drm_private *priv = dev->dev_private;
 	struct drm_etnaviv_gem_submit *args = data;
+	struct drm_etnaviv_gem_submit_ext_reloc *ext_relocs;
 	struct drm_etnaviv_gem_submit_reloc *relocs;
 	struct drm_etnaviv_gem_submit_pmr *pmrs;
 	struct drm_etnaviv_gem_submit_bo *bos;
@@ -439,6 +485,7 @@ int etnaviv_ioctl_gem_submit(struct drm_device *dev, void *data,
 	 */
 	bos = kvmalloc_array(args->nr_bos, sizeof(*bos), GFP_KERNEL);
 	relocs = kvmalloc_array(args->nr_relocs, sizeof(*relocs), GFP_KERNEL);
+	ext_relocs = kvmalloc_array(args->nr_ext_relocs, sizeof(*ext_relocs), GFP_KERNEL);
 	pmrs = kvmalloc_array(args->nr_pmrs, sizeof(*pmrs), GFP_KERNEL);
 	stream = kvmalloc_array(1, args->stream_size, GFP_KERNEL);
 	if (!bos || !relocs || !pmrs || !stream) {
@@ -455,6 +502,13 @@ int etnaviv_ioctl_gem_submit(struct drm_device *dev, void *data,
 
 	ret = copy_from_user(relocs, u64_to_user_ptr(args->relocs),
 			     args->nr_relocs * sizeof(*relocs));
+	if (ret) {
+		ret = -EFAULT;
+		goto err_submit_cmds;
+	}
+
+	ret = copy_from_user(ext_relocs, u64_to_user_ptr(args->ext_relocs),
+			     args->nr_ext_relocs * sizeof(*ext_relocs));
 	if (ret) {
 		ret = -EFAULT;
 		goto err_submit_cmds;
@@ -526,6 +580,10 @@ int etnaviv_ioctl_gem_submit(struct drm_device *dev, void *data,
 	if (ret)
 		goto err_submit_objects;
 
+	ret = submit_ext_reloc(submit, ext_relocs, args->nr_ext_relocs);
+	if (ret)
+		goto err_submit_objects;
+
 	ret = submit_perfmon_validate(submit, args->exec_state, pmrs);
 	if (ret)
 		goto err_submit_objects;
@@ -577,6 +635,8 @@ err_submit_cmds:
 		kvfree(stream);
 	if (bos)
 		kvfree(bos);
+	if (ext_relocs)
+		kvfree(ext_relocs);
 	if (relocs)
 		kvfree(relocs);
 	if (pmrs)
