@@ -1126,30 +1126,21 @@ int drm_gem_mmap_obj(struct drm_gem_object *obj, unsigned long obj_size,
 EXPORT_SYMBOL(drm_gem_mmap_obj);
 
 /**
- * drm_gem_mmap - memory map routine for GEM objects
+ * drm_gem_bo_vm_lookup - look up a GEM object based on its offset in the DRM VM
  * @filp: DRM file pointer
- * @vma: VMA for the area to be mapped
- *
- * If a driver supports GEM object mapping, mmap calls on the DRM file
- * descriptor will end up here.
+ * @vma: VMA containing the mmap offset of the buffer
  *
  * Look up the GEM object based on the offset passed in (vma->vm_pgoff will
  * contain the fake offset we created when the GTT map ioctl was called on
- * the object) and map it with a call to drm_gem_mmap_obj().
- *
- * If the caller is not granted access to the buffer object, the mmap will fail
- * with EACCES. Please see the vma manager for more information.
+ * the object).
  */
-int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
+struct drm_gem_object *
+drm_gem_bo_vm_lookup(struct file *filp, struct vm_area_struct *vma)
 {
 	struct drm_file *priv = filp->private_data;
 	struct drm_device *dev = priv->minor->dev;
-	struct drm_gem_object *obj = NULL;
 	struct drm_vma_offset_node *node;
-	int ret;
-
-	if (drm_dev_is_unplugged(dev))
-		return -ENODEV;
+	struct drm_gem_object *obj = NULL;
 
 	drm_vma_offset_lock_lookup(dev->vma_offset_manager);
 	node = drm_vma_offset_exact_lookup_locked(dev->vma_offset_manager,
@@ -1172,15 +1163,45 @@ int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	}
 	drm_vma_offset_unlock_lookup(dev->vma_offset_manager);
 
+	return obj;
+}
+EXPORT_SYMBOL(drm_gem_bo_vm_lookup);
+
+/**
+ * drm_gem_mmap - memory map routine for GEM objects
+ * @filp: DRM file pointer
+ * @vma: VMA for the area to be mapped
+ *
+ * If a driver supports GEM object mapping, mmap calls on the DRM file
+ * descriptor will end up here.
+ *
+ * Look up the GEM object based on the offset passed in (vma->vm_pgoff will
+ * contain the fake offset we created when the GTT map ioctl was called on
+ * the object) and map it with a call to drm_gem_mmap_obj().
+ *
+ * If the caller is not granted access to the buffer object, the mmap will fail
+ * with EACCES. Please see the vma manager for more information.
+ */
+int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct drm_file *priv = filp->private_data;
+	struct drm_device *dev = priv->minor->dev;
+	struct drm_gem_object *obj = NULL;
+	int ret;
+
+	if (drm_dev_is_unplugged(dev))
+		return -ENODEV;
+
+	obj = drm_gem_bo_vm_lookup(filp, vma);
 	if (!obj)
 		return -EINVAL;
 
-	if (!drm_vma_node_is_allowed(node, priv)) {
+	if (!drm_vma_node_is_allowed(&obj->vma_node, priv)) {
 		drm_gem_object_put_unlocked(obj);
 		return -EACCES;
 	}
 
-	if (node->readonly) {
+	if (obj->vma_node.readonly) {
 		if (vma->vm_flags & VM_WRITE) {
 			drm_gem_object_put_unlocked(obj);
 			return -EINVAL;
@@ -1189,7 +1210,8 @@ int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 		vma->vm_flags &= ~VM_MAYWRITE;
 	}
 
-	ret = drm_gem_mmap_obj(obj, drm_vma_node_size(node) << PAGE_SHIFT,
+	ret = drm_gem_mmap_obj(obj,
+			       drm_vma_node_size(&obj->vma_node) << PAGE_SHIFT,
 			       vma);
 
 	drm_gem_object_put_unlocked(obj);
