@@ -2942,6 +2942,37 @@ static const struct panel_desc_dsi panasonic_vvx10f004b00 = {
 	.lanes = 4,
 };
 
+static const struct drm_display_mode ilitek_ili9881c_txd_mode = {
+	.clock = 107732,
+	.hdisplay = 720,
+	.hsync_start = 720 + 300,
+	.hsync_end = 720 + 300 + 28,
+	.htotal = 720 + 300 + 28 + 300,
+	.vdisplay = 1280,
+	.vsync_start = 1280 + 28,
+	.vsync_end = 1280 + 28 + 4,
+	.vtotal = 1280 + 28 + 4 + 20,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc_dsi ilitek_ili9881c_txd = {
+	.desc = {
+		.modes = &ilitek_ili9881c_txd_mode,
+		.num_modes = 1,
+		.bpc = 8,
+		.size = {
+			.width = 65,
+			.height = 115,
+		},
+	},
+	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_HSE |
+		MIPI_DSI_CLOCK_NON_CONTINUOUS | MIPI_DSI_MODE_VIDEO_BURST |
+		MIPI_DSI_MODE_EOT_PACKET | MIPI_DSI_MODE_VIDEO_HSA |
+		MIPI_DSI_MODE_VIDEO_HBP | MIPI_DSI_MODE_VIDEO_HFP,
+	.format = MIPI_DSI_FMT_RGB888,
+	.lanes = 4,
+};
+
 static const struct of_device_id dsi_of_match[] = {
 	{
 		.compatible = "auo,b080uan01",
@@ -2958,6 +2989,9 @@ static const struct of_device_id dsi_of_match[] = {
 	}, {
 		.compatible = "panasonic,vvx10f004b00",
 		.data = &panasonic_vvx10f004b00
+	}, {
+		.compatible = "ilitek,ili9881c-txd",
+		.data = &ilitek_ili9881c_txd
 	}, {
 		/* sentinel */
 	}
