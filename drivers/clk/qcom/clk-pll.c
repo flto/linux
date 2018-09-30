@@ -223,6 +223,24 @@ const struct clk_ops clk_pll_vote_ops = {
 };
 EXPORT_SYMBOL_GPL(clk_pll_vote_ops);
 
+static int clk_pll_fixed_enable(struct clk_hw *hw)
+{
+	int ret;
+	struct clk_pll *p = to_clk_pll(hw);
+
+	ret = clk_enable_regmap(hw);
+	if (ret)
+		return ret;
+
+	return wait_for_pll(p);
+}
+
+const struct clk_ops clk_pll_fixed_ops = {
+	.enable = clk_pll_fixed_enable,
+	.disable = clk_disable_regmap,
+};
+EXPORT_SYMBOL_GPL(clk_pll_fixed_ops);
+
 static void clk_pll_configure(struct clk_pll *pll, struct regmap *regmap,
 	const struct pll_config *config)
 {
