@@ -212,13 +212,16 @@ static int dsi_pll_28nm_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 	DBG("sdm_cfg2=%d", sdm_cfg2);
 	DBG("sdm_cfg3=%d", sdm_cfg3);
 
+	sdm_cfg2 = 0xbd;
+	sdm_cfg3 = 0xbf;
+
 	cal_cfg11 = (u32)(gen_vco_clk / (256 * 1000000));
 	cal_cfg10 = (u32)((gen_vco_clk % (256 * 1000000)) / 1000000);
 	DBG("cal_cfg10=%d, cal_cfg11=%d", cal_cfg10, cal_cfg11);
 
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CHGPUMP_CFG, 0x02);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG3,    0x2b);
-	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG4,    0x06);
+	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG4,    0x66);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_LKDET_CFG2,  0x0d);
 
 	pll_write(base + REG_DSI_28nm_PHY_PLL_SDM_CFG1, sdm_cfg1);
@@ -234,9 +237,9 @@ static int dsi_pll_28nm_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	pll_write(base + REG_DSI_28nm_PHY_PLL_REFCLK_CFG, refclk_cfg);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_PWRGEN_CFG, 0x00);
-	pll_write(base + REG_DSI_28nm_PHY_PLL_VCOLPF_CFG, 0x31);
+	pll_write(base + REG_DSI_28nm_PHY_PLL_VCOLPF_CFG, 0x71);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_SDM_CFG0,   sdm_cfg0);
-	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG0,   0x12);
+	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG0,   0x0a);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG6,   0x30);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG7,   0x00);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG8,   0x60);

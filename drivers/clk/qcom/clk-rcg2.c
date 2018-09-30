@@ -636,7 +636,7 @@ static int clk_pixel_determine_rate(struct clk_hw *hw,
 				    struct clk_rate_request *req)
 {
 	unsigned long request, src_rate;
-	int delta = 100000;
+	int delta = 1000000;
 	const struct frac_entry *frac = frac_table_pixel;
 
 	for (; frac->num; frac++) {
@@ -662,7 +662,7 @@ static int clk_pixel_set_rate(struct clk_hw *hw, unsigned long rate,
 	struct freq_tbl f = { 0 };
 	const struct frac_entry *frac = frac_table_pixel;
 	unsigned long request;
-	int delta = 100000;
+	int delta = 1000000;
 	u32 mask = BIT(rcg->hid_width) - 1;
 	u32 hid_div, cfg;
 	int i, num_parents = clk_hw_get_num_parents(hw);

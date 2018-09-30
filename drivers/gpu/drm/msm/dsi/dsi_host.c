@@ -848,7 +848,7 @@ static void dsi_ctrl_config(struct msm_dsi_host *msm_host, bool enable,
 		data |= DSI_VID_CFG0_TRAFFIC_MODE(dsi_get_traffic_mode(flags));
 		data |= DSI_VID_CFG0_DST_FORMAT(dsi_get_vid_fmt(mipi_fmt));
 		data |= DSI_VID_CFG0_VIRT_CHANNEL(msm_host->channel);
-		dsi_write(msm_host, REG_DSI_VID_CFG0, data);
+		dsi_write(msm_host, REG_DSI_VID_CFG0, data | 0x80000000);
 
 		/* Do not swap RGB colors */
 		data = DSI_VID_CFG1_RGB_SWAP(SWAP_RGB);
@@ -873,13 +873,13 @@ static void dsi_ctrl_config(struct msm_dsi_host *msm_host, bool enable,
 
 	data = 0;
 	/* Always assume dedicated TE pin */
-	data |= DSI_TRIG_CTRL_TE;
+	//data |= DSI_TRIG_CTRL_TE;
 	data |= DSI_TRIG_CTRL_MDP_TRIGGER(TRIGGER_NONE);
 	data |= DSI_TRIG_CTRL_DMA_TRIGGER(TRIGGER_SW);
 	data |= DSI_TRIG_CTRL_STREAM(msm_host->channel);
 	if ((cfg_hnd->major == MSM_DSI_VER_MAJOR_6G) &&
 		(cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V1_2))
-		data |= DSI_TRIG_CTRL_BLOCK_DMA_WITHIN_FRAME;
+		;//data |= DSI_TRIG_CTRL_BLOCK_DMA_WITHIN_FRAME;
 	dsi_write(msm_host, REG_DSI_TRIG_CTRL, data);
 
 	data = DSI_CLKOUT_TIMING_CTRL_T_CLK_POST(phy_shared_timings->clk_post) |
@@ -2250,6 +2250,8 @@ exit:
 void msm_dsi_host_reset_phy(struct mipi_dsi_host *host)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+
+	return;
 
 	DBG("");
 	dsi_write(msm_host, REG_DSI_PHY_RESET, DSI_PHY_RESET_RESET);
