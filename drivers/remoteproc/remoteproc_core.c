@@ -67,6 +67,23 @@ static const char * const rproc_crash_names[] = {
 	[RPROC_FATAL_ERROR]	= "fatal error",
 };
 
+#ifdef CONFIG_OF
+static int rproc_get_index(struct rproc *rproc)
+{
+	/* Assign a unique device index and name */
+	int id = of_alias_get_id(rproc->dev.parent->of_node, "rproc");
+	if (id < 0)
+		return ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
+
+	return ida_simple_get(&rproc_dev_index, id, id + 1, GFP_KERNEL);
+}
+#else
+static int rproc_get_index(struct rproc *rproc)
+{
+	return ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
+}
+#endif
+
 /* translate rproc_crash_type to string */
 static const char *rproc_crash_to_string(enum rproc_crash_type type)
 {
@@ -1966,10 +1983,9 @@ struct rproc *rproc_alloc(struct device *dev, const char *name,
 	rproc->dev.class = &rproc_class;
 	rproc->dev.driver_data = rproc;
 
-	/* Assign a unique device index and name */
-	rproc->index = ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
+	rproc->index = rproc_get_index(rproc);
 	if (rproc->index < 0) {
-		dev_err(dev, "ida_simple_get failed: %d\n", rproc->index);
+		dev_err(dev, "rproc_get_index failed: %d\n", rproc->index);
 		put_device(&rproc->dev);
 		return NULL;
 	}
