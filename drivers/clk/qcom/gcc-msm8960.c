@@ -3582,6 +3582,27 @@ static const struct qcom_reset_map gcc_apq8064_resets[] = {
 	[USB_HS4_RESET] = { 0x3730 },
 };
 
+static struct clk_regmap *gcc_msm8930_clks[] = {
+	[PLL3] = &pll3.clkr,
+	[PLL4_VOTE] = &pll4_vote,
+	[PLL8] = &pll8.clkr,
+	[PLL8_VOTE] = &pll8_vote,
+	[PLL14] = &pll14.clkr,
+	[PLL14_VOTE] = &pll14_vote,
+	[SDC1_SRC] = &sdc1_src.clkr,
+	[SDC1_CLK] = &sdc1_clk.clkr,
+	[SDC1_H_CLK] = &sdc1_h_clk.clkr,
+	[USB_HS1_XCVR_SRC] = &usb_hs1_xcvr_src.clkr,
+	[USB_HS1_XCVR_CLK] = &usb_hs1_xcvr_clk.clkr,
+	[USB_HS1_H_CLK] = &usb_hs1_h_clk.clkr,
+};
+
+static const struct qcom_reset_map gcc_msm8930_resets[] = {
+	[SDC1_RESET] = { 0x2830 },
+	[USB_HS1_RESET] = { 0x2910 },
+	[USB_PHY0_RESET] = { 0x2E20 },
+};
+
 static const struct regmap_config gcc_msm8960_regmap_config = {
 	.reg_bits	= 32,
 	.reg_stride	= 4,
@@ -3595,6 +3616,14 @@ static const struct regmap_config gcc_apq8064_regmap_config = {
 	.reg_stride	= 4,
 	.val_bits	= 32,
 	.max_register	= 0x3880,
+	.fast_io	= true,
+};
+
+static const struct regmap_config gcc_msm8930_regmap_config = {
+	.reg_bits	= 32,
+	.reg_stride	= 4,
+	.val_bits	= 32,
+	.max_register	= 0x3880, // TODO
 	.fast_io	= true,
 };
 
@@ -3614,9 +3643,18 @@ static const struct qcom_cc_desc gcc_apq8064_desc = {
 	.num_resets = ARRAY_SIZE(gcc_apq8064_resets),
 };
 
+static const struct qcom_cc_desc gcc_msm8930_desc = {
+	.config = &gcc_msm8930_regmap_config,
+	.clks = gcc_msm8930_clks,
+	.num_clks = ARRAY_SIZE(gcc_msm8930_clks),
+	.resets = gcc_msm8930_resets,
+	.num_resets = ARRAY_SIZE(gcc_msm8930_resets),
+};
+
 static const struct of_device_id gcc_msm8960_match_table[] = {
 	{ .compatible = "qcom,gcc-msm8960", .data = &gcc_msm8960_desc },
 	{ .compatible = "qcom,gcc-apq8064", .data = &gcc_apq8064_desc },
+	{ .compatible = "qcom,gcc-msm8930", .data = &gcc_msm8930_desc },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, gcc_msm8960_match_table);

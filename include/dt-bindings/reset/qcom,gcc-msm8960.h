@@ -130,5 +130,6 @@
 #define CE3_SLEEP_RESET					113
 #define GSS_SLP_RESET					114
 #define GSS_RESET					115
+#define USB_PHY0_RESET				116
 
 #endif
