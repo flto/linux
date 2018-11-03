@@ -54,8 +54,13 @@ static int sharp_nt_panel_init(struct sharp_nt_panel *sharp_nt)
 {
 	struct mipi_dsi_device *dsi = sharp_nt->dsi;
 	int ret;
+	u8 id;
 
 	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+
+	ret = mipi_dsi_dcs_read(dsi, 0xda, &id, 1);
+
+	printk("PANELID=%X, ret=%i\n", id, ret);
 
 	ret = mipi_dsi_dcs_exit_sleep_mode(dsi);
 	if (ret < 0)
@@ -63,6 +68,7 @@ static int sharp_nt_panel_init(struct sharp_nt_panel *sharp_nt)
 
 	msleep(120);
 
+#if 0
 	/* Novatek two-lane operation */
 	ret = mipi_dsi_dcs_write(dsi, 0xae, (u8[]){ 0x03 }, 1);
 	if (ret < 0)
@@ -73,6 +79,7 @@ static int sharp_nt_panel_init(struct sharp_nt_panel *sharp_nt)
 					(MIPI_DCS_PIXEL_FMT_24BIT << 4));
 	if (ret < 0)
 		return ret;
+#endif
 
 	return 0;
 }
@@ -182,6 +189,9 @@ static int sharp_nt_panel_prepare(struct drm_panel *panel)
 		goto poweroff;
 	}
 
+
+	msleep(100);
+
 	sharp_nt->prepared = true;
 
 	return 0;
@@ -208,15 +218,15 @@ static int sharp_nt_panel_enable(struct drm_panel *panel)
 }
 
 static const struct drm_display_mode default_mode = {
-	.clock = 41118,
-	.hdisplay = 540,
-	.hsync_start = 540 + 48,
-	.hsync_end = 540 + 48 + 80,
-	.htotal = 540 + 48 + 80 + 32,
-	.vdisplay = 960,
-	.vsync_start = 960 + 3,
-	.vsync_end = 960 + 3 + 15,
-	.vtotal = 960 + 3 + 15 + 1,
+	.clock = 28000,
+	.hdisplay = 480,
+	.hsync_start = 480 + 100,
+	.hsync_end = 480 + 100 + 8,
+	.htotal = 480 + 100 + 8 + 100,
+	.vdisplay = 800,
+	.vsync_start = 800 + 20,
+	.vsync_end = 800 + 20 + 1,
+	.vtotal = 800 + 20 + 1 + 20,
 	.vrefresh = 60,
 };
 
@@ -294,10 +304,9 @@ static int sharp_nt_panel_probe(struct mipi_dsi_device *dsi)
 
 	dsi->lanes = 2;
 	dsi->format = MIPI_DSI_FMT_RGB888;
-	dsi->mode_flags = MIPI_DSI_MODE_VIDEO |
-			MIPI_DSI_MODE_VIDEO_HSE |
-			MIPI_DSI_CLOCK_NON_CONTINUOUS |
-			MIPI_DSI_MODE_EOT_PACKET;
+	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_HSE | MIPI_DSI_MODE_VIDEO_HFP | MIPI_DSI_MODE_VIDEO_HBP | MIPI_DSI_MODE_VIDEO_HSA | MIPI_DSI_CLOCK_NON_CONTINUOUS;
+		//MIPI_DSI_MODE_VIDEO | MIPI_DSI_CLOCK_NON_CONTINUOUS;
+			//MIPI_DSI_MODE_EOT_PACKET;
 
 	sharp_nt = devm_kzalloc(&dsi->dev, sizeof(*sharp_nt), GFP_KERNEL);
 	if (!sharp_nt)
