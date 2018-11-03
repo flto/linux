@@ -519,6 +519,8 @@ static void mdp4_crtc_vblank_irq(struct mdp_irq *irq, uint32_t irqstatus)
 
 	pending = atomic_xchg(&mdp4_crtc->pending, 0);
 
+	udelay(1000);
+
 	if (pending & PENDING_FLIP) {
 		complete_flip(crtc, NULL);
 	}

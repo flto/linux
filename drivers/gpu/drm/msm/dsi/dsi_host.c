@@ -757,6 +757,8 @@ int dsi_calc_clk_rate_v2(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 	if (esc_mhz < 5)
 		return -EINVAL;
 
+	esc_div = 4;
+
 	msm_host->esc_clk_rate = msm_host->byte_clk_rate / esc_div;
 
 	DBG("esc=%d, src=%d", msm_host->esc_clk_rate,
