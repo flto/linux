@@ -297,6 +297,13 @@ config BACKLIGHT_PM8941_WLED
 	  If you have the Qualcomm PM8941, say Y to enable a driver for the
 	  WLED block.
 
+config BACKLIGHT_PM8XXX_WLED
+	tristate "Qualcomm PM8XXX WLED Driver"
+	select REGMAP
+	help
+	  If you have Qualcomm PM8XXX (SSBI), say Y to enable a driver for the
+	  WLED block.
+
 config BACKLIGHT_SAHARA
 	tristate "Tabletkiosk Sahara Touch-iT Backlight Driver"
 	depends on X86
