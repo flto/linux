@@ -551,10 +551,45 @@ static const struct rpm_clk_desc rpm_clk_apq8064 = {
 	.num_clks = ARRAY_SIZE(apq8064_clks),
 };
 
+/* msm8930 */
+DEFINE_CLK_RPM(msm8930, afab_clk, afab_a_clk, QCOM_RPM_APPS_FABRIC_CLK);
+DEFINE_CLK_RPM(msm8930, sfab_clk, sfab_a_clk, QCOM_RPM_SYS_FABRIC_CLK);
+DEFINE_CLK_RPM(msm8930, mmfab_clk, mmfab_a_clk, QCOM_RPM_MM_FABRIC_CLK);
+DEFINE_CLK_RPM(msm8930, daytona_clk, daytona_a_clk, QCOM_RPM_DAYTONA_FABRIC_CLK);
+DEFINE_CLK_RPM(msm8930, sfpb_clk, sfpb_a_clk, QCOM_RPM_SFPB_CLK);
+DEFINE_CLK_RPM(msm8930, cfpb_clk, cfpb_a_clk, QCOM_RPM_CFPB_CLK);
+DEFINE_CLK_RPM(msm8930, mmfpb_clk, mmfpb_a_clk, QCOM_RPM_MMFPB_CLK);
+DEFINE_CLK_RPM(msm8930, ebi1_clk, ebi1_a_clk, QCOM_RPM_EBI1_CLK);;
+
+static struct clk_rpm *msm8930_clks[] = {
+	[RPM_APPS_FABRIC_CLK] = &msm8930_afab_clk,
+	[RPM_APPS_FABRIC_A_CLK] = &msm8930_afab_a_clk,
+	[RPM_SYS_FABRIC_CLK] = &msm8930_sfab_clk,
+	[RPM_SYS_FABRIC_A_CLK] = &msm8930_sfab_a_clk,
+	[RPM_MM_FABRIC_CLK] = &msm8930_mmfab_clk,
+	[RPM_MM_FABRIC_A_CLK] = &msm8930_mmfab_a_clk,
+	[RPM_DAYTONA_FABRIC_CLK] = &msm8930_daytona_clk,
+	[RPM_DAYTONA_FABRIC_A_CLK] = &msm8930_daytona_a_clk,
+	[RPM_SFPB_CLK] = &msm8930_sfpb_clk,
+	[RPM_SFPB_A_CLK] = &msm8930_sfpb_a_clk,
+	[RPM_CFPB_CLK] = &msm8930_cfpb_clk,
+	[RPM_CFPB_A_CLK] = &msm8930_cfpb_a_clk,
+	[RPM_MMFPB_CLK] = &msm8930_mmfpb_clk,
+	[RPM_MMFPB_A_CLK] = &msm8930_mmfpb_a_clk,
+	[RPM_EBI1_CLK] = &msm8930_ebi1_clk,
+	[RPM_EBI1_A_CLK] = &msm8930_ebi1_a_clk,
+};
+
+static const struct rpm_clk_desc rpm_clk_msm8930 = {
+	.clks = msm8930_clks,
+	.num_clks = ARRAY_SIZE(msm8930_clks),
+};
+
 static const struct of_device_id rpm_clk_match_table[] = {
 	{ .compatible = "qcom,rpmcc-msm8660", .data = &rpm_clk_msm8660 },
 	{ .compatible = "qcom,rpmcc-apq8060", .data = &rpm_clk_msm8660 },
 	{ .compatible = "qcom,rpmcc-apq8064", .data = &rpm_clk_apq8064 },
+	{ .compatible = "qcom,rpmcc-msm8930", .data = &rpm_clk_msm8930 },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, rpm_clk_match_table);
