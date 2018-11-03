@@ -153,6 +153,11 @@ static const struct rpm_reg_parts rpm8960_ncp_parts = {
 	.freq           = { 0, 0x3E000000, 25 },
 };
 
+static const struct rpm_reg_parts rpm8930_corner_parts = {
+	.request_len    = 1,
+	.uV             = { 0, 0x00000003,  0 },
+};
+
 /*
  * Physically available PMIC regulator voltage ranges
  */
@@ -192,6 +197,10 @@ static const struct regulator_linear_range smb208_ranges[] = {
 
 static const struct regulator_linear_range ncp_ranges[] = {
 	REGULATOR_LINEAR_RANGE(1500000,   0,  31, 50000),
+};
+
+static const struct regulator_linear_range corner_ranges[] = {
+	REGULATOR_LINEAR_RANGE(0, 0, 3, 1),
 };
 
 static int rpm_reg_write(struct qcom_rpm_reg *vreg,
@@ -447,6 +456,61 @@ static struct regulator_ops switch_ops = {
 	.is_enabled = rpm_reg_is_enabled,
 };
 
+static int rpm_reg_set_corner_sel(struct regulator_dev *rdev,
+			      unsigned selector)
+{
+	struct qcom_rpm_reg *vreg = rdev_get_drvdata(rdev);
+	const struct rpm_reg_parts *parts = vreg->parts;
+	const struct request_member *req = &parts->uV;
+	int ret = 0;
+	int uV;
+
+	if (req->mask == 0)
+		return -EINVAL;
+
+	uV = regulator_list_voltage_linear_range(rdev, selector);
+	if (uV < 0)
+		return uV;
+
+	printk("SETTING UV=%u %u\n", uV, vreg->is_enabled);
+
+	mutex_lock(&vreg->lock);
+	//if (vreg->is_enabled)
+		ret = rpm_reg_write(vreg, req, uV);
+
+	if (!ret)
+		vreg->uV = uV;
+	mutex_unlock(&vreg->lock);
+
+	return ret;
+}
+
+static int rpm_reg_corner_enable(struct regulator_dev *rdev)
+{
+	return 0;
+}
+
+static int rpm_reg_corner_disable(struct regulator_dev *rdev)
+{
+	return 0;
+}
+
+static int rpm_corner_is_enabled(struct regulator_dev *rdev)
+{
+	return 1;
+}
+
+static struct regulator_ops corner_ops = {
+	.list_voltage = regulator_list_voltage_linear_range,
+
+	.set_voltage_sel = rpm_reg_set_corner_sel,
+	.get_voltage = rpm_reg_get_voltage,
+
+	.enable = rpm_reg_corner_enable,
+	.disable = rpm_reg_corner_disable,
+	.is_enabled = rpm_corner_is_enabled,
+};
+
 /*
  * PM8018 regulators
  */
@@ -635,6 +699,14 @@ static const struct qcom_rpm_reg pm8921_switch = {
 	.parts = &rpm8960_switch_parts,
 };
 
+static const struct qcom_rpm_reg pm8038_corner = {
+	.desc.linear_ranges = corner_ranges,
+	.desc.n_linear_ranges = ARRAY_SIZE(corner_ranges),
+	.desc.n_voltages = 4,
+	.desc.ops = &corner_ops,
+	.parts = &rpm8930_corner_parts,
+};
+
 static const struct qcom_rpm_reg smb208_smps = {
 	.desc.linear_ranges = smb208_ranges,
 	.desc.n_linear_ranges = ARRAY_SIZE(smb208_ranges),
@@ -819,6 +891,54 @@ static const struct rpm_regulator_data rpm_pm8018_regulators[] = {
 	{ }
 };
 
+static const struct rpm_regulator_data rpm_pm8038_regulators[] = {
+	{ "l1",   QCOM_RPM_PM8038_LDO1,   &pm8921_nldo1200, "vdd_l1" },
+	{ "l2",   QCOM_RPM_PM8038_LDO2,   &pm8921_nldo, "vdd_l2_l20" },
+	{ "l3",   QCOM_RPM_PM8038_LDO3,   &pm8921_pldo, "vdd_l3_l9_l15_l17_l22" },
+	{ "l4",   QCOM_RPM_PM8038_LDO4,   &pm8921_pldo, "vdd_l4_l13_l14_l18_l25" },
+	{ "l5",   QCOM_RPM_PM8038_LDO5,   &pm8921_pldo, "vdd_l5_l6" },
+	{ "l6",   QCOM_RPM_PM8038_LDO6,   &pm8921_pldo, "vdd_l5_l6" },
+	{ "l7",   QCOM_RPM_PM8038_LDO7,   &pm8921_pldo, "vdd_l7_l11_l21_l23" },
+	{ "l8",   QCOM_RPM_PM8038_LDO8,   &pm8921_pldo, "vdd_l8" },
+	{ "l9",   QCOM_RPM_PM8038_LDO9,   &pm8921_pldo, "vdd_l3_l9_l15_l17_l22" },
+	{ "l10",  QCOM_RPM_PM8038_LDO10,  &pm8921_pldo, "vdd_l10" },
+	{ "l11",  QCOM_RPM_PM8038_LDO11,  &pm8921_pldo, "vdd_l7_l11_l21_l23" },
+	{ "l12",  QCOM_RPM_PM8038_LDO12,  &pm8921_nldo, "vdd_l12_l24_l26" },
+	// { "l13",  QCOM_RPM_PM8038_LDO13,  &pm8921_lldo, "vdd_l4_l13_l14_l18_l25" },
+	{ "l14",  QCOM_RPM_PM8038_LDO14,  &pm8921_pldo, "vdd_l4_l13_l14_l18_l25" },
+	{ "l15",  QCOM_RPM_PM8038_LDO15,  &pm8921_pldo, "vdd_l3_l9_l15_l17_l22" },
+	{ "l16",  QCOM_RPM_PM8038_LDO16,  &pm8921_nldo1200, "vdd_l16_l19" },
+	{ "l17",  QCOM_RPM_PM8038_LDO17,  &pm8921_pldo, "vdd_l3_l9_l15_l17_l22" },
+	{ "l18",  QCOM_RPM_PM8038_LDO18,  &pm8921_pldo, "vdd_l4_l13_l14_l18_l25" },
+	{ "l19",  QCOM_RPM_PM8038_LDO19,  &pm8921_nldo1200, "vdd_l16_l19" },
+	{ "l20",  QCOM_RPM_PM8038_LDO20,  &pm8921_nldo1200, "vdd_l2_l20" },
+	{ "l21",  QCOM_RPM_PM8038_LDO21,  &pm8921_pldo, "vdd_l7_l11_l21_l23" },
+	{ "l22",  QCOM_RPM_PM8038_LDO22,  &pm8921_pldo, "vdd_l3_l9_l15_l17_l22" },
+	{ "l23",  QCOM_RPM_PM8038_LDO23,  &pm8921_pldo, "vdd_l7_l11_l21_l23" },
+	{ "l24",  QCOM_RPM_PM8038_LDO24,  &pm8921_nldo1200, "vdd_l12_l24_l26" },
+	// { "l25",  QCOM_RPM_PM8038_LDO25,  &pm8921_lldo, "vdd_l4_l13_l14_l18_l25" },
+	{ "l26",  QCOM_RPM_PM8038_LDO26,  &pm8921_nldo, "vdd_l12_l24_l26" },
+	{ "l27",  QCOM_RPM_PM8038_LDO27,  &pm8921_nldo1200, "vdd_l27" },
+
+	{ "s1",   QCOM_RPM_PM8038_SMPS1,  &pm8921_smps, "vdd_s1" },
+	{ "s2",   QCOM_RPM_PM8038_SMPS2,  &pm8921_smps, "vdd_s2" },
+	{ "s3",   QCOM_RPM_PM8038_SMPS3,  &pm8921_smps, "vdd_s3" },
+	{ "s4",   QCOM_RPM_PM8038_SMPS4,  &pm8921_smps, "vdd_s4" },
+	{ "s5",   QCOM_RPM_PM8038_SMPS5,  &pm8921_ftsmps, "vdd_s5" },
+	{ "s6",   QCOM_RPM_PM8038_SMPS6,  &pm8921_ftsmps, "vdd_s6" },
+
+	{ "lvs1", QCOM_RPM_PM8038_LVS1, &pm8921_switch, "vin_lvs" },
+	{ "lvs2", QCOM_RPM_PM8038_LVS2, &pm8921_switch, "vin_lvs" },
+
+	{ "corner", QCOM_RPM_VOLTAGE_CORNER, &pm8038_corner, "vdd_corner"},
+
+	// VDD_DIG_CORNER
+	//{ "ncp",  QCOM_RPM_PM8058_NCP, &pm8058_ncp, "vdd_ncp" },
+
+	{ "usb-switch", QCOM_RPM_USB_OTG_SWITCH, &pm8921_switch, "vin_5vs" },
+	{ }
+};
+
 static const struct rpm_regulator_data rpm_pm8058_regulators[] = {
 	{ "l0",   QCOM_RPM_PM8058_LDO0,   &pm8058_nldo, "vdd_l0_l1_lvs"	},
 	{ "l1",   QCOM_RPM_PM8058_LDO1,   &pm8058_nldo, "vdd_l0_l1_lvs" },
@@ -934,8 +1054,8 @@ static const struct rpm_regulator_data rpm_pm8921_regulators[] = {
 };
 
 static const struct of_device_id rpm_of_match[] = {
-	{ .compatible = "qcom,rpm-pm8018-regulators",
-		.data = &rpm_pm8018_regulators },
+	{ .compatible = "qcom,rpm-pm8018-regulators", .data = &rpm_pm8018_regulators },
+	{ .compatible = "qcom,rpm-pm8038-regulators", .data = &rpm_pm8038_regulators },
 	{ .compatible = "qcom,rpm-pm8058-regulators", .data = &rpm_pm8058_regulators },
 	{ .compatible = "qcom,rpm-pm8901-regulators", .data = &rpm_pm8901_regulators },
 	{ .compatible = "qcom,rpm-pm8921-regulators", .data = &rpm_pm8921_regulators },
