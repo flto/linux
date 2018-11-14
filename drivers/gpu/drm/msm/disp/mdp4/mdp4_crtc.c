@@ -608,7 +608,7 @@ void mdp4_crtc_wait_for_commit_done(struct drm_crtc *crtc)
 	 * Later we will have command mode CRTC to wait for
 	 * other event.
 	 */
-	mdp4_crtc_wait_for_flush_done(crtc);
+	//mdp4_crtc_wait_for_flush_done(crtc);
 }
 
 static const char *dma_names[] = {

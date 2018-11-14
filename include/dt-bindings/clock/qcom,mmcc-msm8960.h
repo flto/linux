@@ -133,5 +133,8 @@
 #define VCAP_CLK					124
 #define VCAP_NPL_CLK					125
 #define PLL15						126
+#define MDP_PIXEL_SRC					127
+#define MDP_PIXEL_CLK					128
+#define MDP_LCDC_CLK					129
 
 #endif

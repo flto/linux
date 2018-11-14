@@ -1335,6 +1335,87 @@ static struct clk_branch mdp_vsync_clk = {
 	},
 };
 
+#if 0
+.b = {
+	.reset_reg = SW_RESET_CORE_REG,
+	.reset_mask = BIT(5),
+	.retain_reg = PIXEL_CC_REG,
+	.retain_mask = BIT(31),
+},
+.ns_mask = (BM(31, 16) | BM(15, 14) | BM(2, 0)),
+.ctl_mask = BM(7, 6),
+#endif
+
+static struct freq_tbl clk_tbl_mdp_pixel[] = {
+	{  76800000, P_PLL8, 1, 1,  5 },
+	{  96000000, P_PLL8, 1, 1,  4 },
+	{ }
+};
+
+static struct clk_rcg mdp_pixel_src = {
+	.ns_reg = 0x00dc,
+	.md_reg = 0x00d8,
+	.mn = {
+		.mnctr_en_bit = 5,
+		.mnctr_reset_bit = 7,
+		.mnctr_mode_shift = 6,
+		.n_val_shift = 16,
+		.m_val_shift = 8,
+		.width = 16,
+	},
+	.p = {
+		.pre_div_shift = 14,
+		.pre_div_width = 2,
+	},
+	.s = {
+		.src_sel_shift = 0,
+		.parent_map = mmcc_pxo_pll8_pll2_map,
+	},
+	.freq_tbl = clk_tbl_mdp_pixel,
+	.clkr = {
+		.enable_reg = 0x00d4,
+		.enable_mask = BIT(2),
+		.hw.init = &(struct clk_init_data){
+			.name = "mdp_pixel_src",
+			.parent_names = mmcc_pxo_pll8_pll2,
+			.num_parents = 3,
+			.ops = &clk_rcg_ops,
+		},
+	},
+};
+
+static struct clk_branch mdp_pixel_clk = {
+	.halt_reg = 0x01d0,
+	.halt_bit = 23,
+	.clkr = {
+		.enable_reg = 0x00d4,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "mdp_pixel_clk",
+			.parent_names = (const char *[]){ "mdp_pixel_src" },
+			.num_parents = 1,
+			.ops = &clk_branch_ops,
+			.flags = CLK_SET_RATE_PARENT,
+		},
+	},
+};
+
+static struct clk_branch mdp_lcdc_clk = {
+	.halt_reg = 0x01d0,
+	.halt_bit = 21,
+	.clkr = {
+		.enable_reg = 0x00d4,
+		.enable_mask = BIT(8),
+		.hw.init = &(struct clk_init_data){
+			.name = "mdp_lcdc_clk",
+			.parent_names = (const char *[]){ "mdp_pixel_clk" },
+			.num_parents = 1,
+			.ops = &clk_branch_ops,
+			.flags = CLK_SET_RATE_PARENT,
+		},
+	},
+};
+
 static struct freq_tbl clk_tbl_rot[] = {
 	{  27000000, P_PXO,   1 },
 	{  29540000, P_PLL8, 13 },
@@ -2980,6 +3061,31 @@ static const struct qcom_reset_map mmcc_apq8064_resets[] = {
 	[CSI_RDI2_RESET] = { 0x0214 },
 };
 
+static struct clk_regmap *mmcc_msm8660_clks[] = {
+	[MDP_AHB_CLK] = &mdp_ahb_clk.clkr,
+	[MDP_AXI_CLK] = &mdp_axi_clk.clkr,
+	[MDP_SRC] = &mdp_src.clkr,
+	[MDP_CLK] = &mdp_clk.clkr,
+	[HDMI_TV_CLK] = &hdmi_tv_clk.clkr,
+	[MDP_TV_CLK] = &mdp_tv_clk.clkr,
+
+	[MMSS_IMEM_AHB_CLK] = &mmss_imem_ahb_clk.clkr,
+	[MMSS_IMEM_AXI_CLK] = &mmss_imem_axi_clk.clkr,
+	[GMEM_AXI_CLK] = &gmem_axi_clk.clkr,
+	[GFX3D_AHB_CLK] = &gfx3d_ahb_clk.clkr,
+	[GFX3D_SRC] = &gfx3d_src.clkr,
+	[GFX3D_CLK] = &gfx3d_clk.clkr,
+
+	[PLL2] = &pll2.clkr,
+
+	[MDP_PIXEL_SRC] = &mdp_pixel_src.clkr,
+	[MDP_PIXEL_CLK] = &mdp_pixel_clk.clkr,
+	[MDP_LCDC_CLK] = &mdp_lcdc_clk.clkr,
+};
+
+static const struct qcom_reset_map mmcc_msm8660_resets[] = {
+};
+
 static const struct regmap_config mmcc_msm8960_regmap_config = {
 	.reg_bits	= 32,
 	.reg_stride	= 4,
@@ -3012,9 +3118,18 @@ static const struct qcom_cc_desc mmcc_apq8064_desc = {
 	.num_resets = ARRAY_SIZE(mmcc_apq8064_resets),
 };
 
+static const struct qcom_cc_desc mmcc_msm8660_desc = {
+	.config = &mmcc_apq8064_regmap_config,
+	.clks = mmcc_msm8660_clks,
+	.num_clks = ARRAY_SIZE(mmcc_msm8660_clks),
+	.resets = mmcc_msm8660_resets,
+	.num_resets = ARRAY_SIZE(mmcc_msm8660_resets),
+};
+
 static const struct of_device_id mmcc_msm8960_match_table[] = {
 	{ .compatible = "qcom,mmcc-msm8960", .data = &mmcc_msm8960_desc },
 	{ .compatible = "qcom,mmcc-apq8064", .data = &mmcc_apq8064_desc },
+	{ .compatible = "qcom,mmcc-msm8660", .data = &mmcc_msm8660_desc },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, mmcc_msm8960_match_table);
@@ -3044,7 +3159,9 @@ static int mmcc_msm8960_probe(struct platform_device *pdev)
 
 	clk_pll_configure_sr(&pll15, regmap, &pll15_config, false);
 
-	return qcom_cc_really_probe(pdev, match->data, regmap);
+	int ret = qcom_cc_really_probe(pdev, match->data, regmap);
+	clk_pll_ops.enable(&pll2.clkr.hw);
+	return ret;
 }
 
 static struct platform_driver mmcc_msm8960_driver = {

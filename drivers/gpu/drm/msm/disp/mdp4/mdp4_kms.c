@@ -569,7 +569,7 @@ static struct mdp4_platform_config *mdp4_get_config(struct platform_device *dev)
 	static struct mdp4_platform_config config = {};
 
 	/* TODO: Chips that aren't apq8064 have a 200 Mhz max_clk */
-	config.max_clk = 266667000;
+	config.max_clk = 128000000;
 	config.iommu = iommu_domain_alloc(&platform_bus_type);
 
 	return &config;
