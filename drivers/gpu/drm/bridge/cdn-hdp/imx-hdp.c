@@ -28,6 +28,7 @@ struct imx_hdp *g_hdp;
 struct drm_display_mode *g_mode;
 
 static const struct drm_display_mode edid_cea_modes[] = {
+#if 0
 	/* 3 - 720x480@60Hz */
 	{ DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 27000, 720, 736,
 		   798, 858, 0, 480, 489, 495, 525, 0,
@@ -38,11 +39,13 @@ static const struct drm_display_mode edid_cea_modes[] = {
 		   1430, 1650, 0, 720, 725, 730, 750, 0,
 		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
 	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
+#endif
 	/* 16 - 1920x1080@60Hz */
 	{ DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2008,
 		   2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
 		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
 	  .vrefresh = 60, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
+#if 0
 	/* 97 - 3840x2160@60Hz */
 	{ DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000,
 		   3840, 4016, 4104, 4400, 0,
@@ -55,6 +58,7 @@ static const struct drm_display_mode edid_cea_modes[] = {
 		   2160, 2168, 2178, 2250, 0,
 		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
 	  .vrefresh = 30, .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9, },
+#endif
 };
 
 static inline struct imx_hdp *enc_to_imx_hdp(struct drm_encoder *e)
@@ -467,7 +471,7 @@ static struct hdp_ops imx8mq_ops = {
 };
 
 static struct hdp_devtype imx8mq_hdmi_devtype = {
-	.is_edid = true,
+	.is_edid = false,
 	.is_4kp60 = true,
 	.audio_type = CDN_HDMITX_KIRAN,
 	.ops = &imx8mq_ops,
