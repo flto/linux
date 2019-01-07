@@ -7,6 +7,7 @@
 #define _DP_PARSER_H_
 
 #include "dpu_io_util.h"
+#include "pll/dp_pll.h"
 
 #define DP_LABEL "MDSS DP DISPLAY"
 #define AUX_CFG_LEN	10
@@ -166,6 +167,8 @@ struct dp_parser {
 	struct dp_pinctrl pinctrl;
 	struct dp_io io;
 	struct dp_display_data disp_data;
+	struct msm_dp_pll *pll;
+	struct device *pll_dev;
 
 	u8 l_map[4];
 	struct dp_aux_cfg aux_cfg[AUX_CFG_LEN];

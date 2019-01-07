@@ -65,6 +65,21 @@ config DRM_MSM_DP
 	  display support is enabled through this config option. It can
 	  be primary or secondary display on device.
 
+config DRM_MSM_DP_PLL
+	bool "Enable DP PLL driver in MSM DRM"
+	depends on DRM_MSM_DP && COMMON_CLK
+	default y
+	help
+	  Choose this option to enable DP PLL driver which provides DP
+	  source clocks under common clock framework.
+
+config DRM_MSM_DP_10NM_PLL
+	bool "Enable DP 10nm PLL driver in MSM DRM (used by SDM845)"
+	depends on DRM_MSM_DP
+	default y
+	help
+	  Choose this option if DP PLL on SDM845 is used on the platform.
+
 config DRM_MSM_DSI
 	bool "Enable DSI support in MSM DRM driver"
 	depends on DRM_MSM

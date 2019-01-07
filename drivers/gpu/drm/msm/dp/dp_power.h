@@ -14,6 +14,7 @@
  * @init: initializes the regulators/core clocks/GPIOs/pinctrl
  * @deinit: turns off the regulators/core clocks/GPIOs/pinctrl
  * @clk_enable: enable/disable the DP clocks
+ * @set_link_clk_parent: set the parent of DP link clock
  * @set_pixel_clk_parent: set the parent of DP pixel clock
  */
 struct dp_power {
