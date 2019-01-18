@@ -1975,7 +1975,7 @@ struct rproc *rproc_alloc(struct device *dev, const char *name,
 	rproc->firmware = p;
 	rproc->name = name;
 	rproc->priv = &rproc[1];
-	rproc->auto_boot = true;
+	rproc->auto_boot = false;
 
 	device_initialize(&rproc->dev);
 	rproc->dev.parent = dev;
