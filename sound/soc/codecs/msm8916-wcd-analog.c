@@ -226,6 +226,13 @@
 #define RX_EAR_CTL_SPK_VBAT_LDO_EN_MASK		BIT(0)
 #define RX_EAR_CTL_SPK_VBAT_LDO_EN_ENABLE	BIT(0)
 
+
+#define RX_EAR_CTL_PA_GAIN BIT(5)
+//PRE_PMU: set BIT(7)
+//POST_PMU: set BIT(6)
+//POST_PMD: unset BIT(6)
+
+
 #define CDC_A_SPKR_DAC_CTL		(0xf1B0)
 #define SPKR_DAC_CTL_DAC_RESET_MASK	BIT(4)
 #define SPKR_DAC_CTL_DAC_RESET_NORMAL	0
@@ -258,6 +265,7 @@
 
 #define CDC_A_SPKR_DRV_DBG		(0xf1B7)
 #define CDC_A_CURRENT_LIMIT		(0xf1C0)
+#define CDC_A_BYPASS_MODE		(0xf1C2)
 #define CDC_A_BOOST_EN_CTL		(0xf1C3)
 #define CDC_A_SLOPE_COMP_IP_ZERO	(0xf1C4)
 #define CDC_A_SEC_ACCESS		(0xf1D0)
@@ -682,6 +690,44 @@ static int pm8916_wcd_analog_enable_spk_pa(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static const char * const ear_text[] = {
+	"ZERO", "Switch",
+};
+
+static const struct soc_enum ear_enum =
+	SOC_ENUM_SINGLE(SND_SOC_NOPM, 0, ARRAY_SIZE(ear_text), ear_text);
+
+static const struct snd_kcontrol_new ear_pa_mux[] = {
+	SOC_DAPM_ENUM("EAR_S", ear_enum)
+};
+
+static int pm8916_wcd_analog_enable_ear_pa(struct snd_soc_dapm_widget *w,
+					    struct snd_kcontrol *kcontrol,
+					    int event)
+{
+	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		snd_soc_component_update_bits(component, CDC_A_RX_EAR_CTL, BIT(7), BIT(7));
+		// XXX TODO
+		break;
+	case SND_SOC_DAPM_POST_PMU:
+		snd_soc_component_update_bits(component, CDC_A_RX_EAR_CTL, BIT(6), BIT(6));
+		//usleep_range(7000, 7100);
+		//snd_soc_component_update_bits(component, LPASS_CDC_RX1_B6_CTL, BIT(0), 0);
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		//snd_soc_component_update_bits(component, LPASS_CDC_RX1_B6_CTL, BIT(0), 1);
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		snd_soc_component_update_bits(component, CDC_A_RX_EAR_CTL, BIT(6), 0);
+		// XXX TODO
+		break;
+	}
+	return 0;
+}
+
 static const struct reg_default wcd_reg_defaults_2_0[] = {
 	{CDC_A_RX_COM_OCP_CTL, 0xD1},
 	{CDC_A_RX_COM_OCP_COUNT, 0xFF},
@@ -699,6 +745,12 @@ static const struct reg_default wcd_reg_defaults_2_0[] = {
 	{CDC_A_SPKR_DAC_CTL, 0x03},
 	{CDC_A_SPKR_OCP_CTL, 0xE1},
 	{CDC_A_MASTER_BIAS_CTL, 0x30},
+
+#if 0
+	{CDC_A_PERPH_RESET_CTL3, 0x07},
+	{CDC_A_BYPASS_MODE, 0xC2},
+	{CDC_A_BOOST_EN_CTL, 0xDF},
+#endif
 };
 
 static int pm8916_wcd_analog_probe(struct snd_soc_component *component)
@@ -832,6 +884,14 @@ static const struct snd_soc_dapm_route pm8916_wcd_analog_audio_map[] = {
 	{"MIC BIAS Internal2", NULL, "vdd-micbias"},
 	{"MIC BIAS External1", NULL, "vdd-micbias"},
 	{"MIC BIAS External2", NULL, "vdd-micbias"},
+
+	/* Earpiece (RX MIX1) */
+	{"EAR", NULL, "EAR_S"},
+	{"EAR_S", "Switch", "EAR PA"},
+	{"EAR PA", NULL, "RX_BIAS"},
+	{"EAR PA", NULL, "HPHL DAC"},
+	{"EAR PA", NULL, "HPHR DAC"},
+	{"EAR PA", NULL, "EAR CP"},
 };
 
 static const struct snd_soc_dapm_widget pm8916_wcd_analog_dapm_widgets[] = {
@@ -932,6 +992,16 @@ static const struct snd_soc_dapm_widget pm8916_wcd_analog_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("A_MCLK", CDC_D_CDC_TOP_CLK_CTL, 2, 0, NULL, 0),
 	/* TX ADC and RX DAC Clock source. */
 	SND_SOC_DAPM_SUPPLY("A_MCLK2", CDC_D_CDC_TOP_CLK_CTL, 3, 0, NULL, 0),
+
+	/* EAR PA */
+	SND_SOC_DAPM_OUTPUT("EAR"),
+	SND_SOC_DAPM_PGA_E("EAR PA", SND_SOC_NOPM,
+			   0, 0, NULL, 0,
+			   pm8916_wcd_analog_enable_ear_pa,
+			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_MUX("EAR_S", SND_SOC_NOPM, 0, 0, ear_pa_mux),
+	SND_SOC_DAPM_SUPPLY("EAR CP", CDC_A_NCP_EN, 4, 0, NULL, 0)
 };
 
 static int pm8916_wcd_analog_set_jack(struct snd_soc_component *component,
