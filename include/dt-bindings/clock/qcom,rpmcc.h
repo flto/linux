@@ -127,5 +127,7 @@
 #define RPM_SMD_BIMC_GPU_A_CLK			77
 #define RPM_SMD_QPIC_CLK			78
 #define RPM_SMD_QPIC_CLK_A			79
+#define RPM_SMD_SYSMMNOC_CLK			80
+#define RPM_SMD_SYSMMNOC_A_CLK			81
 
 #endif
