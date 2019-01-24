@@ -1359,6 +1359,10 @@ static int msm_pdev_probe(struct platform_device *pdev)
 	struct component_match *match = NULL;
 	int ret;
 
+	static int xx;
+	if (++xx < 5)
+		return -EPROBE_DEFER;
+
 	if (get_mdp_ver(pdev)) {
 		ret = add_display_components(&pdev->dev, &match);
 		if (ret)

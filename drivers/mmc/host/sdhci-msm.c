@@ -944,8 +944,9 @@ static int sdhci_msm_cm_dll_sdc4_calibration(struct sdhci_host *host)
 	 * bootloaders. In the future, if this changes, then the desired
 	 * values will need to be programmed appropriately.
 	 */
-	writel_relaxed(DDR_CONFIG_POR_VAL, host->ioaddr +
-			msm_offset->core_ddr_config);
+#define DDR_CONFIG_2_POR_VAL		0x80040873
+	writel_relaxed(DDR_CONFIG_2_POR_VAL, host->ioaddr +
+			msm_offset->core_ddr_config_2);
 
 	if (mmc->ios.enhanced_strobe) {
 		config = readl_relaxed(host->ioaddr +

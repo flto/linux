@@ -124,7 +124,7 @@ static int usb_extcon_probe(struct platform_device *pdev)
 
 	if (!info->id_gpiod && !info->vbus_gpiod) {
 		dev_err(dev, "failed to get gpios\n");
-		return -ENODEV;
+		//return -ENODEV;
 	}
 
 	if (IS_ERR(info->id_gpiod))

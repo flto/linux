@@ -23,6 +23,8 @@
 
 #include "rpmsg_internal.h"
 
+#define dev_dbg dev_warn
+
 /*
  * The Qualcomm Shared Memory communication solution provides point-to-point
  * channels for clients to send and receive streaming or packet based data.
