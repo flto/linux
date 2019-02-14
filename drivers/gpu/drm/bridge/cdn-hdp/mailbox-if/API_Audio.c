@@ -46,7 +46,6 @@
 #include "address.h"
 #include "aif_pckt2smp.h"
 #include "API_Audio.h"
-#include "API_HDMI_Audio.h"
 #include "API_DPTX.h"
 #include "API_General.h"
 #include "clock_meters.h"
@@ -108,7 +107,7 @@ CDN_API_STATUS CDN_API_AudioConfigCore(state_struct *state,
 		cdn_apb_write(state,
 			      ADDR_SOURCE_AIF_SMPL2PCKT + (SMPL2PKT_CNFG << 2),
 			      F_MAX_NUM_CH(numOfChannels - 1) |
-			      F_NUM_OF_I2S_PORTS((numOfChannels / 2) - 1) |
+			      F_NUM_OF_I2S_PORTS_S((numOfChannels / 2) - 1) |
 				  (1 << 8) | (lanesParam << 11));
 
 		if (numOfChannels == 2)
@@ -321,16 +320,6 @@ CDN_API_STATUS CDN_API_AudioAutoConfig(state_struct *state,
 		    CDN_API_AudioConfigCore(state, audioType, numOfChannels,
 					    freq, lanes, width);
 		break;
-	case 8:
-		if ((protocol == CDN_HDMITX_TYPHOON)
-		    || (protocol == CDN_HDMITX_KIRAN)) {
-			CDN_API_HDMI_AudioSetInfoFrame(state, mode, audioType,
-						       numOfChannels, freq,
-						       lanes, ncts);
-		}
-		ret = CDN_OK;
-		break;
-
 	}
 	if (!state->tmp && ret == CDN_STARTED)
 		return CDN_STARTED;
@@ -344,7 +333,7 @@ CDN_API_STATUS CDN_API_AudioAutoConfig(state_struct *state,
 	default:
 		return ret;
 	}
-	if (state->tmp == 9) {
+	if (state->tmp == 8) {
 		state->tmp = 0;
 		return CDN_OK;
 	}

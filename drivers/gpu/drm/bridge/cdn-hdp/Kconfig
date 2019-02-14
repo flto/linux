@@ -1,5 +1,8 @@
 config DRM_IMX_HDP
 	tristate "IMX8 HD Display Controller"
-	depends on DRM
+	select DRM_IMX
+	select DRM_KMS_HELPER
+	select VIDEOMODE_HELPERS
+	select DRM_PANEL
 	help
 	  Choose this if you want to use DP/HDMI on i.MX8.

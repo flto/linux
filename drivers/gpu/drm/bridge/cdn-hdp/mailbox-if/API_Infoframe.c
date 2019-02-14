@@ -53,9 +53,10 @@
 
 static CDN_API_STATUS infoframeSet(state_struct *state, u8 entry_id,
 				   u8 packet_len,
-				   u32 *packet, u8 packet_type, u8 active_idle)
+				   u8 *packet, u8 packet_type, u8 active_idle)
 {
 	u32 idx;
+	u32 *packet32, len;
 	u32 activeIdleBit = (0 == active_idle) ? 0 : 0x20000;
 
 	/* invalidate entry */
@@ -78,11 +79,13 @@ static CDN_API_STATUS infoframeSet(state_struct *state, u8 entry_id,
 		return CDN_ERR;
 
 	/* write packet into memory */
-	for (idx = 0; idx < packet_len; idx++)
+	packet32 = (u32 *)packet;
+	len = packet_len / 4;
+	for (idx = 0; idx < len; idx++)
 		if (cdn_apb_write
 		    (state,
 		     BANK_OFFSET | ADDR_SOURCE_PIF | (SOURCE_PIF_DATA_WR << 2),
-		     F_DATA_WR(packet[idx])))
+		     F_DATA_WR(packet32[idx])))
 			return CDN_ERR;
 
 	/* write entry id */
@@ -114,7 +117,7 @@ static CDN_API_STATUS infoframeSet(state_struct *state, u8 entry_id,
 }
 
 CDN_API_STATUS CDN_API_InfoframeSet(state_struct *state, u8 entry_id,
-				    u8 packet_len, u32 *packet, u8 packet_type)
+				    u8 packet_len, u8 *packet, u8 packet_type)
 {
 	return infoframeSet(state, entry_id, packet_len, packet, packet_type,
 			    1);
@@ -122,7 +125,7 @@ CDN_API_STATUS CDN_API_InfoframeSet(state_struct *state, u8 entry_id,
 
 CDN_API_STATUS CDN_API_InfoframeSetNoActiveIdle(state_struct *state,
 						u8 entry_id, u8 packet_len,
-						u32 *packet, u8 packet_type)
+						u8 *packet, u8 packet_type)
 {
 	return infoframeSet(state, entry_id, packet_len, packet, packet_type,
 			    0);
@@ -135,6 +138,23 @@ CDN_API_STATUS CDN_API_InfoframeRemove(state_struct *state, u8 entry_id)
 	    (state,
 	     BANK_OFFSET | ADDR_SOURCE_PIF | (SOURCE_PIF_PKT_ALLOC_REG << 2),
 	     0x20000 | F_PKT_ALLOC_ADDRESS(entry_id)))
+		return CDN_ERR;
+	if (cdn_apb_write
+	    (state,
+	     BANK_OFFSET | ADDR_SOURCE_PIF | (SOURCE_PIF_PKT_ALLOC_WR_EN << 2),
+	     F_PKT_ALLOC_WR_EN(1)))
+		return CDN_ERR;
+
+	return CDN_OK;
+}
+
+CDN_API_STATUS CDN_API_InfoframeRemovePacket(state_struct *state, u8 entry_id, u8 packet_type)
+{
+	/* invalidate entry */
+	if (cdn_apb_write
+	    (state,
+	     BANK_OFFSET | ADDR_SOURCE_PIF | (SOURCE_PIF_PKT_ALLOC_REG << 2),
+	     0x20000 | F_PKT_ALLOC_ADDRESS(entry_id) |  F_PACKET_TYPE(packet_type)))
 		return CDN_ERR;
 	if (cdn_apb_write
 	    (state,

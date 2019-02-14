@@ -35,7 +35,7 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
- * Copyright 2017 NXP
+ * Copyright 2017-2018 NXP
  *
  ******************************************************************************
  *
@@ -49,8 +49,7 @@
 #include "apb_cfg.h"
 #include "opcodes.h"
 #include "general_handler.h"
-
-static u32 alive;
+#include "util.h"
 
 CDN_API_STATUS CDN_API_LoadFirmware(state_struct *state, u8 *iMem,
 				    int imemSize, u8 *dMem, int dmemSize)
@@ -242,14 +241,24 @@ CDN_API_STATUS CDN_API_Get_Debug_Reg_Val(state_struct *state, u16 *val)
 
 CDN_API_STATUS CDN_API_CheckAlive(state_struct *state)
 {
-	u32 newalive;
-	if (cdn_apb_read(state, KEEP_ALIVE << 2, &newalive))
+	u32  alive, newalive;
+	u8 retries_left = 10;
+
+	if (cdn_apb_read(state, KEEP_ALIVE << 2, &alive))
 		return CDN_ERR;
-	if (alive == newalive)
-		return CDN_BSY;
-	alive = newalive;
-	return CDN_OK;
+
+	while (retries_left--) {
+		udelay(1);
+
+		if (cdn_apb_read(state, KEEP_ALIVE << 2, &newalive))
+			return CDN_ERR;
+		if (alive == newalive)
+			continue;
+		return CDN_OK;
+	}
+	return CDN_BSY;
 }
+
 
 CDN_API_STATUS CDN_API_CheckAlive_blocking(state_struct *state)
 {
@@ -358,6 +367,11 @@ CDN_API_STATUS CDN_API_ApbConf_blocking(state_struct *state, u8 dpcd_bus_sel,
 CDN_API_STATUS CDN_API_SetClock(state_struct *state, u8 MHz)
 {
 	return cdn_apb_write(state, SW_CLK_H << 2, MHz);
+}
+
+CDN_API_STATUS CDN_API_GetClock(state_struct *state, u32 *MHz)
+{
+	return cdn_apb_read(state, SW_CLK_H << 2, MHz);
 }
 
 CDN_API_STATUS CDN_API_General_Read_Register(state_struct *state, u32 addr,
@@ -472,4 +486,33 @@ CDN_API_STATUS CDN_API_General_Phy_Test_Access_blocking(state_struct *state,
 							u8 *resp)
 {
 	internal_block_function(&state->mutex, CDN_API_General_Phy_Test_Access(state, resp));
+}
+
+CDN_API_STATUS CDN_API_General_GetHpdState(state_struct *state, u8 *hpd_state)
+{
+	CDN_API_STATUS ret;
+	*hpd_state = 0;
+
+	if (!state->running) {
+	    if (!internal_apb_available(state))
+			return CDN_BSY;
+		internal_tx_mkfullmsg(state, MB_MODULE_ID_GENERAL, GENERAL_GET_HPD_STATE, 0);
+		state->bus_type = CDN_BUS_TYPE_APB;
+		state->rxEnable = 1;
+		return CDN_STARTED;
+	}
+
+	internal_process_messages(state);
+	ret = internal_test_rx_head(state, MB_MODULE_ID_GENERAL, GENERAL_GET_HPD_STATE);
+	if (ret != CDN_OK)
+	    return ret;
+
+	internal_readmsg(state, 1, 1, hpd_state);
+
+	return CDN_OK;
+}
+
+CDN_API_STATUS CDN_API_General_GetHpdState_blocking(state_struct *state, u8 *hpd_state)
+{
+    internal_block_function(&state->mutex, CDN_API_General_GetHpdState(state, hpd_state));
 }

@@ -49,11 +49,11 @@
 #include <linux/io.h>
 
 static u32 const mhdp_iram0[] = {
-	0x00000000
+	0x00000000,
 };
 
 static u32 const mhdp_dram0[] = {
-	0x00000000
+	0x00000000,
 };
 
 u32 const *mhdp_iram0_get_ptr(void)

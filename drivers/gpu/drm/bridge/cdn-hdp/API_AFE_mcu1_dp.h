@@ -35,6 +35,8 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
+ * Copyright 2017-2018 NXP
+ *
  ******************************************************************************
  *
  * API_AFE_mcu1_dp.h
@@ -76,6 +78,7 @@
 #define CMN_DIAG_PLL0_PTATIS_TUNE2 0x01C9
 #define CMN_DIAG_PLL0_CP_TUNE 0x01C6
 #define CMN_DIAG_PER_CAL_ADJ 0x01EC
+#define CMN_DIAG_CAL_CTRL 0x01ED
 #define CMN_DIAG_PLL0_LF_PROG 0x01C7
 #define CMN_PLL0_VCOCAL_INIT_TMR 0x0084
 #define CMN_PLL0_VCOCAL_ITER_TMR 0x0085
@@ -125,7 +128,7 @@
 #define TX_DIAG_TX_DRV_1 0x43E1
 #define TX_DIAG_TX_DRV_2 0x45E1
 #define TX_DIAG_TX_DRV_3 0x47E1
-#define PHY_HDP_MODE CTRL 0xC008
+#define PHY_HDP_MODE_CTRL 0xC008
 #define TX_DIAG_ACYA_0 0x41ff
 #define TX_DIAG_ACYA_1 0x43ff
 #define TX_DIAG_ACYA_2 0x45ff
@@ -162,4 +165,4 @@
 #define PHY_HDP_TX_CTL_L2 0xC488
 #define PHY_HDP_TX_CTL_L3 0xC4C8
 
-#endif //API_AFE_MCU1_DP_H
+#endif /*API_AFE_MCU1_DP_H*/

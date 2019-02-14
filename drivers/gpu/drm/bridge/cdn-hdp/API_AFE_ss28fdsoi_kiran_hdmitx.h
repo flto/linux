@@ -35,30 +35,22 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
- * Copyright 2017 NXP
+ * Copyright 2017-2018 NXP
  *
  ******************************************************************************
  *
- * API_Infoframe.h
+ * API_AFE_ss28fdsoi_kiran_hdmitx.h
  *
  ******************************************************************************
  */
 
-#ifndef API_INFOFRAME_H
-#define API_INFOFRAME_H
+#ifndef API_AFE_SS28FDSOI_KIRAN_HDMITX_H_
+#define API_AFE_SS28FDSOI_KIRAN_HDMITX_H_
 
-#include "API_General.h"
-/**
- * \addtogroup INFO_FRAME_API
- * \{
- */
-CDN_API_STATUS CDN_API_InfoframeSet(state_struct *state, u8 entry_id,
-				    u8 packet_len, u8 *packet,
-				    u8 packet_type);
-CDN_API_STATUS CDN_API_InfoframeSetNoActiveIdle(state_struct *state,
-						u8 entry_id, u8 packet_len,
-						u8 *packet, u8 packet_type);
-CDN_API_STATUS CDN_API_InfoframeRemove(state_struct *state, u8 entry_id);
-CDN_API_STATUS CDN_API_InfoframeRemovePacket(state_struct *state, u8 entry_id, u8 packet_type);
+#include "../../../../mxc/hdp/all.h"
+
+int phy_cfg_hdp_ss28fdsoi(state_struct *state, int num_lanes,
+				struct drm_display_mode *mode, int bpp, VIC_PXL_ENCODING_FORMAT format);
+int hdmi_tx_kiran_power_configuration_seq(state_struct *state, int num_lanes);
 
 #endif

@@ -35,30 +35,46 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
- * Copyright 2017 NXP
+ * Copyright 2018 NXP
  *
  ******************************************************************************
  *
- * API_Infoframe.h
+ * API_HDMI_RX_Audio.h
  *
  ******************************************************************************
  */
 
-#ifndef API_INFOFRAME_H
-#define API_INFOFRAME_H
+#ifndef API_HDMI_RX_AUDIO_H_
+#define API_HDMI_RX_AUDIO_H_
 
 #include "API_General.h"
+
 /**
- * \addtogroup INFO_FRAME_API
+ * \addtogroup AUDIO_API
  * \{
  */
-CDN_API_STATUS CDN_API_InfoframeSet(state_struct *state, u8 entry_id,
-				    u8 packet_len, u8 *packet,
-				    u8 packet_type);
-CDN_API_STATUS CDN_API_InfoframeSetNoActiveIdle(state_struct *state,
-						u8 entry_id, u8 packet_len,
-						u8 *packet, u8 packet_type);
-CDN_API_STATUS CDN_API_InfoframeRemove(state_struct *state, u8 entry_id);
-CDN_API_STATUS CDN_API_InfoframeRemovePacket(state_struct *state, u8 entry_id, u8 packet_type);
+
+/**
+ * \brief start audio reception with the input parameters
+ */
+CDN_API_STATUS CDN_API_RX_AudioAutoConfig(
+		state_struct *state,
+		u8 max_ch_num,
+		u8 i2s_ports_num,
+		u8 dis_port3,
+		u8 enc_sample_width,
+		u8 i2s_sample_width);
+
+/**
+ * \brief blocking version of #CDN_API_RX_AudioAutoConfig
+ */
+CDN_API_STATUS CDN_API_RX_AudioAutoConfig_blocking(
+		state_struct *state,
+		u8 max_ch_num,
+		u8 i2s_ports_num,
+		u8 dis_port3,
+		u8 enc_sample_width,
+		u8 i2s_sample_width);
 
 #endif
+
