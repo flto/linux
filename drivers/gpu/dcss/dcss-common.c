@@ -38,6 +38,7 @@ struct dcss_devtype {
 	u32 dtrc_ofs;
 	u32 dec400d_ofs;
 	u32 hdr10_ofs;
+	u32 pll_base;
 };
 
 static struct dcss_devtype dcss_type_imx8m = {
@@ -53,6 +54,7 @@ static struct dcss_devtype dcss_type_imx8m = {
 	.dtrc_ofs = 0x16000,
 	.dec400d_ofs = 0x15000,
 	.hdr10_ofs = 0x00000,
+	.pll_base = 0x30360000,
 };
 
 enum dcss_color_space dcss_drm_fourcc_to_colorspace(u32 drm_fourcc)
@@ -256,7 +258,7 @@ static int dcss_clks_init(struct dcss_soc *dcss)
 		{"apb",   &dcss->apb_clk},
 		{"axi",   &dcss->axi_clk},
 		{"pixel", &dcss->p_clk},
-		{"rtrm",  &dcss->apb_clk},
+		{"rtrm",  &dcss->rtrm_clk},
 		{"dtrc",  &dcss->dtrc_clk},
 	};
 
@@ -272,6 +274,7 @@ static int dcss_clks_init(struct dcss_soc *dcss)
 		clk_prepare_enable(*clks[i].clk);
 	}
 
+	dcss_pll_enable(dcss);
 	dcss->clks_on = true;
 
 	return 0;
@@ -291,10 +294,12 @@ static void dcss_clocks_enable(struct dcss_soc *dcss, bool en)
 		clk_prepare_enable(dcss->rtrm_clk);
 		clk_prepare_enable(dcss->dtrc_clk);
 		clk_prepare_enable(dcss->p_clk);
+		dcss_pll_enable(dcss);
 	}
 
 	if (!en && dcss->clks_on) {
 		clk_disable_unprepare(dcss->p_clk);
+		dcss_pll_disable(dcss);
 		clk_disable_unprepare(dcss->dtrc_clk);
 		clk_disable_unprepare(dcss->rtrm_clk);
 		clk_disable_unprepare(dcss->apb_clk);
@@ -412,6 +417,12 @@ static int dcss_probe(struct platform_device *pdev)
 	dcss->devtype = devtype;
 
 	platform_set_drvdata(pdev, dcss);
+
+	ret = dcss_pll_init(dcss, dcss->devtype->pll_base);
+	if (ret) {
+		dev_err(&pdev->dev, "DCSS PLL initialization failed\n");
+		return ret;
+	}
 
 	ret = dcss_clks_init(dcss);
 	if (ret) {

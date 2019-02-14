@@ -116,7 +116,10 @@ int dcss_blkctl_init(struct dcss_soc *dcss, unsigned long blkctl_base)
 	if (!disp_dev || !strncmp(disp_dev, "hdmi_disp", 9))
 		blkctl->hdmi_output = true;
 
-	if (/*imx8_get_soc_revision() == B0_SILICON_ID*/ 1)
+	/* HACK: Downstream sets this based on SoC revision, but eDP only works
+	 * with this bit unset and HDMI doesn't seem to care...
+	 */
+	if (/*imx8_get_soc_revision() == B0_SILICON_ID*/ 0)
 		blkctl->clk_setting = HDMI_MIPI_CLK_SEL;
 
 	dcss_blkctl_cfg(dcss);

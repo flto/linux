@@ -45,6 +45,7 @@ struct dcss_soc {
 	struct dcss_scaler_priv *scaler_priv;
 	struct dcss_dtrc_priv *dtrc_priv;
 	struct dcss_dec400d_priv *dec400d_priv;
+	struct dcss_pll_priv *pll_priv;
 
 	struct clk *apb_clk;
 	struct clk *axi_clk;
@@ -115,4 +116,13 @@ void dcss_ss_dump_regs(struct seq_file *s, void *data);
 void dcss_scaler_dump_regs(struct seq_file *s, void *data);
 void dcss_ctxld_dump_regs(struct seq_file *s, void *data);
 void dcss_hdr10_dump_regs(struct seq_file *s, void *data);
+
+/* DCSS PLL */
+int dcss_pll_init(struct dcss_soc *dcss, unsigned long pll_base);
+void dcss_pll_exit(struct dcss_soc *dcss);
+int dcss_pll_set_rate(struct dcss_soc *dcss, u32 freq, u32 ref_clk,
+		      u32 *actual_freq);
+int dcss_pll_enable(struct dcss_soc *dcss);
+int dcss_pll_disable(struct dcss_soc *dcss);
+
 #endif /* __DCSS_PRV_H__ */
