@@ -56,6 +56,13 @@ static const u32 dcss_common_formats[] = {
 	DRM_FORMAT_NV21,
 };
 
+static const u64 dcss_graphics_format_modifiers[] = {
+	DRM_FORMAT_MOD_LINEAR,
+	DRM_FORMAT_MOD_VIVANTE_TILED,
+	DRM_FORMAT_MOD_VIVANTE_SUPER_TILED,
+	DRM_FORMAT_MOD_INVALID,
+};
+
 static inline struct dcss_plane *to_dcss_plane(struct drm_plane *p)
 {
 	return container_of(p, struct dcss_plane, base);
@@ -106,6 +113,30 @@ static int dcss_plane_atomic_get_property(struct drm_plane *plane,
 	return 0;
 }
 
+static bool dcss_plane_format_mod_supported(struct drm_plane *plane,
+					    uint32_t format, uint64_t modifier)
+{
+	/* linear is always supported */
+	if (modifier == DRM_FORMAT_MOD_LINEAR)
+		return true;
+
+	switch (plane->type) {
+	case DRM_PLANE_TYPE_PRIMARY:
+		switch (format) {
+		case DRM_FORMAT_ARGB8888:
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_ARGB2101010:
+			return modifier == DRM_FORMAT_MOD_VIVANTE_TILED ||
+			       modifier == DRM_FORMAT_MOD_VIVANTE_SUPER_TILED;
+		default:
+			return false;
+		}
+		break;
+	default:
+		return false;
+	}
+}
+
 static const struct drm_plane_funcs dcss_plane_funcs = {
 	.update_plane	= drm_atomic_helper_update_plane,
 	.disable_plane	= drm_atomic_helper_disable_plane,
@@ -115,6 +146,7 @@ static const struct drm_plane_funcs dcss_plane_funcs = {
 	.atomic_destroy_state	= drm_atomic_helper_plane_destroy_state,
 	.atomic_set_property = dcss_plane_atomic_set_property,
 	.atomic_get_property = dcss_plane_atomic_get_property,
+	.format_mod_supported = dcss_plane_format_mod_supported,
 };
 
 static int dcss_plane_atomic_check(struct drm_plane *plane,
@@ -201,7 +233,8 @@ static bool dcss_plane_needs_setup(struct drm_plane_state *state,
 	       state->src_y  != old_state->src_y  ||
 	       state->src_w  != old_state->src_w  ||
 	       state->src_h  != old_state->src_h  ||
-	       state->fb->format->format != old_state->fb->format->format;
+	       state->fb->format->format != old_state->fb->format->format ||
+	       state->fb->modifier != old_state->fb->modifier;
 }
 
 static void dcss_plane_atomic_update(struct drm_plane *plane,
@@ -228,6 +261,9 @@ static void dcss_plane_atomic_update(struct drm_plane *plane,
 			  state->src_w >> 16, state->src_h >> 16);
 
 	dcss_dpr_format_set(dcss_plane->dcss, dcss_plane->ch_num, pixel_format);
+	dcss_dpr_tile_derive(dcss_plane->dcss, dcss_plane->ch_num,
+			     state->fb->flags & DRM_MODE_FB_MODIFIERS ?
+			     state->fb->modifier : DRM_FORMAT_MOD_LINEAR);
 	dcss_dpr_set_res(dcss_plane->dcss, dcss_plane->ch_num,
 			 state->src_w >> 16, state->src_h >> 16);
 	dcss_plane_atomic_set_base(dcss_plane);
@@ -282,6 +318,7 @@ struct dcss_plane *dcss_plane_init(struct drm_device *drm,
 				   unsigned int zpos)
 {
 	struct dcss_plane *dcss_plane;
+	const u64 *modifiers = NULL;
 	int ret;
 
 	if (zpos > 2)
@@ -295,10 +332,13 @@ struct dcss_plane *dcss_plane_init(struct drm_device *drm,
 
 	dcss_plane->dcss = dcss;
 
+	if (type == DRM_PLANE_TYPE_PRIMARY)
+		modifiers = dcss_graphics_format_modifiers;
+
 	ret = drm_universal_plane_init(drm, &dcss_plane->base, possible_crtcs,
 				       &dcss_plane_funcs, dcss_common_formats,
-				       ARRAY_SIZE(dcss_common_formats), NULL,
-				       type, NULL);
+				       ARRAY_SIZE(dcss_common_formats),
+				       modifiers, type, NULL);
 	if (ret) {
 		DRM_ERROR("failed to initialize plane\n");
 		kfree(dcss_plane);

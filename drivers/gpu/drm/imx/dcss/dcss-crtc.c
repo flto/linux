@@ -130,14 +130,6 @@ static void dcss_crtc_atomic_begin(struct drm_crtc *crtc,
 				   struct drm_crtc_state *old_crtc_state)
 {
 	drm_crtc_vblank_on(crtc);
-
-	spin_lock_irq(&crtc->dev->event_lock);
-	if (crtc->state->event) {
-		WARN_ON(drm_crtc_vblank_get(crtc));
-		drm_crtc_arm_vblank_event(crtc, crtc->state->event);
-		crtc->state->event = NULL;
-	}
-	spin_unlock_irq(&crtc->dev->event_lock);
 }
 
 static void dcss_crtc_atomic_flush(struct drm_crtc *crtc,
@@ -149,6 +141,14 @@ static void dcss_crtc_atomic_flush(struct drm_crtc *crtc,
 
 	if (dcss_dtg_is_enabled(dcss))
 		dcss_ctxld_enable(dcss);
+
+	spin_lock_irq(&crtc->dev->event_lock);
+	if (crtc->state->event) {
+		WARN_ON(drm_crtc_vblank_get(crtc));
+		drm_crtc_arm_vblank_event(crtc, crtc->state->event);
+		crtc->state->event = NULL;
+	}
+	spin_unlock_irq(&crtc->dev->event_lock);
 }
 
 static void dcss_crtc_enable(struct drm_crtc *crtc,
@@ -219,7 +219,8 @@ static irqreturn_t dcss_crtc_irq_handler(int irq, void *dev_id)
 	struct dcss_crtc *dcss_crtc = dev_id;
 	struct dcss_soc *dcss = dev_get_drvdata(dcss_crtc->dev->parent);
 
-	drm_crtc_handle_vblank(&dcss_crtc->base);
+	if (dcss_ctxld_is_flushed(dcss))
+		drm_crtc_handle_vblank(&dcss_crtc->base);
 
 	dcss_vblank_irq_clear(dcss);
 
