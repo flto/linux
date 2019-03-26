@@ -226,8 +226,7 @@ void dcss_ctxld_hw_cfg(struct dcss_soc *dcss)
 	struct dcss_ctxld_priv *ctxld = dcss->ctxld_priv;
 
 	dcss_writel(RD_ERR_EN | DB_COMP_EN | SB_HP_COMP_EN | SB_LP_COMP_EN |
-		    DB_PEND_SB_REC_EN | SB_PEND_DISP_ACTIVE_EN | AHB_ERR_EN |
-		    RD_ERR | AHB_ERR,
+		    AHB_ERR_EN | RD_ERR | AHB_ERR,
 		    ctxld->ctxld_reg + DCSS_CTXLD_CONTROL_STATUS);
 }
 
@@ -413,6 +412,16 @@ void dcss_ctxld_write(struct dcss_soc *dcss, u32 ctx_id, u32 val, u32 reg_ofs)
 	ctxld->ctx_size[curr_ctx][ctx_id] += 1;
 	mutex_unlock(&ctxld->mutex);
 }
+
+bool dcss_ctxld_is_flushed(struct dcss_soc *dcss)
+{
+	struct dcss_ctxld_priv *ctxld = dcss->ctxld_priv;
+
+	return ctxld->ctx_size[ctxld->current_ctx][CTX_DB] == 0 &&
+		ctxld->ctx_size[ctxld->current_ctx][CTX_SB_HP] == 0 &&
+		ctxld->ctx_size[ctxld->current_ctx][CTX_SB_LP] == 0;
+}
+EXPORT_SYMBOL(dcss_ctxld_is_flushed);
 
 int dcss_ctxld_resume(struct dcss_soc *dcss)
 {

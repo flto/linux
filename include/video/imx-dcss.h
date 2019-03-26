@@ -53,6 +53,7 @@ void dcss_dpr_addr_set(struct dcss_soc *dcss, int ch_num, u32 luma_base_addr,
 		       u32 chroma_base_addr, u16 pitch);
 void dcss_dpr_enable(struct dcss_soc *dcss, int ch_num, bool en);
 void dcss_dpr_format_set(struct dcss_soc *dcss, int ch_num, u32 pix_format);
+void dcss_dpr_tile_derive(struct dcss_soc *dcss, int ch_num, uint64_t modifier);
 
 /* DTG */
 void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm);
@@ -83,6 +84,7 @@ bool dcss_scaler_can_scale(struct dcss_soc *dcss, int ch_num,
 
 /* CTXLD */
 int dcss_ctxld_enable(struct dcss_soc *dcss);
+bool dcss_ctxld_is_flushed(struct dcss_soc *dcss);
 
 /* HDR10 */
 void dcss_hdr10_pipe_csc_setup(struct dcss_soc *dcss, int ch_num,

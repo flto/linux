@@ -225,6 +225,7 @@ void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
 	u16 dtg_lrc_x, dtg_lrc_y;
 	u16 dis_ulc_x, dis_ulc_y;
 	u16 dis_lrc_x, dis_lrc_y;
+	u16 sb_ctxld_trig, db_ctxld_trig;
 	u32 actual_clk;
 
 	dev_dbg(dcss->dev, "hfront_porch = %d\n", vm->hfront_porch);
@@ -275,7 +276,12 @@ void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
 	dtg->dis_ulc_x = dis_ulc_x;
 	dtg->dis_ulc_y = dis_ulc_y;
 
-	dcss_dtg_write(dtg, dis_ulc_y, DCSS_DTG_TC_CTXLD);
+	sb_ctxld_trig = ((0 * dis_lrc_y / 100) << TC_CTXLD_SB_Y_POS) &
+			TC_CTXLD_SB_Y_MASK;
+	db_ctxld_trig = ((99 * dis_lrc_y / 100) << TC_CTXLD_DB_Y_POS) &
+			TC_CTXLD_DB_Y_MASK;
+
+	dcss_dtg_write(dtg, sb_ctxld_trig | db_ctxld_trig, DCSS_DTG_TC_CTXLD);
 }
 EXPORT_SYMBOL(dcss_dtg_sync_set);
 
