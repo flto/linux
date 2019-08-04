@@ -525,14 +525,12 @@ void dcss_scaler_setup(struct dcss_soc *dcss, int ch_num, u32 pix_format,
 		       int src_xres, int src_yres, int dst_xres, int dst_yres)
 {
 	enum dcss_color_space dcss_cs;
-	int planes;
 	bool rtr_8line_en = false;
 	enum buffer_format src_format = BUF_FMT_ARGB8888_YUV444;
 	enum buffer_format dst_format = BUF_FMT_ARGB8888_YUV444;
 	const struct drm_format_info *drm_format;
 
 	dcss_cs = dcss_drm_fourcc_to_colorspace(pix_format);
-	planes = drm_format_num_planes(pix_format);
 	drm_format = drm_format_info(pix_format);
 
 	if (dcss_cs == DCSS_COLORSPACE_YUV) {

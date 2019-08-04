@@ -24,7 +24,7 @@
 
 #include "dcss-kms.h"
 #include "dcss-plane.h"
-#include "imx-drm.h"
+#include "../imx-drm.h"
 
 struct dcss_crtc {
 	struct device *dev;

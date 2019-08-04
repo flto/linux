@@ -23,7 +23,7 @@
 #include <drm/drm_gem_framebuffer_helper.h>
 
 
-#include "imx-drm.h"
+#include "../imx-drm.h"
 
 static void dcss_drm_output_poll_changed(struct drm_device *drm)
 {

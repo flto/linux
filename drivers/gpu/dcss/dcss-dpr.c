@@ -521,32 +521,6 @@ static void dcss_dpr_setup_components(struct dcss_soc *dcss, int ch_num,
 	}
 }
 
-static int dcss_dpr_get_bpp(u32 pix_format)
-{
-	int bpp;
-	unsigned int depth;
-
-	switch (pix_format) {
-	case DRM_FORMAT_NV12:
-	case DRM_FORMAT_NV21:
-		bpp = 8;
-		break;
-
-	case DRM_FORMAT_UYVY:
-	case DRM_FORMAT_VYUY:
-	case DRM_FORMAT_YUYV:
-	case DRM_FORMAT_YVYU:
-		bpp = 16;
-		break;
-
-	default:
-		bpp = drm_format_plane_cpp(pix_format, 0);
-		break;
-	}
-
-	return bpp;
-}
-
 void dcss_dpr_tile_derive(struct dcss_soc *dcss,
 			  int ch_num, uint64_t modifier)
 {
@@ -586,14 +560,15 @@ EXPORT_SYMBOL(dcss_dpr_tile_set);
 
 void dcss_dpr_format_set(struct dcss_soc *dcss, int ch_num, u32 pix_format)
 {
+	const struct drm_format_info *info = drm_format_info(pix_format);
 	struct dcss_dpr_ch *ch = &dcss->dpr_priv->ch[ch_num];
 	enum dcss_color_space dcss_cs;
 
 	dev_dbg(dcss->dev, "%s\n", __func__);
 
 	dcss_cs = dcss_drm_fourcc_to_colorspace(pix_format);
-	ch->planes = drm_format_num_planes(pix_format);
-	ch->bpp = dcss_dpr_get_bpp(pix_format);
+	ch->planes = info->num_planes;
+	ch->bpp = info->cpp[0] * 8;
 	ch->pix_format = pix_format;
 
 	//dev_dbg(dcss->dev, "pix_format = %s, colorspace = %d, bpp = %d\n",
