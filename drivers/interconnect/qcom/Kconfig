@@ -41,3 +41,12 @@ config INTERCONNECT_QCOM_SDM845
 
 config INTERCONNECT_QCOM_SMD_RPM
 	tristate
+
+config INTERCONNECT_QCOM_SC7180
+	tristate "QTI SC7180 interconnect driver"
+	depends on INTERCONNECT_QCOM
+	depends on INTERCONNECT_QCOM_RPMH && INTERCONNECT_QCOM_BCM_VOTER
+	depends on (QCOM_RPMH && QCOM_COMMAND_DB && OF) || COMPILE_TEST
+	help
+	  This is a driver for the QTI Network-on-Chip on sc7180-based
+	  platforms.
