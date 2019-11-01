@@ -12,28 +12,6 @@
 
 struct dpu_hw_pingpong;
 
-struct dpu_hw_tear_check {
-	/*
-	 * This is ratio of MDP VSYNC clk freq(Hz) to
-	 * refresh rate divided by no of lines
-	 */
-	u32 vsync_count;
-	u32 sync_cfg_height;
-	u32 vsync_init_val;
-	u32 sync_threshold_start;
-	u32 sync_threshold_continue;
-	u32 start_pos;
-	u32 rd_ptr_irq;
-	u8 hw_vsync_mode;
-};
-
-struct dpu_hw_pp_vsync_info {
-	u32 rd_ptr_init_val;	/* value of rd pointer at vsync edge */
-	u32 rd_ptr_frame_count;	/* num frames sent since enabling interface */
-	u32 rd_ptr_line_count;	/* current line on panel (rd ptr) */
-	u32 wr_ptr_line_count;	/* current line within pp fifo (wr ptr) */
-};
-
 /**
  *
  * struct dpu_hw_pingpong_ops : Interface to the pingpong Hw driver functions
@@ -45,6 +23,7 @@ struct dpu_hw_pp_vsync_info {
  *  @get_line_count: obtain current vertical line counter
  */
 struct dpu_hw_pingpong_ops {
+#if 0
 	/**
 	 * enables vysnc generation and sets up init value of
 	 * read pointer and programs the tear check cofiguration
@@ -82,6 +61,7 @@ struct dpu_hw_pingpong_ops {
 	 * Obtain current vertical line counter
 	 */
 	u32 (*get_line_count)(struct dpu_hw_pingpong *pp);
+#endif
 };
 
 struct dpu_hw_pingpong {

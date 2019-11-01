@@ -183,12 +183,14 @@ static u32 dpu_hw_pp_get_line_count(struct dpu_hw_pingpong *pp)
 static void _setup_pingpong_ops(struct dpu_hw_pingpong_ops *ops,
 	const struct dpu_pingpong_cfg *hw_cap)
 {
+#if 0
 	ops->setup_tearcheck = dpu_hw_pp_setup_te_config;
 	ops->enable_tearcheck = dpu_hw_pp_enable_te;
 	ops->connect_external_te = dpu_hw_pp_connect_external_te;
 	ops->get_vsync_info = dpu_hw_pp_get_vsync_info;
 	ops->poll_timeout_wr_ptr = dpu_hw_pp_poll_timeout_wr_ptr;
 	ops->get_line_count = dpu_hw_pp_get_line_count;
+#endif
 };
 
 static struct dpu_hw_blk_ops dpu_hw_ops;

@@ -165,7 +165,7 @@ static void _dpu_encoder_phys_cmd_setup_irq_hw_idx(
 	irq->irq_idx = -EINVAL;
 
 	irq = &phys_enc->irq[INTR_IDX_RDPTR];
-	irq->hw_idx = phys_enc->hw_pp->idx;
+	irq->hw_idx = phys_enc->hw_intf->idx;
 	irq->irq_idx = -EINVAL;
 
 	irq = &phys_enc->irq[INTR_IDX_UNDERRUN];
@@ -366,8 +366,8 @@ static void dpu_encoder_phys_cmd_tearcheck_config(
 
 	DPU_DEBUG_CMDENC(cmd_enc, "pp %d\n", phys_enc->hw_pp->idx - PINGPONG_0);
 
-	if (!phys_enc->hw_pp->ops.setup_tearcheck ||
-		!phys_enc->hw_pp->ops.enable_tearcheck) {
+	if (!phys_enc->hw_intf->ops.setup_tearcheck ||
+		!phys_enc->hw_intf->ops.enable_tearcheck) {
 		DPU_DEBUG_CMDENC(cmd_enc, "tearcheck not supported\n");
 		return;
 	}
@@ -430,8 +430,8 @@ static void dpu_encoder_phys_cmd_tearcheck_config(
 		phys_enc->hw_pp->idx - PINGPONG_0, tc_cfg.sync_cfg_height,
 		tc_cfg.sync_threshold_start, tc_cfg.sync_threshold_continue);
 
-	phys_enc->hw_pp->ops.setup_tearcheck(phys_enc->hw_pp, &tc_cfg);
-	phys_enc->hw_pp->ops.enable_tearcheck(phys_enc->hw_pp, tc_enable);
+	phys_enc->hw_intf->ops.setup_tearcheck(phys_enc->hw_intf, &tc_cfg);
+	phys_enc->hw_intf->ops.enable_tearcheck(phys_enc->hw_intf, tc_enable);
 }
 
 static void _dpu_encoder_phys_cmd_pingpong_config(
@@ -512,11 +512,11 @@ static void _dpu_encoder_phys_cmd_connect_te(
 		struct dpu_encoder_phys *phys_enc, bool enable)
 {
 	if (!phys_enc || !phys_enc->hw_pp ||
-			!phys_enc->hw_pp->ops.connect_external_te)
+			!phys_enc->hw_intf->ops.connect_external_te)
 		return;
 
 	trace_dpu_enc_phys_cmd_connect_te(DRMID(phys_enc->parent), enable);
-	phys_enc->hw_pp->ops.connect_external_te(phys_enc->hw_pp, enable);
+	phys_enc->hw_intf->ops.connect_external_te(phys_enc->hw_intf, enable);
 }
 
 static void dpu_encoder_phys_cmd_prepare_idle_pc(
@@ -528,19 +528,19 @@ static void dpu_encoder_phys_cmd_prepare_idle_pc(
 static int dpu_encoder_phys_cmd_get_line_count(
 		struct dpu_encoder_phys *phys_enc)
 {
-	struct dpu_hw_pingpong *hw_pp;
+	struct dpu_hw_intf *hw_intf;
 
-	if (!phys_enc || !phys_enc->hw_pp)
+	if (!phys_enc || !phys_enc->hw_intf)
 		return -EINVAL;
 
 	if (!dpu_encoder_phys_cmd_is_master(phys_enc))
 		return -EINVAL;
 
-	hw_pp = phys_enc->hw_pp;
-	if (!hw_pp->ops.get_line_count)
+	hw_intf = phys_enc->hw_intf;
+	if (!hw_intf->ops.get_line_count)
 		return -EINVAL;
 
-	return hw_pp->ops.get_line_count(hw_pp);
+	return hw_intf->ops.get_line_count(hw_intf);
 }
 
 static void dpu_encoder_phys_cmd_disable(struct dpu_encoder_phys *phys_enc)
@@ -561,8 +561,8 @@ static void dpu_encoder_phys_cmd_disable(struct dpu_encoder_phys *phys_enc)
 		return;
 	}
 
-	if (phys_enc->hw_pp->ops.enable_tearcheck)
-		phys_enc->hw_pp->ops.enable_tearcheck(phys_enc->hw_pp, false);
+	if (phys_enc->hw_intf->ops.enable_tearcheck)
+		phys_enc->hw_intf->ops.enable_tearcheck(phys_enc->hw_intf, false);
 	phys_enc->enable_state = DPU_ENC_DISABLED;
 }
 
@@ -811,7 +811,7 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(
 
 	irq = &phys_enc->irq[INTR_IDX_RDPTR];
 	irq->name = "pp_rd_ptr";
-	irq->intr_type = DPU_IRQ_TYPE_PING_PONG_RD_PTR;
+	irq->intr_type = SDE_IRQ_TYPE_INTF_TEAR_RD_PTR;
 	irq->intr_idx = INTR_IDX_RDPTR;
 	irq->cb.func = dpu_encoder_phys_cmd_pp_rd_ptr_irq;
 

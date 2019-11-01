@@ -2,6 +2,8 @@
 /* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/iopoll.h>
+
 #include "dpu_hwio.h"
 #include "dpu_hw_catalog.h"
 #include "dpu_hw_intf.h"
@@ -246,6 +248,201 @@ static u32 dpu_hw_intf_get_line_count(struct dpu_hw_intf *intf)
 	return DPU_REG_READ(c, INTF_LINE_COUNT);
 }
 
+#define INTF_TEAR_MDP_VSYNC_SEL         0x280
+#define INTF_TEAR_TEAR_CHECK_EN         0x284
+#define INTF_TEAR_SYNC_CONFIG_VSYNC     0x288
+#define INTF_TEAR_SYNC_CONFIG_HEIGHT    0x28C
+#define INTF_TEAR_SYNC_WRCOUNT          0x290
+#define INTF_TEAR_VSYNC_INIT_VAL        0x294
+#define INTF_TEAR_INT_COUNT_VAL         0x298
+#define INTF_TEAR_SYNC_THRESH           0x29C
+#define INTF_TEAR_START_POS             0x2A0
+#define INTF_TEAR_RD_PTR_IRQ            0x2A4
+#define INTF_TEAR_WR_PTR_IRQ            0x2A8
+#define INTF_TEAR_OUT_LINE_COUNT        0x2AC
+#define INTF_TEAR_LINE_COUNT            0x2B0
+#define INTF_TEAR_AUTOREFRESH_CONFIG    0x2B4
+#define INTF_TEAR_TEAR_DETECT_CTRL      0x2B8
+
+static int dpu_hw_intf_setup_te_config(struct dpu_hw_intf *intf,
+		struct dpu_hw_tear_check *te)
+{
+	struct dpu_hw_blk_reg_map *c;
+	int cfg;
+
+	if (!intf)
+		return -EINVAL;
+
+	c = &intf->hw;
+
+	cfg = BIT(19); /* VSYNC_COUNTER_EN */
+	if (te->hw_vsync_mode)
+		cfg |= BIT(20);
+
+	cfg |= te->vsync_count;
+
+	DPU_REG_WRITE(c, INTF_TEAR_SYNC_CONFIG_VSYNC, cfg);
+	DPU_REG_WRITE(c, INTF_TEAR_SYNC_CONFIG_HEIGHT, te->sync_cfg_height);
+	DPU_REG_WRITE(c, INTF_TEAR_VSYNC_INIT_VAL, te->vsync_init_val);
+	DPU_REG_WRITE(c, INTF_TEAR_RD_PTR_IRQ, te->rd_ptr_irq);
+	DPU_REG_WRITE(c, INTF_TEAR_START_POS, te->start_pos);
+	DPU_REG_WRITE(c, INTF_TEAR_SYNC_THRESH,
+			((te->sync_threshold_continue << 16) |
+			 te->sync_threshold_start));
+	DPU_REG_WRITE(c, INTF_TEAR_SYNC_WRCOUNT,
+			(te->start_pos + te->sync_threshold_start + 1));
+
+	return 0;
+}
+
+#if 0
+static int dpu_hw_intf_setup_autorefresh_config(struct dpu_hw_intf *intf,
+		struct dpu_hw_autorefresh *cfg)
+{
+	struct dpu_hw_blk_reg_map *c;
+	u32 refresh_cfg;
+
+	if (!intf || !cfg)
+		return -EINVAL;
+
+	c = &intf->hw;
+
+	if (cfg->enable)
+		refresh_cfg = BIT(31) | cfg->frame_count;
+	else
+		refresh_cfg = 0;
+
+	DPU_REG_WRITE(c, INTF_TEAR_AUTOREFRESH_CONFIG, refresh_cfg);
+
+	return 0;
+}
+
+static int dpu_hw_intf_get_autorefresh_config(struct dpu_hw_intf *intf,
+		struct dpu_hw_autorefresh *cfg)
+{
+	struct dpu_hw_blk_reg_map *c;
+	u32 val;
+
+	if (!intf || !cfg)
+		return -EINVAL;
+
+	c = &intf->hw;
+	val = dpu_REG_READ(c, INTF_TEAR_AUTOREFRESH_CONFIG);
+	cfg->enable = (val & BIT(31)) >> 31;
+	cfg->frame_count = val & 0xffff;
+
+	return 0;
+}
+#endif
+
+static int dpu_hw_intf_poll_timeout_wr_ptr(struct dpu_hw_intf *intf,
+		u32 timeout_us)
+{
+	struct dpu_hw_blk_reg_map *c;
+	u32 val;
+	int rc;
+
+	if (!intf)
+		return -EINVAL;
+
+	c = &intf->hw;
+	rc = readl_poll_timeout(c->base_off + c->blk_off + INTF_TEAR_LINE_COUNT,
+			val, (val & 0xffff) >= 1, 10, timeout_us);
+
+	return rc;
+}
+
+static int dpu_hw_intf_enable_te(struct dpu_hw_intf *intf, bool enable)
+{
+	struct dpu_hw_blk_reg_map *c;
+
+	if (!intf)
+		return -EINVAL;
+
+	c = &intf->hw;
+	DPU_REG_WRITE(c, INTF_TEAR_TEAR_CHECK_EN, enable);
+	return 0;
+}
+
+#if 0
+static void dpu_hw_intf_update_te(struct dpu_hw_intf *intf,
+		struct dpu_hw_tear_check *te)
+{
+	struct dpu_hw_blk_reg_map *c;
+	int cfg;
+
+	if (!intf || !te)
+		return;
+
+	c = &intf->hw;
+	cfg = dpu_REG_READ(c, INTF_TEAR_SYNC_THRESH);
+	cfg &= ~0xFFFF;
+	cfg |= te->sync_threshold_start;
+	DPU_REG_WRITE(c, INTF_TEAR_SYNC_THRESH, cfg);
+}
+#endif
+
+static int dpu_hw_intf_connect_external_te(struct dpu_hw_intf *intf,
+		bool enable_external_te)
+{
+	struct dpu_hw_blk_reg_map *c = &intf->hw;
+	u32 cfg;
+	int orig;
+
+	if (!intf)
+		return -EINVAL;
+
+	c = &intf->hw;
+	cfg = DPU_REG_READ(c, INTF_TEAR_SYNC_CONFIG_VSYNC);
+	orig = (bool)(cfg & BIT(20));
+	if (enable_external_te)
+		cfg |= BIT(20);
+	else
+		cfg &= ~BIT(20);
+	DPU_REG_WRITE(c, INTF_TEAR_SYNC_CONFIG_VSYNC, cfg);
+
+	return orig;
+}
+
+static int dpu_hw_intf_get_vsync_info(struct dpu_hw_intf *intf,
+		struct dpu_hw_pp_vsync_info *info)
+{
+	struct dpu_hw_blk_reg_map *c = &intf->hw;
+	u32 val;
+
+	if (!intf || !info)
+		return -EINVAL;
+
+	c = &intf->hw;
+
+	val = DPU_REG_READ(c, INTF_TEAR_VSYNC_INIT_VAL);
+	info->rd_ptr_init_val = val & 0xffff;
+
+	val = DPU_REG_READ(c, INTF_TEAR_INT_COUNT_VAL);
+	info->rd_ptr_frame_count = (val & 0xffff0000) >> 16;
+	info->rd_ptr_line_count = val & 0xffff;
+
+	val = DPU_REG_READ(c, INTF_TEAR_LINE_COUNT);
+	info->wr_ptr_line_count = val & 0xffff;
+
+	return 0;
+}
+
+#if 0
+static void dpu_hw_intf_vsync_sel(struct dpu_hw_intf *intf,
+		u32 vsync_source)
+{
+	struct dpu_hw_blk_reg_map *c;
+
+	if (!intf)
+		return;
+
+	c = &intf->hw;
+
+	DPU_REG_WRITE(c, INTF_TEAR_MDP_VSYNC_SEL, (vsync_source & 0xf));
+}
+#endif
+
 static void _setup_intf_ops(struct dpu_hw_intf_ops *ops,
 		unsigned long cap)
 {
@@ -254,6 +451,12 @@ static void _setup_intf_ops(struct dpu_hw_intf_ops *ops,
 	ops->get_status = dpu_hw_intf_get_status;
 	ops->enable_timing = dpu_hw_intf_enable_timing_engine;
 	ops->get_line_count = dpu_hw_intf_get_line_count;
+
+	ops->setup_tearcheck = dpu_hw_intf_setup_te_config;
+	ops->enable_tearcheck = dpu_hw_intf_enable_te;
+	ops->connect_external_te = dpu_hw_intf_connect_external_te;
+	ops->get_vsync_info = dpu_hw_intf_get_vsync_info;
+	ops->poll_timeout_wr_ptr = dpu_hw_intf_poll_timeout_wr_ptr;
 }
 
 static struct dpu_hw_blk_ops dpu_hw_ops;
