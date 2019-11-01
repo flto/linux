@@ -44,6 +44,28 @@ struct intf_status {
 	u32 line_count;		/* current line count including blanking */
 };
 
+struct dpu_hw_tear_check {
+	/*
+	 * This is ratio of MDP VSYNC clk freq(Hz) to
+	 * refresh rate divided by no of lines
+	 */
+	u32 vsync_count;
+	u32 sync_cfg_height;
+	u32 vsync_init_val;
+	u32 sync_threshold_start;
+	u32 sync_threshold_continue;
+	u32 start_pos;
+	u32 rd_ptr_irq;
+	u8 hw_vsync_mode;
+};
+
+struct dpu_hw_pp_vsync_info {
+	u32 rd_ptr_init_val;	/* value of rd pointer at vsync edge */
+	u32 rd_ptr_frame_count;	/* num frames sent since enabling interface */
+	u32 rd_ptr_line_count;	/* current line on panel (rd ptr) */
+	u32 wr_ptr_line_count;	/* current line within pp fifo (wr ptr) */
+};
+
 /**
  * struct dpu_hw_intf_ops : Interface to the interface Hw driver functions
  *  Assumption is these functions will be called after clocks are enabled
@@ -68,6 +90,39 @@ struct dpu_hw_intf_ops {
 			struct intf_status *status);
 
 	u32 (*get_line_count)(struct dpu_hw_intf *intf);
+
+	/**
+	 * enables vysnc generation and sets up init value of
+	 * read pointer and programs the tear check cofiguration
+	 */
+	int (*setup_tearcheck)(struct dpu_hw_intf *intf,
+			struct dpu_hw_tear_check *cfg);
+
+	/**
+	 * enables tear check block
+	 */
+	int (*enable_tearcheck)(struct dpu_hw_intf *intf,
+			bool enable);
+
+	/**
+	 * read, modify, write to either set or clear listening to external TE
+	 * @Return: 1 if TE was originally connected, 0 if not, or -ERROR
+	 */
+	int (*connect_external_te)(struct dpu_hw_intf *intf,
+			bool enable_external_te);
+
+	/**
+	 * provides the programmed and current
+	 * line_count
+	 */
+	int (*get_vsync_info)(struct dpu_hw_intf *intf,
+			struct dpu_hw_pp_vsync_info  *info);
+
+	/**
+	 * poll until write pointer transmission starts
+	 * @Return: 0 on success, -ETIMEDOUT on timeout
+	 */
+	int (*poll_timeout_wr_ptr)(struct dpu_hw_intf *intf, u32 timeout_us);
 };
 
 struct dpu_hw_intf {
