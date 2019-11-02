@@ -258,6 +258,10 @@ static int _dpu_encoder_phys_cmd_wait_for_idle(
 	wait_info.atomic_cnt = &phys_enc->pending_kickoff_cnt;
 	wait_info.timeout_ms = KICKOFF_TIMEOUT_MS;
 
+	/* slave encoder doesn't enable for ppsplit */
+	if (!dpu_encoder_phys_cmd_is_master(phys_enc))
+		return 0;
+
 	ret = dpu_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_PINGPONG,
 			&wait_info);
 	if (ret == -ETIMEDOUT)
@@ -319,6 +323,13 @@ static void dpu_encoder_phys_cmd_irq_control(struct dpu_encoder_phys *phys_enc,
 	struct dpu_encoder_phys_cmd *cmd_enc;
 
 	if (!phys_enc)
+		return;
+
+	/**
+	 * pingpong split slaves do not register for IRQs
+	 * check old and new topologies
+	 */
+	if (!dpu_encoder_phys_cmd_is_master(phys_enc))
 		return;
 
 	cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
@@ -730,8 +741,12 @@ static void dpu_encoder_phys_cmd_handle_post_kickoff(
 static void dpu_encoder_phys_cmd_trigger_start(
 		struct dpu_encoder_phys *phys_enc)
 {
+	struct dpu_hw_autorefresh refresh = {};
+
 	if (!phys_enc)
 		return;
+
+	phys_enc->hw_intf->ops.setup_autorefresh(phys_enc->hw_intf, &refresh);
 
 	dpu_encoder_helper_trigger_start(phys_enc);
 }

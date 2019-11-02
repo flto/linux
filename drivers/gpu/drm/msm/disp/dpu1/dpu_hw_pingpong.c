@@ -49,6 +49,19 @@ static struct dpu_pingpong_cfg *_pingpong_offset(enum dpu_pingpong pp,
 	return ERR_PTR(-EINVAL);
 }
 
+static struct dpu_pingpong_cfg *_merge_3d_offset(enum dpu_pingpong pp,
+		struct dpu_mdss_cfg *m,
+		void __iomem *addr,
+		struct dpu_hw_blk_reg_map *b)
+{
+	b->base_off = addr;
+	b->blk_off = 0x83000 + 0x1000*((pp-PINGPONG_0)/2);
+	b->length = 0x100;
+	b->hwversion = 0;
+	b->log_mask = 0;
+	return NULL;
+}
+
 static int dpu_hw_pp_setup_te_config(struct dpu_hw_pingpong *pp,
 		struct dpu_hw_tear_check *te)
 {
@@ -180,6 +193,37 @@ static u32 dpu_hw_pp_get_line_count(struct dpu_hw_pingpong *pp)
 	return line;
 }
 
+#define MERGE_3D_MODE 0x004
+#define MERGE_3D_MUX  0x000
+
+static void dpu_hw_pp_setup_3d_merge_mode(struct dpu_hw_pingpong *pp,
+					enum dpu_3d_blend_mode cfg)
+{
+	struct dpu_hw_blk_reg_map *c;
+	u32 mode = 0;
+
+	if (!pp)
+		return 0;
+	c = &pp->merge3d_hw;
+
+	if (cfg) {
+		mode = 3;
+	}
+
+	DPU_REG_WRITE(c, MERGE_3D_MODE, mode);
+}
+
+static void dpu_hw_pp_reset_3d_merge_mode(struct dpu_hw_pingpong *pp)
+{
+	struct dpu_hw_blk_reg_map *c;
+
+	if (!pp)
+		return 0;
+	c = &pp->merge3d_hw;
+	DPU_REG_WRITE(c, MERGE_3D_MODE, 0x0);
+	DPU_REG_WRITE(c, MERGE_3D_MUX, 0x0);
+}
+
 static void _setup_pingpong_ops(struct dpu_hw_pingpong_ops *ops,
 	const struct dpu_pingpong_cfg *hw_cap)
 {
@@ -191,6 +235,8 @@ static void _setup_pingpong_ops(struct dpu_hw_pingpong_ops *ops,
 	ops->poll_timeout_wr_ptr = dpu_hw_pp_poll_timeout_wr_ptr;
 	ops->get_line_count = dpu_hw_pp_get_line_count;
 #endif
+	ops->setup_3d_mode = dpu_hw_pp_setup_3d_merge_mode;
+	ops->reset_3d_mode = dpu_hw_pp_reset_3d_merge_mode;
 };
 
 static struct dpu_hw_blk_ops dpu_hw_ops;
@@ -211,6 +257,8 @@ struct dpu_hw_pingpong *dpu_hw_pingpong_init(enum dpu_pingpong idx,
 		kfree(c);
 		return ERR_PTR(-EINVAL);
 	}
+
+	_merge_3d_offset(idx, m, addr, &c->merge3d_hw);
 
 	c->idx = idx;
 	c->caps = cfg;

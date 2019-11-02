@@ -80,6 +80,18 @@ static void dpu_hw_set_mem_type(struct dpu_hw_vbif *vbif,
 	reg_val &= ~(0x7 << bit_off);
 	reg_val |= (value & 0x7) << bit_off;
 	DPU_REG_WRITE(c, reg_off, reg_val);
+
+#if 0
+	/* disable outer shareable */
+	reg_val = SDE_REG_READ(c, VBIF_OUT_AXI_ASHARED);
+	reg_val &= ~BIT(xin_id);
+	SDE_REG_WRITE(c, VBIF_OUT_AXI_ASHARED, 0);
+
+	/* disable inner shareable */
+	reg_val = SDE_REG_READ(c, VBIF_OUT_AXI_AINNERSHARED);
+	reg_val &= ~BIT(xin_id);
+	SDE_REG_WRITE(c, VBIF_OUT_AXI_AINNERSHARED, 0);
+#endif
 }
 
 static void dpu_hw_set_limit_conf(struct dpu_hw_vbif *vbif,

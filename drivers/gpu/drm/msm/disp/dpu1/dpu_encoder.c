@@ -58,7 +58,7 @@
 
 #define IDLE_SHORT_TIMEOUT	1
 
-#define MAX_VDISPLAY_SPLIT 1080
+#define MAX_HDISPLAY_SPLIT 1080
 
 /* timeout in frames waiting for frame done */
 #define DPU_ENCODER_FRAME_DONE_TIMEOUT_FRAMES 5
@@ -534,8 +534,23 @@ static struct msm_display_topology dpu_encoder_get_topology(
 		if (dpu_enc->phys_encs[i])
 			intf_count++;
 
-	/* User split topology for width > 1080 */
-	topology.num_lm = (mode->vdisplay > MAX_VDISPLAY_SPLIT) ? 2 : 1;
+	/* Datapath topology selection
+	 *
+	 * Dual display
+	 * 2 LM, 2 INTF ( Split display using 2 interfaces)
+	 *
+	 * Single display
+	 * 1 LM, 1 INTF
+	 * 2 LM, 1 INTF (stream merge to support high resolution interfaces)
+	 *
+	 */
+	if (intf_count == 2)
+		topology.num_lm = 2;
+	else if (!dpu_kms->catalog->caps->has_3d_merge)
+		topology.num_lm = 1;
+	else
+		topology.num_lm = (mode->hdisplay > 2560) ? 2 : 1;
+
 	topology.num_enc = 0;
 	topology.num_intf = intf_count;
 
@@ -659,9 +674,9 @@ static void _dpu_encoder_update_vsync_source(struct dpu_encoder_virt *dpu_enc,
 	if (hw_mdptop->ops.setup_vsync_source &&
 			disp_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE) {
 		for (i = 0; i < dpu_enc->num_phys_encs; i++)
-			vsync_cfg.ppnumber[i] = dpu_enc->hw_pp[i]->idx;
+			vsync_cfg.ppnumber[i] = dpu_enc->hw_pp[0]->idx;
 
-		vsync_cfg.pp_count = dpu_enc->num_phys_encs;
+		vsync_cfg.pp_count = 1;//dpu_enc->num_phys_encs;
 		if (disp_info->is_te_using_watchdog_timer)
 			vsync_cfg.vsync_source = DPU_VSYNC_SOURCE_WD_TIMER_0;
 		else
@@ -1042,20 +1057,20 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
 
 		if (phys) {
-			if (!dpu_enc->hw_pp[i]) {
+			if (!dpu_enc->hw_pp[0]) {
 				DPU_ERROR_ENC(dpu_enc, "no pp block assigned"
 					     "at idx: %d\n", i);
 				goto error;
 			}
 
-			if (!hw_ctl[i]) {
+			if (!hw_ctl[0]) {
 				DPU_ERROR_ENC(dpu_enc, "no ctl block assigned"
 					     "at idx: %d\n", i);
 				goto error;
 			}
 
-			phys->hw_pp = dpu_enc->hw_pp[i];
-			phys->hw_ctl = hw_ctl[i];
+			phys->hw_pp = dpu_enc->hw_pp[0];
+			phys->hw_ctl = hw_ctl[0];
 
 			dpu_rm_init_hw_iter(&hw_iter, drm_enc->base.id,
 					    DPU_HW_BLK_INTF);

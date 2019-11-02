@@ -62,11 +62,22 @@ struct dpu_hw_pingpong_ops {
 	 */
 	u32 (*get_line_count)(struct dpu_hw_pingpong *pp);
 #endif
+	/**
+	 * Programs the 3d blend configuration
+	 */
+	void (*setup_3d_mode)(struct dpu_hw_pingpong *pp,
+			enum dpu_3d_blend_mode cfg);
+
+	/**
+	 * reset 3d blend configuration
+	 */
+	void (*reset_3d_mode)(struct dpu_hw_pingpong *pp);
 };
 
 struct dpu_hw_pingpong {
 	struct dpu_hw_blk base;
 	struct dpu_hw_blk_reg_map hw;
+	struct dpu_hw_blk_reg_map merge3d_hw;
 
 	/* pingpong */
 	enum dpu_pingpong idx;

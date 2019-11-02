@@ -58,6 +58,8 @@
 #define   INTF_FRAME_COUNT              0x0AC
 #define   INTF_LINE_COUNT               0x0B0
 
+#define   INTF_MUX                      0x25C
+
 static struct dpu_intf_cfg *_intf_offset(enum dpu_intf intf,
 		struct dpu_mdss_cfg *m,
 		void __iomem *addr,
@@ -107,11 +109,6 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *ctx,
 	display_v_end = ((vsync_period - p->v_front_porch) * hsync_period) +
 	p->hsync_skew - 1;
 
-	if (ctx->cap->type == INTF_EDP || ctx->cap->type == INTF_DP) {
-		display_v_start += p->hsync_pulse_width + p->h_back_porch;
-		display_v_end -= p->h_front_porch;
-	}
-
 	hsync_start_x = p->h_back_porch + p->hsync_pulse_width;
 	hsync_end_x = hsync_period - p->h_front_porch - 1;
 
@@ -144,10 +141,26 @@ static void dpu_hw_intf_setup_timing_engine(struct dpu_hw_intf *ctx,
 	hsync_ctl = (hsync_period << 16) | p->hsync_pulse_width;
 	display_hctl = (hsync_end_x << 16) | hsync_start_x;
 
+	if (ctx->cap->type == INTF_DP) {
+		printk("ctx->cap->type == INTF_DP\n");
+		active_h_start = hsync_start_x;
+		active_h_end = active_h_start + p->xres - 1;
+		active_v_start = display_v_start;
+		active_v_end = active_v_start + (p->yres * hsync_period) - 1;
+
+		display_v_start += p->hsync_pulse_width + p->h_back_porch;
+
+		active_hctl = (active_h_end << 16) | active_h_start;
+		display_hctl = active_hctl;
+	}
+
 	den_polarity = 0;
 	if (ctx->cap->type == INTF_HDMI) {
 		hsync_polarity = p->yres >= 720 ? 0 : 1;
 		vsync_polarity = p->yres >= 720 ? 0 : 1;
+	} else if (ctx->cap->type == INTF_DP) {
+		hsync_polarity = p->hsync_polarity;
+		vsync_polarity = p->vsync_polarity;
 	} else {
 		hsync_polarity = 0;
 		vsync_polarity = 0;
@@ -295,14 +308,13 @@ static int dpu_hw_intf_setup_te_config(struct dpu_hw_intf *intf,
 	return 0;
 }
 
-#if 0
 static int dpu_hw_intf_setup_autorefresh_config(struct dpu_hw_intf *intf,
 		struct dpu_hw_autorefresh *cfg)
 {
 	struct dpu_hw_blk_reg_map *c;
 	u32 refresh_cfg;
 
-	if (!intf || !cfg)
+	if (!intf)
 		return -EINVAL;
 
 	c = &intf->hw;
@@ -323,17 +335,16 @@ static int dpu_hw_intf_get_autorefresh_config(struct dpu_hw_intf *intf,
 	struct dpu_hw_blk_reg_map *c;
 	u32 val;
 
-	if (!intf || !cfg)
+	if (!intf)
 		return -EINVAL;
 
 	c = &intf->hw;
-	val = dpu_REG_READ(c, INTF_TEAR_AUTOREFRESH_CONFIG);
+	val = DPU_REG_READ(c, INTF_TEAR_AUTOREFRESH_CONFIG);
 	cfg->enable = (val & BIT(31)) >> 31;
 	cfg->frame_count = val & 0xffff;
 
 	return 0;
 }
-#endif
 
 static int dpu_hw_intf_poll_timeout_wr_ptr(struct dpu_hw_intf *intf,
 		u32 timeout_us)
@@ -443,6 +454,30 @@ static void dpu_hw_intf_vsync_sel(struct dpu_hw_intf *intf,
 }
 #endif
 
+static void dpu_hw_intf_bind_pingpong_blk(
+		struct dpu_hw_intf *intf,
+		bool enable,
+		const enum dpu_pingpong pp)
+{
+	struct dpu_hw_blk_reg_map *c;
+	u32 mux_cfg;
+
+	if (!intf)
+		return;
+
+	c = &intf->hw;
+
+	mux_cfg = DPU_REG_READ(c, INTF_MUX);
+	mux_cfg &= ~0xf;
+
+	if (enable)
+		mux_cfg |= (pp - PINGPONG_0) & 0x7;
+	else
+		mux_cfg |= 0xf;
+
+	DPU_REG_WRITE(c, INTF_MUX, mux_cfg);
+}
+
 static void _setup_intf_ops(struct dpu_hw_intf_ops *ops,
 		unsigned long cap)
 {
@@ -456,7 +491,11 @@ static void _setup_intf_ops(struct dpu_hw_intf_ops *ops,
 	ops->enable_tearcheck = dpu_hw_intf_enable_te;
 	ops->connect_external_te = dpu_hw_intf_connect_external_te;
 	ops->get_vsync_info = dpu_hw_intf_get_vsync_info;
+	ops->setup_autorefresh = dpu_hw_intf_setup_autorefresh_config;
+	ops->get_autorefresh = dpu_hw_intf_get_autorefresh_config;
 	ops->poll_timeout_wr_ptr = dpu_hw_intf_poll_timeout_wr_ptr;
+	if (cap & BIT(DPU_CTL_ACTIVE_CFG))
+		ops->bind_pingpong_blk = dpu_hw_intf_bind_pingpong_blk;
 }
 
 static struct dpu_hw_blk_ops dpu_hw_ops;
@@ -498,4 +537,3 @@ void dpu_hw_intf_destroy(struct dpu_hw_intf *intf)
 		dpu_hw_blk_destroy(&intf->base);
 	kfree(intf);
 }
-

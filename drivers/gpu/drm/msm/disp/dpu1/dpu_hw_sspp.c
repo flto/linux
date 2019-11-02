@@ -305,7 +305,7 @@ static void dpu_hw_sspp_setup_format(struct dpu_hw_pipe *ctx,
 		if (IS_UBWC_20_SUPPORTED(ctx->catalog->caps->ubwc_version)) {
 			fast_clear = fmt->alpha_enable ? BIT(31) : 0;
 			DPU_REG_WRITE(c, SSPP_UBWC_STATIC_CTRL,
-					fast_clear | (ctx->mdp->ubwc_swizzle) |
+					BIT(30) | (ctx->mdp->ubwc_swizzle) |
 					(ctx->mdp->highest_bank_bit << 4));
 		}
 	}
