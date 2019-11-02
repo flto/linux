@@ -60,6 +60,18 @@ static const struct dpu_caps sdm845_dpu_caps = {
 	.has_idle_pc = true,
 };
 
+/// TODO
+static const struct dpu_caps sm8150_dpu_caps = {
+	.max_mixer_width = DEFAULT_DPU_OUTPUT_LINE_WIDTH,
+	.max_mixer_blendstages = 0xb,
+	.qseed_type = DPU_SSPP_SCALER_QSEED3,
+	.smart_dma_rev = DPU_SSPP_SMART_DMA_V2,
+	.ubwc_version = DPU_HW_UBWC_VER_20,
+	.has_src_split = true,
+	.has_dim_layer = true,
+	.has_idle_pc = true,
+};
+
 static struct dpu_mdp_cfg sdm845_mdp[] = {
 	{
 	.name = "top_0", .id = MDP_TOP,
@@ -84,6 +96,7 @@ static struct dpu_mdp_cfg sdm845_mdp[] = {
 			.reg_off = 0x2C4, .bit_off = 8},
 	},
 };
+#define sm8150_mdp sdm845_mdp
 
 /*************************************************************
  * CTL sub blocks config
@@ -112,6 +125,39 @@ static struct dpu_ctl_cfg sdm845_ctl[] = {
 	{
 	.name = "ctl_4", .id = CTL_4,
 	.base = 0x1800, .len = 0xE4,
+	.features = 0
+	},
+};
+
+static struct dpu_ctl_cfg sm8150_ctl[] = {
+	{
+	.name = "ctl_0", .id = CTL_0,
+	.base = 0x1000, .len = 0x1e0,
+	//.features = BIT(DPU_CTL_SPLIT_DISPLAY)
+	},
+	{
+	.name = "ctl_1", .id = CTL_1,
+	.base = 0x1200, .len = 0x1e0,
+	//.features = BIT(DPU_CTL_SPLIT_DISPLAY)
+	},
+	{
+	.name = "ctl_2", .id = CTL_2,
+	.base = 0x1400, .len = 0x1e0,
+	.features = 0
+	},
+	{
+	.name = "ctl_3", .id = CTL_3,
+	.base = 0x1600, .len = 0x1e0,
+	.features = 0
+	},
+	{
+	.name = "ctl_4", .id = CTL_4,
+	.base = 0x1800, .len = 0x1e0,
+	.features = 0
+	},
+	{
+	.name = "ctl_5", .id = CTL_4,
+	.base = 0x1a00, .len = 0x1e0,
 	.features = 0
 	},
 };
@@ -424,9 +470,34 @@ static void sdm845_cfg_init(struct dpu_mdss_cfg *dpu_cfg)
 	};
 }
 
+static void sm8150_cfg_init(struct dpu_mdss_cfg *dpu_cfg)
+{
+	*dpu_cfg = (struct dpu_mdss_cfg){
+		.caps = &sm8150_dpu_caps,
+		.mdp_count = ARRAY_SIZE(sm8150_mdp),
+		.mdp = sm8150_mdp,
+		.ctl_count = ARRAY_SIZE(sm8150_ctl),
+		.ctl = sm8150_ctl,
+		.sspp_count = ARRAY_SIZE(sdm845_sspp),
+		.sspp = sdm845_sspp,
+		.mixer_count = ARRAY_SIZE(sdm845_lm),
+		.mixer = sdm845_lm,
+		.pingpong_count = ARRAY_SIZE(sdm845_pp),
+		.pingpong = sdm845_pp,
+		.intf_count = ARRAY_SIZE(sdm845_intf),
+		.intf = sdm845_intf,
+		.vbif_count = ARRAY_SIZE(sdm845_vbif),
+		.vbif = sdm845_vbif,
+		.reg_dma_count = 1,
+		.dma_cfg = sdm845_regdma,
+		.perf = sdm845_perf_data,
+	};
+}
+
 static struct dpu_mdss_hw_cfg_handler cfg_handler[] = {
 	{ .hw_rev = DPU_HW_VER_400, .cfg_init = sdm845_cfg_init},
 	{ .hw_rev = DPU_HW_VER_401, .cfg_init = sdm845_cfg_init},
+	{ .hw_rev = DPU_HW_VER_501, .cfg_init = sm8150_cfg_init},
 };
 
 void dpu_hw_catalog_deinit(struct dpu_mdss_cfg *dpu_cfg)

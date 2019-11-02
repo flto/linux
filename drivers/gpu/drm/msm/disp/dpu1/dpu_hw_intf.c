@@ -295,14 +295,13 @@ static int dpu_hw_intf_setup_te_config(struct dpu_hw_intf *intf,
 	return 0;
 }
 
-#if 0
 static int dpu_hw_intf_setup_autorefresh_config(struct dpu_hw_intf *intf,
 		struct dpu_hw_autorefresh *cfg)
 {
 	struct dpu_hw_blk_reg_map *c;
 	u32 refresh_cfg;
 
-	if (!intf || !cfg)
+	if (!intf)
 		return -EINVAL;
 
 	c = &intf->hw;
@@ -323,17 +322,16 @@ static int dpu_hw_intf_get_autorefresh_config(struct dpu_hw_intf *intf,
 	struct dpu_hw_blk_reg_map *c;
 	u32 val;
 
-	if (!intf || !cfg)
+	if (!intf)
 		return -EINVAL;
 
 	c = &intf->hw;
-	val = dpu_REG_READ(c, INTF_TEAR_AUTOREFRESH_CONFIG);
+	val = DPU_REG_READ(c, INTF_TEAR_AUTOREFRESH_CONFIG);
 	cfg->enable = (val & BIT(31)) >> 31;
 	cfg->frame_count = val & 0xffff;
 
 	return 0;
 }
-#endif
 
 static int dpu_hw_intf_poll_timeout_wr_ptr(struct dpu_hw_intf *intf,
 		u32 timeout_us)
@@ -456,6 +454,8 @@ static void _setup_intf_ops(struct dpu_hw_intf_ops *ops,
 	ops->enable_tearcheck = dpu_hw_intf_enable_te;
 	ops->connect_external_te = dpu_hw_intf_connect_external_te;
 	ops->get_vsync_info = dpu_hw_intf_get_vsync_info;
+	ops->setup_autorefresh = dpu_hw_intf_setup_autorefresh_config;
+	ops->get_autorefresh = dpu_hw_intf_get_autorefresh_config;
 	ops->poll_timeout_wr_ptr = dpu_hw_intf_poll_timeout_wr_ptr;
 }
 

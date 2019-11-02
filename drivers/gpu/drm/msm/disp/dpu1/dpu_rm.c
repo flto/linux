@@ -439,9 +439,9 @@ static int _dpu_rm_reserve_ctls(
 	memset(&ctls, 0, sizeof(ctls));
 
 	/* each hw_intf needs its own hw_ctrl to program its control path */
-	num_ctls = top->num_intf;
+	num_ctls = 1;//top->num_intf;
 
-	needs_split_display = _dpu_rm_needs_split_display(top);
+	needs_split_display = false;//_dpu_rm_needs_split_display(top);
 
 	dpu_rm_init_hw_iter(&iter, 0, DPU_HW_BLK_CTL);
 	while (_dpu_rm_get_hw_locked(rm, &iter)) {

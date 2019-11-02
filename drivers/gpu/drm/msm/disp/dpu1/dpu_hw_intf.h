@@ -59,6 +59,11 @@ struct dpu_hw_tear_check {
 	u8 hw_vsync_mode;
 };
 
+struct dpu_hw_autorefresh {
+	bool  enable;
+	u32 frame_count;
+};
+
 struct dpu_hw_pp_vsync_info {
 	u32 rd_ptr_init_val;	/* value of rd pointer at vsync edge */
 	u32 rd_ptr_frame_count;	/* num frames sent since enabling interface */
@@ -117,6 +122,18 @@ struct dpu_hw_intf_ops {
 	 */
 	int (*get_vsync_info)(struct dpu_hw_intf *intf,
 			struct dpu_hw_pp_vsync_info  *info);
+
+	/**
+	 * configure and enable the autorefresh config
+	 */
+	int (*setup_autorefresh)(struct dpu_hw_intf *intf,
+			struct dpu_hw_autorefresh *cfg);
+
+	/**
+	 * retrieve autorefresh config from hardware
+	 */
+	int (*get_autorefresh)(struct dpu_hw_intf *intf,
+			struct dpu_hw_autorefresh *cfg);
 
 	/**
 	 * poll until write pointer transmission starts

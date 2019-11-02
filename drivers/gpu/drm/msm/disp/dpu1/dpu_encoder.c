@@ -659,9 +659,9 @@ static void _dpu_encoder_update_vsync_source(struct dpu_encoder_virt *dpu_enc,
 	if (hw_mdptop->ops.setup_vsync_source &&
 			disp_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE) {
 		for (i = 0; i < dpu_enc->num_phys_encs; i++)
-			vsync_cfg.ppnumber[i] = dpu_enc->hw_pp[i]->idx;
+			vsync_cfg.ppnumber[i] = dpu_enc->hw_pp[0]->idx;
 
-		vsync_cfg.pp_count = dpu_enc->num_phys_encs;
+		vsync_cfg.pp_count = 1;//dpu_enc->num_phys_encs;
 		if (disp_info->is_te_using_watchdog_timer)
 			vsync_cfg.vsync_source = DPU_VSYNC_SOURCE_WD_TIMER_0;
 		else
@@ -1039,20 +1039,20 @@ static void dpu_encoder_virt_mode_set(struct drm_encoder *drm_enc,
 		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
 
 		if (phys) {
-			if (!dpu_enc->hw_pp[i]) {
+			if (!dpu_enc->hw_pp[0]) {
 				DPU_ERROR_ENC(dpu_enc, "no pp block assigned"
 					     "at idx: %d\n", i);
 				goto error;
 			}
 
-			if (!hw_ctl[i]) {
+			if (!hw_ctl[0]) {
 				DPU_ERROR_ENC(dpu_enc, "no ctl block assigned"
 					     "at idx: %d\n", i);
 				goto error;
 			}
 
-			phys->hw_pp = dpu_enc->hw_pp[i];
-			phys->hw_ctl = hw_ctl[i];
+			phys->hw_pp = dpu_enc->hw_pp[0];
+			phys->hw_ctl = hw_ctl[0];
 
 			dpu_rm_init_hw_iter(&hw_iter, drm_enc->base.id,
 					    DPU_HW_BLK_INTF);
