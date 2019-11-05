@@ -227,7 +227,22 @@ static int a6xx_hfi_send_perf_table(struct a6xx_gmu *gmu)
 
 static int a6xx_hfi_send_bw_table(struct a6xx_gmu *gmu)
 {
-	struct a6xx_hfi_msg_bw_table msg = { 0 };
+	struct a6xx_hfi_msg_bw_table msg = {
+		.ddr_cmds_data = {
+			{0x40000000, 0x40000000, 0x40000000},
+			{0x6000060f, 0x6000032d, 0x60000008},
+			{0x6000091b, 0x600004c6, 0x60000008},
+			{0x60000db6, 0x60000730, 0x60000008},
+			{0x600010a3, 0x600008b9, 0x60000008},
+			{0x600014b9, 0x60000add, 0x60000008},
+			{0x60001760, 0x60000c41, 0x60000008},
+			{0x60001ef7, 0x6000103c, 0x60000008},
+			{0x60002936, 0x6000152b, 0x60000008},
+			{0x60002f5e, 0x600018d6, 0x60000008},
+			{0x600036f6, 0x60001cd0, 0x60000008},
+			{0x60003fbe, 0x6000216b, 0x60000008},
+		},
+	};
 
 	/*
 	 * The sdm845 GMU doesn't do bus frequency scaling on its own but it
@@ -235,7 +250,7 @@ static int a6xx_hfi_send_bw_table(struct a6xx_gmu *gmu)
 	 * when the GMU is shutting down. Send a single "off" entry.
 	 */
 
-	msg.bw_level_num = 1; // 12
+	msg.bw_level_num = 12;
 
 	msg.ddr_cmds_num = 3;
 	msg.ddr_wait_bitmask = 1;
@@ -243,13 +258,6 @@ static int a6xx_hfi_send_bw_table(struct a6xx_gmu *gmu)
 	msg.ddr_cmds_addrs[0] = 0x50000;
 	msg.ddr_cmds_addrs[1] = 0x5003c;
 	msg.ddr_cmds_addrs[2] = 0x5000c;
-
-	msg.ddr_cmds_data[0][0] =  0x40000000;
-	msg.ddr_cmds_data[0][1] =  0x40000000;
-	msg.ddr_cmds_data[0][2] =  0x40000000;
-
-	// TODO
-
 	/*
 	 * These are the CX (CNOC) votes.  This is used but the values for the
 	 * sdm845 GMU are known and fixed so we can hard code them.
@@ -287,8 +295,8 @@ int a6xx_hfi_send_prep_slumber(struct a6xx_gmu *gmu)
 	struct a6xx_hfi_prep_slumber_cmd msg = { 0 };
 
 	// TODO
-	msg.bw = 0;
-	msg.freq = 1;
+	msg.bw = 11;
+	msg.freq = gmu->nr_gpu_freqs-1;
 
 	return a6xx_hfi_send_msg(gmu, HDI_H2F_MSG_PREPARE_SLUMBER, &msg,
 		sizeof(msg), NULL, 0);
@@ -344,8 +352,8 @@ int a6xx_hfi_start(struct a6xx_gmu *gmu, int boot_state)
 	struct a6xx_hfi_gx_bw_perf_vote_cmd msg = { 0 };
 
 	msg.ack_type = 1; /* blocking */
-	msg.freq = 1;
-	msg.bw = 0;
+	msg.freq = gmu->nr_gpu_freqs-1;
+	msg.bw = 11;
 
 	ret =  a6xx_hfi_send_msg(gmu, HFI_H2F_MSG_GX_BW_PERF_VOTE, &msg, sizeof(msg), NULL, 0);
 	if (ret)
