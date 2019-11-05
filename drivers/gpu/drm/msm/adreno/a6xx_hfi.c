@@ -16,6 +16,8 @@ static const char * const a6xx_hfi_msg_id[] = {
 	HFI_MSG_ID(HFI_H2F_MSG_BW_TABLE),
 	HFI_MSG_ID(HFI_H2F_MSG_PERF_TABLE),
 	HFI_MSG_ID(HFI_H2F_MSG_TEST),
+	HFI_MSG_ID(HFI_H2F_MSG_FEATURE_CTRL),
+	HFI_MSG_ID(HFI_H2F_MSG_CORE_FW_START),
 };
 
 static int a6xx_hfi_queue_read(struct a6xx_hfi_queue *queue, u32 *data,
@@ -46,6 +48,8 @@ static int a6xx_hfi_queue_read(struct a6xx_hfi_queue *queue, u32 *data,
 		data[i] = queue->data[index];
 		index = (index + 1) % header->size;
 	}
+	for (; index & 3; )
+		index = (index + 1) % header->size;
 
 	header->read_index = index;
 	return HFI_HEADER_SIZE(hdr);
@@ -69,6 +73,10 @@ static int a6xx_hfi_queue_write(struct a6xx_gmu *gmu,
 
 	for (i = 0; i < dwords; i++) {
 		queue->data[index] = data[i];
+		index = (index + 1) % header->size;
+	}
+	for (; index & 3; ) {
+		queue->data[index] = 0xFAFAFAFA;
 		index = (index + 1) % header->size;
 	}
 
@@ -187,8 +195,8 @@ static int a6xx_hfi_get_fw_version(struct a6xx_gmu *gmu, u32 *version)
 {
 	struct a6xx_hfi_msg_fw_version msg = { 0 };
 
-	/* Currently supporting version 1.1 */
-	msg.supported_version = (1 << 28) | (1 << 16);
+	/* Currently supporting version 2.0*/
+	msg.supported_version = (2 << 28) | (0 << 16);
 
 	return a6xx_hfi_send_msg(gmu, HFI_H2F_MSG_FW_VERSION, &msg, sizeof(msg),
 		version, sizeof(*version));
@@ -204,6 +212,7 @@ static int a6xx_hfi_send_perf_table(struct a6xx_gmu *gmu)
 
 	for (i = 0; i < gmu->nr_gpu_freqs; i++) {
 		msg.gx_votes[i].vote = gmu->gx_arc_votes[i];
+		msg.gx_votes[i].acd = 0xffffffff;
 		msg.gx_votes[i].freq = gmu->gpu_freqs[i] / 1000;
 	}
 
@@ -226,18 +235,20 @@ static int a6xx_hfi_send_bw_table(struct a6xx_gmu *gmu)
 	 * when the GMU is shutting down. Send a single "off" entry.
 	 */
 
-	msg.bw_level_num = 1;
+	msg.bw_level_num = 1; // 12
 
 	msg.ddr_cmds_num = 3;
-	msg.ddr_wait_bitmask = 0x07;
+	msg.ddr_wait_bitmask = 1;
 
 	msg.ddr_cmds_addrs[0] = 0x50000;
-	msg.ddr_cmds_addrs[1] = 0x5005c;
+	msg.ddr_cmds_addrs[1] = 0x5003c;
 	msg.ddr_cmds_addrs[2] = 0x5000c;
 
 	msg.ddr_cmds_data[0][0] =  0x40000000;
 	msg.ddr_cmds_data[0][1] =  0x40000000;
 	msg.ddr_cmds_data[0][2] =  0x40000000;
+
+	// TODO
 
 	/*
 	 * These are the CX (CNOC) votes.  This is used but the values for the
@@ -245,7 +256,7 @@ static int a6xx_hfi_send_bw_table(struct a6xx_gmu *gmu)
 	 */
 
 	msg.cnoc_cmds_num = 3;
-	msg.cnoc_wait_bitmask = 0x05;
+	msg.cnoc_wait_bitmask = 1;
 
 	msg.cnoc_cmds_addrs[0] = 0x50034;
 	msg.cnoc_cmds_addrs[1] = 0x5007c;
@@ -271,15 +282,28 @@ static int a6xx_hfi_send_test(struct a6xx_gmu *gmu)
 		NULL, 0);
 }
 
+int a6xx_hfi_send_prep_slumber(struct a6xx_gmu *gmu)
+{
+	struct a6xx_hfi_prep_slumber_cmd msg = { 0 };
+
+	// TODO
+	msg.bw = 0;
+	msg.freq = 1;
+
+	return a6xx_hfi_send_msg(gmu, HDI_H2F_MSG_PREPARE_SLUMBER, &msg,
+		sizeof(msg), NULL, 0);
+}
+
 int a6xx_hfi_start(struct a6xx_gmu *gmu, int boot_state)
 {
 	int ret;
+	u32 version = 0;
 
-	ret = a6xx_hfi_send_gmu_init(gmu, boot_state);
-	if (ret)
-		return ret;
+	//ret = a6xx_hfi_send_gmu_init(gmu, boot_state);
+	//if (ret)
+	//	return ret;
 
-	ret = a6xx_hfi_get_fw_version(gmu, NULL);
+	ret = a6xx_hfi_get_fw_version(gmu, &version);
 	if (ret)
 		return ret;
 
@@ -297,11 +321,52 @@ int a6xx_hfi_start(struct a6xx_gmu *gmu, int boot_state)
 	if (ret)
 		return ret;
 
+	if (1)
+	{
+
+	struct a6xx_hfi_msg_feature_ctrl msg = { 0 };
+	struct a6xx_hfi_msg_core_fw_start msg2 = { 0 };
+
+	/* Currently supporting version 2.0*/
+#define HFI_FEATURE_ECP		1
+	msg.feature = HFI_FEATURE_ECP;
+
+	ret =  a6xx_hfi_send_msg(gmu, HFI_H2F_MSG_FEATURE_CTRL, &msg, sizeof(msg), NULL, 0);
+	if (ret)
+		return ret;
+
+	ret =  a6xx_hfi_send_msg(gmu, HFI_H2F_MSG_CORE_FW_START, &msg2, sizeof(msg2), NULL, 0);
+	if (ret)
+		return ret;
+	}
+
+	{
+	struct a6xx_hfi_gx_bw_perf_vote_cmd msg = { 0 };
+
+	msg.ack_type = 1; /* blocking */
+	msg.freq = 1;
+	msg.bw = 0;
+
+	ret =  a6xx_hfi_send_msg(gmu, HFI_H2F_MSG_GX_BW_PERF_VOTE, &msg, sizeof(msg), NULL, 0);
+	if (ret)
+		return ret;
+	}
+
+	{
+	struct a6xx_hfi_msg_start msg = { 0 };
+
+	ret =  a6xx_hfi_send_msg(gmu, HFI_H2F_MSG_START, &msg, sizeof(msg), NULL, 0);
+	if (ret)
+		return ret;
+	}
+
+#if 0
 	/*
 	 * Let the GMU know that there won't be any more HFI messages until next
 	 * boot
 	 */
 	a6xx_hfi_send_test(gmu);
+#endif
 
 	return 0;
 }
@@ -380,5 +445,16 @@ void a6xx_hfi_init(struct a6xx_gmu *gmu)
 	/* GMU response queue */
 	offset += SZ_4K;
 	a6xx_hfi_queue_init(&gmu->queues[1], &headers[1], hfi->virt + offset,
-		hfi->iova + offset, 4);
+		hfi->iova + offset, 1);
+
+	/* DBG queue */
+	offset += SZ_4K;
+	a6xx_hfi_queue_init(&gmu->queues[2], &headers[2], hfi->virt + offset,
+		hfi->iova + offset, 2);
+
+	/* DSP queue */
+	offset += SZ_4K;
+	a6xx_hfi_queue_init(&gmu->queues[3], &headers[3], hfi->virt + offset,
+		hfi->iova + offset, 3);
+	headers[3].status = 0;
 }
