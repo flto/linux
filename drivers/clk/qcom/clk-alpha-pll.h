@@ -106,6 +106,14 @@ struct alpha_pll_config {
 	u32 post_div_mask;
 	u32 vco_val;
 	u32 vco_mask;
+
+	u32 config_ctl_hi1_val;
+	u32 user_ctl_val;
+	u32 user_ctl_hi_val;
+	u32 user_ctl_hi1_val;
+	u32 test_ctl_val;
+	u32 test_ctl_hi_val;
+	//u32 test_ctl_hi1_val;
 };
 
 extern const struct clk_ops clk_alpha_pll_ops;
@@ -121,6 +129,8 @@ extern const struct clk_ops clk_alpha_pll_postdiv_fabia_ops;
 void clk_alpha_pll_configure(struct clk_alpha_pll *pll, struct regmap *regmap,
 			     const struct alpha_pll_config *config);
 void clk_fabia_pll_configure(struct clk_alpha_pll *pll, struct regmap *regmap,
+				const struct alpha_pll_config *config);
+void clk_trion_pll_configure(struct clk_alpha_pll *pll, struct regmap *regmap,
 				const struct alpha_pll_config *config);
 extern const struct clk_ops clk_trion_fixed_pll_ops;
 extern const struct clk_ops clk_trion_pll_postdiv_ops;
