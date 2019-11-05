@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright 2019 Valve Corporation
+ */
+
+#include "sm8150.dtsi"
+
+&gmu {
+	compatible = "qcom,adreno-gmu-640.1", "qcom,adreno-gmu";
+
+	reg = <0 0x2c6a000 0 0x30000>,
+		  <0 0xb290000 0 0x10000>,
+		  <0 0xb490000 0 0x10000>;
+	reg-names = "gmu", "gmu_pdc", "gmu_pdc_seq";
+};
+
+/delete-node/ &gpu_opp_table;
+
+&gpu {
+	compatible = "qcom,adreno-640.1", "qcom,adreno";
+
+	gpu_opp_table: opp-table {
+		compatible = "operating-points-v2";
+
+		opp-257000000 {
+			opp-hz = /bits/ 64 <257000000>;
+			opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
+		};
+
+		opp-345000000 {
+			opp-hz = /bits/ 64 <345000000>;
+			opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
+		};
+
+		opp-427000000 {
+			opp-hz = /bits/ 64 <427000000>;
+			opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
+		};
+
+		/*opp-499200000 {
+			opp-hz = /bits/ 64 <499200000>;
+			opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
+		};*/
+
+		opp-585000000 {
+			opp-hz = /bits/ 64 <585000000>;
+			opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
+		};
+
+		opp-675000000 {
+			opp-hz = /bits/ 64 <675000000>;
+			opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
+		};
+	};
+};
