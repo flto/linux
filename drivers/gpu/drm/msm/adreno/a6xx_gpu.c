@@ -9,6 +9,7 @@
 #include "a6xx_gmu.xml.h"
 
 #include <linux/devfreq.h>
+#include <linux/devfreq.h>
 
 #define GPU_PAS_ID 13
 
@@ -372,11 +373,25 @@ static int a6xx_zap_shader_init(struct msm_gpu *gpu)
 	  A6XX_RBBM_INT_0_MASK_UCHE_OOB_ACCESS | \
 	  A6XX_RBBM_INT_0_MASK_UCHE_TRAP_INTR)
 
+#define REG_A6XX_GBIF_HALT					0x3c45
+
 static int a6xx_hw_init(struct msm_gpu *gpu)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
 	int ret;
+
+	/*
+	 * During a previous slumber, GBIF halt is asserted to ensure
+	 * no further transaction can go through GPU before GPU
+	 * headswitch is turned off.
+	 *
+	 * This halt is deasserted once headswitch goes off but
+	 * incase headswitch doesn't goes off clear GBIF halt
+	 * here to ensure GPU wake-up doesn't fail because of
+	 * halted GPU transactions.
+	 */
+	gpu_write(gpu, REG_A6XX_GBIF_HALT, 0x0);
 
 	/* Make sure the GMU keeps the GPU on while we set it up */
 	a6xx_gmu_set_oob(&a6xx_gpu->gmu, GMU_OOB_GPU_SET);
@@ -407,10 +422,19 @@ static int a6xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A6XX_RBBM_SECVID_TSB_ADDR_MODE_CNTL, 0x1);
 
 	/* enable hardware clockgating */
-	a6xx_set_hwcg(gpu, true);
+	//a6xx_set_hwcg(gpu, true);
+
+#define REG_A6XX_GBIF_QSB_SIDE0               0x3c03
+#define REG_A6XX_GBIF_QSB_SIDE1               0x3c04
+#define REG_A6XX_GBIF_QSB_SIDE2               0x3c05
+#define REG_A6XX_GBIF_QSB_SIDE3               0x3c06
 
 	/* VBIF start */
-	gpu_write(gpu, REG_A6XX_VBIF_GATE_OFF_WRREQ_EN, 0x00000009);
+	//gpu_write(gpu, REG_A6XX_VBIF_GATE_OFF_WRREQ_EN, 0x00000009);
+	gpu_write(gpu, REG_A6XX_GBIF_QSB_SIDE0, 0x00071620);
+	gpu_write(gpu, REG_A6XX_GBIF_QSB_SIDE1, 0x00071620);
+	gpu_write(gpu, REG_A6XX_GBIF_QSB_SIDE2, 0x00071620);
+	gpu_write(gpu, REG_A6XX_GBIF_QSB_SIDE3, 0x00071620);
 	gpu_write(gpu, REG_A6XX_RBBM_VBIF_CLIENT_QOS_CNTL, 0x3);
 
 	/* Make all blocks contribute to the GPU BUSY perf counter */
@@ -435,14 +459,14 @@ static int a6xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A6XX_UCHE_FILTER_CNTL, 0x804);
 	gpu_write(gpu, REG_A6XX_UCHE_CACHE_WAYS, 0x4);
 
-	gpu_write(gpu, REG_A6XX_CP_ROQ_THRESHOLDS_2, 0x010000c0);
+	gpu_write(gpu, REG_A6XX_CP_ROQ_THRESHOLDS_2, 0x02000140);
 	gpu_write(gpu, REG_A6XX_CP_ROQ_THRESHOLDS_1, 0x8040362c);
 
 	/* Setting the mem pool size */
 	gpu_write(gpu, REG_A6XX_CP_MEM_POOL_SIZE, 128);
 
 	/* Setting the primFifo thresholds default values */
-	gpu_write(gpu, REG_A6XX_PC_DBG_ECO_CNTL, (0x300 << 11));
+	gpu_write(gpu, REG_A6XX_PC_DBG_ECO_CNTL, (0x400 << 11));
 
 	/* Set the AHB default slave response to "ERROR" */
 	gpu_write(gpu, REG_A6XX_CP_AHB_CNTL, 0x1);
@@ -729,6 +753,10 @@ static int a6xx_pm_resume(struct msm_gpu *gpu)
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
 	int ret;
+	static int once = 0;
+
+	if (once)
+		return 0;
 
 	gpu->needs_hw_init = true;
 
@@ -738,6 +766,8 @@ static int a6xx_pm_resume(struct msm_gpu *gpu)
 
 	msm_gpu_resume_devfreq(gpu);
 
+	once = 1;
+
 	return 0;
 }
 
@@ -745,6 +775,8 @@ static int a6xx_pm_suspend(struct msm_gpu *gpu)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
+
+	return 0;
 
 	devfreq_suspend_device(gpu->devfreq.devfreq);
 

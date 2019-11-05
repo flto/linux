@@ -58,6 +58,7 @@ struct a6xx_gmu {
 
 	struct a6xx_gmu_bo *hfi;
 	struct a6xx_gmu_bo *debug;
+	struct a6xx_gmu_bo *icache, *dcache, *dummy;
 
 	int nr_clocks;
 	struct clk_bulk_data *clocks;
