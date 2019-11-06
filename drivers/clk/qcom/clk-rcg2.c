@@ -119,7 +119,7 @@ static int update_config(struct clk_rcg2 *rcg)
 		udelay(1);
 	}
 
-	WARN(1, "%s: rcg didn't update its configuration.", name);
+	printk("%s: rcg didn't update its configuration.", name);
 	return -EBUSY;
 }
 
