@@ -1749,6 +1749,13 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
 	u64 redist_stride;
 	u32 nr_redist_regions;
 	int err, i;
+	volatile uint32_t *ptr;
+
+	ptr = ioremap(0xae6b000, 0x1000);
+	ptr[0x2b4/4] = 0;
+	ptr[0xab4/4] = 0;
+	iounmap(ptr);
+	wmb();
 
 	dist_base = of_iomap(node, 0);
 	if (!dist_base) {

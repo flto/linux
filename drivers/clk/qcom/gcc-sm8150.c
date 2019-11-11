@@ -11,6 +11,7 @@
 #include <linux/clk-provider.h>
 #include <linux/regmap.h>
 #include <linux/reset-controller.h>
+#include <linux/io.h>
 
 #include <dt-bindings/clock/qcom,gcc-sm8150.h>
 
