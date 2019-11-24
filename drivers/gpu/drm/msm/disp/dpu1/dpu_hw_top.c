@@ -262,7 +262,7 @@ static void dpu_hw_reset_ubwc(struct dpu_hw_mdp *mdp, struct dpu_mdss_cfg *m)
 	/* force blk offset to zero to access beginning of register region */
 	c = mdp->hw;
 	c.blk_off = 0x0;
-	DPU_REG_WRITE(&c, UBWC_STATIC, m->mdp[0].ubwc_static);
+	DPU_REG_WRITE(&c, UBWC_STATIC, 2 << 4 | BIT(10));
 }
 
 static void dpu_hw_intf_audio_select(struct dpu_hw_mdp *mdp)
