@@ -95,6 +95,7 @@ static int dp_power_regulator_init(struct dp_power_private *power)
 
 static int dp_power_pinctrl_set(struct dp_power_private *power, bool active)
 {
+#if 0
 	int rc = -EFAULT;
 	struct pinctrl_state *pin_state;
 	struct dp_parser *parser = power->parser;
@@ -112,6 +113,7 @@ static int dp_power_pinctrl_set(struct dp_power_private *power, bool active)
 		return rc;
 	}
 
+#endif
 	return 0;
 }
 
@@ -265,6 +267,7 @@ int dp_power_clk_enable(struct dp_power *dp_power,
 
 static int dp_power_request_gpios(struct dp_power_private *power)
 {
+#if 0
 	int rc = 0;
 	struct device *dev = &power->pdev->dev;
 	struct dp_parser *parser = power->parser;
@@ -293,11 +296,13 @@ static int dp_power_request_gpios(struct dp_power_private *power)
 			return rc;
 		}
 	}
+#endif
 	return 0;
 }
 
 static void dp_power_set_gpio(struct dp_power_private *power, bool flip)
 {
+#if 0
 	struct dp_parser *parser = power->parser;
 
 	if (gpio_is_valid(parser->aux_sel_gpio))
@@ -308,10 +313,12 @@ static void dp_power_set_gpio(struct dp_power_private *power, bool flip)
 
 	if (gpio_is_valid(parser->usbplug_cc_gpio))
 		gpio_set_value(parser->usbplug_cc_gpio, 0);
+#endif
 }
 
 static int dp_power_config_gpios(struct dp_power_private *power, bool flip)
 {
+#if 0
 	int rc = 0;
 	struct dp_parser *parser = power->parser;
 
@@ -325,6 +332,7 @@ static int dp_power_config_gpios(struct dp_power_private *power, bool flip)
 	}
 
 	dp_power_set_gpio(power, flip);
+#endif
 	return 0;
 }
 
