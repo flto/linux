@@ -578,6 +578,8 @@ static int qcom_scm_probe(struct platform_device *pdev)
 	__scm = scm;
 	__scm->dev = &pdev->dev;
 
+	dma_set_mask(__scm->dev, 0xfffffffffffffffful);
+
 	__qcom_scm_init();
 
 	/*
