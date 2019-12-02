@@ -56,8 +56,9 @@ struct dp_pll_10nm {
 	u32 vco_tune_map;
 	u32 lock_cmp1_mode0;
 	u32 lock_cmp2_mode0;
-	u32 lock_cmp3_mode0;
 	u32 lock_cmp_en;
+	u32 cmn_config;
+	u32 txn_tran_drv_emp_en;
 
 	/* PHY vco divider */
 	u32 phy_vco_div;

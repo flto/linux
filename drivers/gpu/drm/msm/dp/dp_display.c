@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt)	"[drm-dp] %s: " fmt, __func__
@@ -15,7 +15,6 @@
 
 #include "msm_drv.h"
 #include "msm_kms.h"
-#include "dp_hpd.h"
 #include "dp_parser.h"
 #include "dp_power.h"
 #include "dp_catalog.h"
@@ -25,6 +24,7 @@
 #include "dp_ctrl.h"
 #include "dp_display.h"
 #include "dp_drm.h"
+#include "dp_usbpd.h"
 
 static struct msm_dp *g_dp_display;
 #define HPD_STRING_SIZE 30
@@ -44,7 +44,7 @@ struct dp_display_private {
 	struct dentry *root;
 	struct completion notification_comp;
 
-	struct dp_usbpd   *usbpd;
+	struct dp_hpd   *usbpd;
 	struct dp_parser  *parser;
 	struct dp_power   *power;
 	struct dp_catalog *catalog;
@@ -53,7 +53,7 @@ struct dp_display_private {
 	struct dp_panel   *panel;
 	struct dp_ctrl    *ctrl;
 
-	struct dp_usbpd_cb usbpd_cb;
+	struct dp_hpd_cb usbpd_cb;
 	struct dp_display_mode dp_mode;
 	struct msm_dp dp_display;
 };
@@ -426,9 +426,9 @@ static void dp_display_handle_video_request(struct dp_display_private *dp)
 {
 	if (dp->link->sink_request & DP_TEST_LINK_VIDEO_PATTERN) {
 		/* force disconnect followed by connect */
-		dp->usbpd->connect(dp->usbpd, false);
+		dp->usbpd->simulate_connect(dp->usbpd, false);
 		dp->panel->video_test = true;
-		dp->usbpd->connect(dp->usbpd, true);
+		dp->usbpd->simulate_connect(dp->usbpd, true);
 		dp_link_send_test_response(dp->link);
 	}
 }
@@ -501,14 +501,13 @@ static void dp_display_deinit_sub_modules(struct dp_display_private *dp)
 	dp_power_put(dp->power);
 	dp_catalog_put(dp->catalog);
 	dp_parser_put(dp->parser);
-	dp_hpd_put(dp->usbpd);
 }
 
 static int dp_init_sub_modules(struct dp_display_private *dp)
 {
 	int rc = 0;
 	struct device *dev = &dp->pdev->dev;
-	struct dp_usbpd_cb *cb = &dp->usbpd_cb;
+	struct dp_hpd_cb *cb = &dp->usbpd_cb;
 	struct dp_panel_in panel_in = {
 		.dev = dev,
 	};
@@ -517,14 +516,6 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 	cb->configure  = dp_display_usbpd_configure_cb;
 	cb->disconnect = dp_display_usbpd_disconnect_cb;
 	cb->attention  = dp_display_usbpd_attention_cb;
-
-	dp->usbpd = dp_hpd_get(dev, cb);
-	if (IS_ERR(dp->usbpd)) {
-		rc = PTR_ERR(dp->usbpd);
-		DRM_ERROR("failed to initialize hpd, rc = %d\n", rc);
-		dp->usbpd = NULL;
-		goto error;
-	}
 
 	dp->parser = dp_parser_get(dp->pdev);
 	if (IS_ERR(dp->parser)) {
@@ -587,7 +578,25 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		goto error_ctrl;
 	}
 
+	dp->usbpd = dp_hpd_get(dev, cb);
+	if (IS_ERR(dp->usbpd)) {
+		rc = PTR_ERR(dp->usbpd);
+		pr_err("failed to initialize hpd, rc = %d\n", rc);
+		dp->usbpd = NULL;
+		goto error_hpd;
+	}
+
+	rc = dp->usbpd->register_hpd(dp->usbpd);
+	if (rc) {
+		pr_err("failed register hpd\n");
+		goto error_hpd_reg;
+	}
+
 	return rc;
+error_hpd_reg:
+	dp_hpd_put(dp->usbpd);
+error_hpd:
+	dp_ctrl_put(dp->ctrl);
 error_ctrl:
 	dp_panel_put(dp->panel);
 error_panel:
@@ -601,8 +610,6 @@ error_power:
 error_catalog:
 	dp_parser_put(dp->parser);
 error_parser:
-	dp_hpd_put(dp->usbpd);
-error:
 	return rc;
 }
 
@@ -980,6 +987,7 @@ int msm_dp_modeset_init(struct msm_dp *dp_display, struct drm_device *dev,
 	}
 
 	priv->connectors[priv->num_connectors++] = dp_display->connector;
+
 	return 0;
 }
 

@@ -221,7 +221,7 @@ static struct clk_hw *dp_pll_10nm_pixel_clk_sel(struct dp_pll_10nm *pll_10nm)
 				"dp_vco_divsel_four_clk_src",
 				"dp_vco_divsel_six_clk_src" },
 		.num_parents = 3,
-		.name = "dp_phy_pll_vco_div_clk",
+		.name = "dp_vco_divided_clk_src_mux",
 		.flags = CLK_IGNORE_UNUSED,
 		.ops = &dp_10nm_pclksel_clk_ops,
 	};
@@ -276,7 +276,7 @@ static int dp_pll_10nm_register(struct dp_pll_10nm *pll_10nm)
 		return ret;
 	hws[num++] = &pll_10nm->base.clk_hw;
 
-	snprintf(clk_name, 32, "dp_phy_pll_link_clk");
+	snprintf(clk_name, 32, "dp_link_clk_divsel_ten");
 	snprintf(parent, 32, "dp_vco_clk");
 	hw = clk_hw_register_fixed_factor(dev, clk_name, parent,
 					  CLK_SET_RATE_PARENT, 1, 10);
