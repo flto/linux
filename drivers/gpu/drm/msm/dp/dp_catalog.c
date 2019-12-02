@@ -41,17 +41,17 @@
 #define DP_INTERRUPT_STATUS2_MASK	(DP_INTERRUPT_STATUS2 << 2)
 
 static u8 const vm_pre_emphasis[4][4] = {
-	{0x00, 0x0B, 0x12, 0xFF},       /* pe0, 0 db */
-	{0x00, 0x0A, 0x12, 0xFF},       /* pe1, 3.5 db */
-	{0x00, 0x0C, 0xFF, 0xFF},       /* pe2, 6.0 db */
+	{0x00, 0x0E, 0x16, 0xFF},       /* pe0, 0 db */
+	{0x00, 0x0E, 0x16, 0xFF},       /* pe1, 3.5 db */
+	{0x00, 0x0E, 0xFF, 0xFF},       /* pe2, 6.0 db */
 	{0xFF, 0xFF, 0xFF, 0xFF}        /* pe3, 9.5 db */
 };
 
 /* voltage swing, 0.2v and 1.0v are not support */
 static u8 const vm_voltage_swing[4][4] = {
-	{0x07, 0x0F, 0x14, 0xFF}, /* sw0, 0.4v  */
-	{0x11, 0x1D, 0x1F, 0xFF}, /* sw1, 0.6 v */
-	{0x18, 0x1F, 0xFF, 0xFF}, /* sw1, 0.8 v */
+	{0x07, 0x0F, 0x16, 0xFF}, /* sw0, 0.4v  */
+	{0x11, 0x1E, 0x1F, 0xFF}, /* sw1, 0.6 v */
+	{0x1A, 0x1F, 0xFF, 0xFF}, /* sw1, 0.8 v */
 	{0xFF, 0xFF, 0xFF, 0xFF}  /* sw1, 1.2 v, optional */
 };
 
@@ -311,6 +311,25 @@ void dp_catalog_aux_setup(struct dp_catalog_aux *aux,
 
 	dp_catalog_get_priv(aux);
 
+	dp_write_phy(catalog, REG_DP_PHY_PD_CTL, 0x67);
+	wmb();
+
+	dp_write_pll(catalog, 0x04, 0x17);
+	wmb();
+
+	/* DP AUX CFG register programming */
+	for (i = 0; i < PHY_AUX_CFG_MAX; i++) {
+		DRM_DEBUG_DP("%s: offset=0x%08x, value=0x%08x\n",
+			dp_phy_aux_config_type_to_string(i),
+			cfg[i].offset, cfg[i].lut[cfg[i].current_index]);
+		dp_write_phy(catalog, cfg[i].offset,
+			cfg[i].lut[cfg[i].current_index]);
+	}
+	wmb();
+
+	dp_write_phy(catalog, 0x54, 0x1F);
+
+#if 0
 	dp_write_phy(catalog, REG_DP_PHY_PD_CTL, DP_PHY_PD_CTL_PWRDN |
 		DP_PHY_PD_CTL_AUX_PWRDN | DP_PHY_PD_CTL_PLL_PWRDN |
 		DP_PHY_PD_CTL_DP_CLAMP_EN);
@@ -333,6 +352,7 @@ void dp_catalog_aux_setup(struct dp_catalog_aux *aux,
 	dp_write_phy(catalog, REG_DP_PHY_AUX_INTERRUPT_MASK, PHY_AUX_STOP_ERR_MASK |
 			PHY_AUX_DEC_ERR_MASK | PHY_AUX_SYNC_ERR_MASK |
 			PHY_AUX_ALIGN_ERR_MASK | PHY_AUX_REQ_ERR_MASK);
+#endif
 }
 
 void dp_catalog_aux_get_irq(struct dp_catalog_aux *aux, bool cmd_busy)
@@ -894,6 +914,7 @@ int dp_catalog_panel_timing_cfg(struct dp_catalog_panel *panel)
 	dp_write_link(catalog, REG_DP_START_HOR_VER_FROM_SYNC, panel->sync_start);
 	dp_write_link(catalog, REG_DP_HSYNC_VSYNC_WIDTH_POLARITY, panel->width_blanking);
 	dp_write_link(catalog, REG_DP_ACTIVE_HOR_VER, panel->dp_active);
+	dp_write_p0(catalog, 0x7c, 0);
 	return 0;
 }
 
