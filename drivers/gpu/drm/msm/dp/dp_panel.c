@@ -100,7 +100,7 @@ static u32 dp_panel_get_supported_bpp(struct dp_panel *dp_panel,
 		u32 mode_edid_bpp, u32 mode_pclk_khz)
 {
 	struct drm_dp_link *link_info;
-	const u32 max_supported_bpp = 30, min_supported_bpp = 18;
+	const u32 max_supported_bpp = 24, min_supported_bpp = 18;
 	u32 bpp = 0, data_rate_khz = 0;
 
 	bpp = min_t(u32, mode_edid_bpp, max_supported_bpp);
@@ -451,7 +451,7 @@ int dp_panel_init_panel_info(struct dp_panel *dp_panel)
 	DRM_DEBUG_DP("pixel clock (KHz)=(%d)\n", drm_mode->clock);
 	DRM_DEBUG_DP("bpp = %d\n", dp_panel->dp_mode.bpp);
 
-	dp_panel->dp_mode.bpp = max_t(u32, 18, min_t(u32, dp_panel->dp_mode.bpp, 30));
+	dp_panel->dp_mode.bpp = max_t(u32, 18, min_t(u32, dp_panel->dp_mode.bpp, 24));
 	DRM_DEBUG_DP("updated bpp = %d\n", dp_panel->dp_mode.bpp);
 
 	return rc;
