@@ -252,6 +252,7 @@ static int qcom_icc_bcm_voter_probe(struct platform_device *pdev)
 static const struct of_device_id bcm_voter_of_match[] = {
 	{ .compatible = "qcom,sdm845-bcm-voter" },
 	{ .compatible = "qcom,sc7180-bcm-voter" },
+	{ .compatible = "qcom,sm8150-bcm-voter" },
 	{ },
 };
 
