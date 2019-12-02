@@ -161,9 +161,10 @@ struct bcm_voter *of_bcm_voter_get(struct device *dev, const char *name)
 	node = of_parse_phandle(np, "qcom,bcm-voter", idx);
 
 	list_for_each_entry(temp, &bcm_voters, voter_node) {
-		if (temp->np == node)
+		if (temp->np == node) {
 			voter = temp;
 			break;
+		}
 	}
 
 	return voter;
