@@ -122,7 +122,6 @@ static u8 dp_mux_get_parent_10nm(struct clk_hw *hw)
 	struct dp_pll_10nm *dp_res = pclksel->pll;
 	u8 val = 0;
 
-	DRM_ERROR("clk_hw->init->name = %s\n", hw->init->name);
 	auxclk_div = PLL_REG_R(dp_res->phy_base, REG_DP_PHY_VCO_DIV);
 	auxclk_div &= 0x03;
 
