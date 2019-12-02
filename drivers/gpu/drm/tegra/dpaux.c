@@ -23,7 +23,6 @@
 #include <drm/drm_dp_helper.h>
 #include <drm/drm_panel.h>
 
-#include "dp.h"
 #include "dpaux.h"
 #include "drm.h"
 #include "trace.h"
