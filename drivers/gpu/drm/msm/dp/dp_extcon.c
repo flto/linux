@@ -198,6 +198,7 @@ struct dp_usbpd *dp_extcon_get(struct device *dev, struct dp_usbpd_cb *cb)
 		return ERR_PTR(rc);
 	}
 
+#if 0
 	dp_extcon->extcon = extcon_get_edev_by_phandle(dev, 0);
 	if (!dp_extcon->extcon) {
 		DRM_ERROR("invalid extcon data\n");
@@ -205,6 +206,7 @@ struct dp_usbpd *dp_extcon_get(struct device *dev, struct dp_usbpd_cb *cb)
 		devm_kfree(dev, dp_extcon);
 		return ERR_PTR(rc);
         }
+#endif
 
 	dp_extcon->dev = dev;
 	dp_extcon->dp_cb = cb;

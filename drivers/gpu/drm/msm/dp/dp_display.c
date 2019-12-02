@@ -898,6 +898,15 @@ int msm_dp_modeset_init(struct msm_dp *dp_display, struct drm_device *dev,
 	}
 
 	priv->connectors[priv->num_connectors++] = dp_display->connector;
+
+	// INIT HACK
+	{
+	struct dp_display_private *dp;
+	dp = container_of(dp_display, struct dp_display_private, dp_display);
+	dp->usbpd = dp_extcon_get(&dp->pdev->dev, &dp->usbpd_cb);
+	dp->usbpd->orientation = ORIENTATION_CC2;
+	dp->usbpd->connect(dp->usbpd, true);
+	}
 	return 0;
 }
 
