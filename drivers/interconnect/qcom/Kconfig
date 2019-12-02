@@ -50,3 +50,12 @@ config INTERCONNECT_QCOM_SC7180
 	help
 	  This is a driver for the QTI Network-on-Chip on sc7180-based
 	  platforms.
+
+config INTERCONNECT_QCOM_SM8150
+	tristate "QTI SM8150 interconnect driver"
+	depends on INTERCONNECT_QCOM
+	depends on INTERCONNECT_QCOM_RPMH && INTERCONNECT_QCOM_BCM_VOTER
+	depends on (QCOM_RPMH && QCOM_COMMAND_DB && OF) || COMPILE_TEST
+	help
+	  This is a driver for the QTI Network-on-Chip on sm8150-based
+	  platforms.
