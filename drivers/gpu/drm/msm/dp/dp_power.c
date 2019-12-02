@@ -257,6 +257,7 @@ error:
 
 static int dp_power_pinctrl_set(struct dp_power_private *power, bool active)
 {
+#if 0
 	int rc = -EFAULT;
 	struct pinctrl_state *pin_state;
 	struct dp_parser *parser = power->parser;
@@ -273,7 +274,7 @@ static int dp_power_pinctrl_set(struct dp_power_private *power, bool active)
 			active ? "dp_active" : "dp_sleep");
 		return rc;
 	}
-
+#endif
 	return 0;
 }
 
@@ -427,6 +428,7 @@ int dp_power_clk_enable(struct dp_power *dp_power,
 
 static int dp_power_request_gpios(struct dp_power_private *power)
 {
+#if 0
 	int rc = 0, i;
 	struct device *dev = &power->pdev->dev;
 	struct dss_module_power *mp = &power->parser->mp[DP_CORE_PM];
@@ -452,6 +454,7 @@ static int dp_power_request_gpios(struct dp_power_private *power)
 			return rc;
 		}
 	}
+#endif
 	return 0;
 }
 
@@ -462,6 +465,7 @@ static bool dp_power_find_gpio(const char *gpio1, const char *gpio2)
 
 static void dp_power_set_gpio(struct dp_power_private *power, bool flip)
 {
+#if 0
 	int i;
 	struct dss_module_power *mp = &power->parser->mp[DP_CORE_PM];
 	struct dss_gpio *config = mp->gpio_config;
@@ -484,11 +488,13 @@ static void dp_power_set_gpio(struct dp_power_private *power, bool flip)
 		}
 		config++;
 	}
+#endif
 }
 
 static int dp_power_config_gpios(struct dp_power_private *power, bool flip,
 					bool enable)
 {
+#if 0
 	int rc = 0, i;
 	struct dss_module_power *mp = &power->parser->mp[DP_CORE_PM];
 	struct dss_gpio *config = mp->gpio_config;
@@ -510,7 +516,7 @@ static int dp_power_config_gpios(struct dp_power_private *power, bool flip,
 			gpio_free(config[i].gpio);
 		}
 	}
-
+#endif
 	return 0;
 }
 

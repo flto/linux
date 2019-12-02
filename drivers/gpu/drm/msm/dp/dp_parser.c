@@ -242,6 +242,7 @@ static int dp_parser_misc(struct dp_parser *parser)
 
 static int dp_parser_pinctrl(struct dp_parser *parser)
 {
+#if 0
 	struct dp_pinctrl *pinctrl = &parser->pinctrl;
 
 	pinctrl->pin = devm_pinctrl_get(&parser->pdev->dev);
@@ -266,12 +267,13 @@ static int dp_parser_pinctrl(struct dp_parser *parser)
 			PTR_ERR(pinctrl->state_suspend));
 		return -EINVAL;
 	}
-
+#endif
 	return 0;
 }
 
 static int dp_parser_gpio(struct dp_parser *parser)
 {
+#if 0
 	int i = 0;
 	struct device *dev = &parser->pdev->dev;
 	struct device_node *of_node = dev->of_node;
@@ -304,6 +306,7 @@ static int dp_parser_gpio(struct dp_parser *parser)
 		mp->gpio_config[i].value = 0;
 	}
 
+#endif
 	return 0;
 }
 
