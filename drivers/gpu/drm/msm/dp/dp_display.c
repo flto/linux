@@ -13,7 +13,6 @@
 #include <linux/of_irq.h>
 
 #include "msm_drv.h"
-#include "dp_extcon.h"
 #include "dp_parser.h"
 #include "dp_power.h"
 #include "dp_catalog.h"
@@ -23,6 +22,7 @@
 #include "dp_ctrl.h"
 #include "dp_display.h"
 #include "dp_drm.h"
+#include "dp_usbpd.h"
 
 static struct msm_dp *g_dp_display;
 #define HPD_STRING_SIZE 30
@@ -41,7 +41,7 @@ struct dp_display_private {
 	struct dentry *root;
 	struct completion notification_comp;
 
-	struct dp_usbpd   *usbpd;
+	struct dp_hpd   *usbpd;
 	struct dp_parser  *parser;
 	struct dp_power   *power;
 	struct dp_catalog *catalog;
@@ -50,7 +50,7 @@ struct dp_display_private {
 	struct dp_panel   *panel;
 	struct dp_ctrl    *ctrl;
 
-	struct dp_usbpd_cb usbpd_cb;
+	struct dp_hpd_cb usbpd_cb;
 	struct dp_display_mode dp_mode;
 	struct msm_dp dp_display;
 
@@ -408,9 +408,9 @@ static void dp_display_handle_video_request(struct dp_display_private *dp)
 {
 	if (dp->link->sink_request & DP_TEST_LINK_VIDEO_PATTERN) {
 		/* force disconnect followed by connect */
-		dp->usbpd->connect(dp->usbpd, false);
+		dp->usbpd->simulate_connect(dp->usbpd, false);
 		dp->panel->video_test = true;
-		dp->usbpd->connect(dp->usbpd, true);
+		dp->usbpd->simulate_connect(dp->usbpd, true);
 		dp_link_send_test_response(dp->link);
 	}
 }
@@ -489,7 +489,7 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 {
 	int rc = 0;
 	struct device *dev = &dp->pdev->dev;
-	struct dp_usbpd_cb *cb = &dp->usbpd_cb;
+	struct dp_hpd_cb *cb = &dp->usbpd_cb;
 	struct dp_panel_in panel_in = {
 		.dev = dev,
 	};
@@ -560,7 +560,25 @@ static int dp_init_sub_modules(struct dp_display_private *dp)
 		goto error_ctrl;
 	}
 
+	dp->usbpd = dp_hpd_get(dev, dp->parser, cb);
+	if (IS_ERR(dp->usbpd)) {
+		rc = PTR_ERR(dp->usbpd);
+		pr_err("failed to initialize hpd, rc = %d\n", rc);
+		dp->usbpd = NULL;
+		goto error_hpd;
+	}
+
+	rc = dp->usbpd->register_hpd(dp->usbpd);
+	if (rc) {
+		pr_err("failed register hpd\n");
+		goto error_hpd_reg;
+	}
+
 	return rc;
+error_hpd_reg:
+	dp_hpd_put(dp->usbpd);
+error_hpd:
+	dp_ctrl_put(dp->ctrl);
 error_ctrl:
 	dp_panel_put(dp->panel);
 error_panel:
@@ -637,7 +655,7 @@ static int dp_display_pre_disable(struct msm_dp *dp_display)
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
 
 	if (dp->usbpd->alt_mode_cfg_done && (dp->usbpd->hpd_high ||
-		dp->usbpd->forced_disconnect))
+		0))//dp->usbpd->forced_disconnect))
 		dp_link_psm_config(dp->link, &dp->panel->link_info, true);
 
 	dp_ctrl_push_idle(dp->ctrl);
@@ -899,14 +917,18 @@ int msm_dp_modeset_init(struct msm_dp *dp_display, struct drm_device *dev,
 
 	priv->connectors[priv->num_connectors++] = dp_display->connector;
 
-	// INIT HACK
+
+	msleep(3000);
 	{
 	struct dp_display_private *dp;
 	dp = container_of(dp_display, struct dp_display_private, dp_display);
-	dp->usbpd = dp_extcon_get(&dp->pdev->dev, &dp->usbpd_cb);
 	dp->usbpd->orientation = ORIENTATION_CC2;
-	dp->usbpd->connect(dp->usbpd, true);
+	dp->usbpd->hpd_high = 1;
+
+	dp_display_usbpd_configure_cb(&dp->pdev->dev);
+	//dp->usbpd->connect(dp->usbpd, true);
 	}
+
 	return 0;
 }
 

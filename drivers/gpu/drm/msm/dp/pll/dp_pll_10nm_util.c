@@ -12,7 +12,12 @@
 
 #include "dp_pll.h"
 #include "dp_pll_10nm.h"
-#include "dp_extcon.h"
+
+enum plug_orientation {
+	ORIENTATION_NONE,
+	ORIENTATION_CC1,
+	ORIENTATION_CC2,
+};
 
 static int dp_vco_pll_init_db_10nm(struct msm_dp_pll *pll,
 		unsigned long rate)

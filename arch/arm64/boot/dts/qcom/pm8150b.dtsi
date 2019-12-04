@@ -15,6 +15,11 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
+		pm8150b_revid: qcom,revid@100 {
+			compatible = "qcom,qpnp-revid";
+			reg = <0x100 0x100>;
+		};
+
 		power-on@800 {
 			compatible = "qcom,pm8916-pon";
 			reg = <0x0800>;
@@ -74,6 +79,203 @@
 				     <0x2 0xc9 0x0 IRQ_TYPE_NONE>,
 				     <0x2 0xca 0x0 IRQ_TYPE_NONE>,
 				     <0x2 0xcb 0x0 IRQ_TYPE_NONE>;
+		};
+
+		pm8150b_charger: qcom,qpnp-smb5 {
+			compatible = "qcom,qpnp-smb5";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			#cooling-cells = <2>;
+
+			qcom,pmic-revid = <&pm8150b_revid>;
+
+			qcom,thermal-mitigation
+					= <3000000 1500000 1000000 500000>;
+
+			qcom,chg-term-src = <1>;
+			qcom,charger-temp-max = <800>;
+			qcom,smb-temp-max = <800>;
+
+			qcom,chgr@1000 {
+				reg = <0x1000 0x100>;
+				interrupts =
+					<0x2 0x10 0x0 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x10 0x1 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x10 0x2 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x10 0x3 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x10 0x4 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x10 0x6 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x10 0x7 IRQ_TYPE_EDGE_BOTH>;
+
+				interrupt-names = "chgr-error",
+						  "chg-state-change",
+						  "step-chg-state-change",
+						  "step-chg-soc-update-fail",
+						  "step-chg-soc-update-req",
+						  "vph-alarm",
+						  "vph-drop-prechg";
+			};
+
+			qcom,dcdc@1100 {
+				reg = <0x1100 0x100>;
+				interrupts =
+					<0x2 0x11 0x0 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x11 0x1 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x11 0x2 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x11 0x4 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x11 0x5 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x11 0x6 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x11 0x7 IRQ_TYPE_EDGE_BOTH>;
+
+				interrupt-names = "otg-fail",
+						  "otg-oc-disable-sw",
+						  "otg-oc-hiccup",
+						  "high-duty-cycle",
+						  "input-current-limiting",
+						  "concurrent-mode-disable",
+						  "switcher-power-ok";
+			};
+
+			qcom,batif@1200 {
+				reg = <0x1200 0x100>;
+				interrupts =
+					<0x2 0x12 0x0 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x12 0x2 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x12 0x3 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x12 0x4 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x12 0x5 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x12 0x6 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x12 0x7 IRQ_TYPE_EDGE_BOTH>;
+
+				interrupt-names = "bat-temp",
+						  "bat-ov",
+						  "bat-low",
+						  "bat-therm-or-id-missing",
+						  "bat-terminal-missing",
+						  "buck-oc",
+						  "vph-ov";
+			};
+
+			qcom,usb@1300 {
+				reg = <0x1300 0x100>;
+				interrupts =
+					<0x2 0x13 0x0 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x13 0x1 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x13 0x2 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x13 0x3 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x13 0x4 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x13 0x5 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x13 0x6 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x13 0x7 IRQ_TYPE_EDGE_RISING>;
+
+				interrupt-names = "usbin-collapse",
+						  "usbin-vashdn",
+						  "usbin-uv",
+						  "usbin-ov",
+						  "usbin-plugin",
+						  "usbin-revi-change",
+						  "usbin-src-change",
+						  "usbin-icl-change";
+			};
+
+			qcom,dc@1400 {
+				reg = <0x1400 0x100>;
+				interrupts =
+					<0x2 0x14 0x1 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x14 0x2 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x14 0x3 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x14 0x4 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x14 0x5 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x14 0x6 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x14 0x7 IRQ_TYPE_EDGE_BOTH>;
+
+				interrupt-names = "dcin-vashdn",
+						  "dcin-uv",
+						  "dcin-ov",
+						  "dcin-plugin",
+						  "dcin-revi",
+						  "dcin-pon",
+						  "dcin-en";
+			};
+
+			qcom,typec@1500 {
+				reg = <0x1500 0x100>;
+				interrupts =
+					<0x2 0x15 0x0 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x15 0x1 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x15 0x2 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x15 0x3 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x15 0x4 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x15 0x5 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x15 0x6 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x15 0x7 IRQ_TYPE_EDGE_RISING>;
+
+				interrupt-names = "typec-or-rid-detect-change",
+						  "typec-vpd-detect",
+						  "typec-cc-state-change",
+						  "typec-vconn-oc",
+						  "typec-vbus-change",
+						  "typec-attach-detach",
+						  "typec-legacy-cable-detect",
+						  "typec-try-snk-src-detect";
+			};
+
+			qcom,misc@1600 {
+				reg = <0x1600 0x100>;
+				interrupts =
+					<0x2 0x16 0x0 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x16 0x1 IRQ_TYPE_EDGE_RISING>,
+					<0x2 0x16 0x2 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x16 0x3 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x16 0x4 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x16 0x6 IRQ_TYPE_EDGE_BOTH>,
+					<0x2 0x16 0x7 IRQ_TYPE_EDGE_BOTH>;
+
+				interrupt-names = "wdog-snarl",
+						  "wdog-bark",
+						  "aicl-fail",
+						  "aicl-done",
+						  "smb-en",
+						  "temp-change",
+						  "temp-change-smb";
+			};
+
+			//dpdm-supply = <&usb2_phy0>;
+			smb5_vconn: qcom,smb5-vconn {
+				regulator-name = "smb5-vconn";
+			};
+			smb5_vbus: qcom,smb5-vbus {
+				regulator-name = "smb5-vbus";
+			};
+		};
+
+		pm8150b_pdphy: qcom,usb-pdphy@1700 {
+			compatible = "qcom,qpnp-pdphy";
+			reg = <0x1700 0x100>;
+			vdd-pdphy-supply = <&vdd_pdphy>;
+			vbus-supply = <&smb5_vbus>;
+			vconn-supply = <&smb5_vconn>;
+			interrupts = <0x2 0x17 0x0 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x1 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x2 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x3 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x4 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x5 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x6 IRQ_TYPE_EDGE_RISING>,
+				     <0x2 0x17 0x7 IRQ_TYPE_EDGE_RISING>;
+
+			interrupt-names = "sig-tx",
+					  "sig-rx",
+					  "msg-tx",
+					  "msg-rx",
+					  "msg-tx-failed",
+					  "msg-tx-discarded",
+					  "msg-rx-discarded",
+					  "fr-swap";
+
+			qcom,default-sink-caps = <5000 3000>, /* 5V @ 3A */
+						 <9000 3000>, /* 9V @ 3A */
+						 <12000 2250>; /* 12V @ 2.25A */
 		};
 	};
 
