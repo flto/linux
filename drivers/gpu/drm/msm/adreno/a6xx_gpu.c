@@ -381,6 +381,11 @@ static int a6xx_hw_init(struct msm_gpu *gpu)
 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
 	int ret;
 
+	gpu_write(gpu, REG_A6XX_RBBM_SW_RESET_CMD, 1);
+	gpu_read(gpu, REG_A6XX_RBBM_SW_RESET_CMD);
+	gpu_write(gpu, REG_A6XX_RBBM_SW_RESET_CMD, 0);
+	msleep(50);
+
 	/*
 	 * During a previous slumber, GBIF halt is asserted to ensure
 	 * no further transaction can go through GPU before GPU
@@ -616,6 +621,7 @@ static void a6xx_recover(struct msm_gpu *gpu)
 	gpu->funcs->pm_suspend(gpu);
 	gpu->funcs->pm_resume(gpu);
 
+	gpu->needs_hw_init = true;
 	msm_gpu_hw_init(gpu);
 }
 

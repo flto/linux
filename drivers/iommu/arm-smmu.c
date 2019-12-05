@@ -2273,7 +2273,7 @@ static int __maybe_unused arm_smmu_runtime_resume(struct device *dev)
 	if (ret)
 		return ret;
 
-	arm_smmu_device_reset(smmu);
+	//arm_smmu_device_reset(smmu);
 
 	return 0;
 }
@@ -2282,7 +2282,7 @@ static int __maybe_unused arm_smmu_runtime_suspend(struct device *dev)
 {
 	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
 
-	clk_bulk_disable(smmu->num_clks, smmu->clks);
+	//clk_bulk_disable(smmu->num_clks, smmu->clks);
 
 	return 0;
 }
@@ -2292,7 +2292,7 @@ static int __maybe_unused arm_smmu_pm_resume(struct device *dev)
 	if (pm_runtime_suspended(dev))
 		return 0;
 
-	return arm_smmu_runtime_resume(dev);
+	return 0;//arm_smmu_runtime_resume(dev);
 }
 
 static int __maybe_unused arm_smmu_pm_suspend(struct device *dev)
@@ -2300,7 +2300,7 @@ static int __maybe_unused arm_smmu_pm_suspend(struct device *dev)
 	if (pm_runtime_suspended(dev))
 		return 0;
 
-	return arm_smmu_runtime_suspend(dev);
+	return 0;//arm_smmu_runtime_suspend(dev);
 }
 
 static const struct dev_pm_ops arm_smmu_pm_ops = {

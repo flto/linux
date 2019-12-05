@@ -456,7 +456,7 @@ static void recover_worker(struct work_struct *work)
 
 	/* Record the crash state */
 	pm_runtime_get_sync(&gpu->pdev->dev);
-	msm_gpu_crashstate_capture(gpu, submit, comm, cmd);
+	//msm_gpu_crashstate_capture(gpu, submit, comm, cmd);
 	pm_runtime_put_sync(&gpu->pdev->dev);
 
 	kfree(cmd);
@@ -482,7 +482,7 @@ static void recover_worker(struct work_struct *work)
 		update_fences(gpu, ring, fence);
 	}
 
-	if (msm_gpu_active(gpu)) {
+	if (true) {
 		/* retire completed submits, plus the one that hung: */
 		retire_submits(gpu);
 
