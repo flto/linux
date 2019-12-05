@@ -641,6 +641,21 @@ void clk_hw_set_rate_range(struct clk_hw *hw, unsigned long min_rate,
 }
 EXPORT_SYMBOL_GPL(clk_hw_set_rate_range);
 
+unsigned long clk_aggregate_rate(struct clk_hw *hw,
+					const struct clk_core *parent)
+{
+	struct clk_core *child;
+	unsigned long aggre_rate = 0;
+
+	hlist_for_each_entry(child, &parent->children, child_node) {
+		if (child->enable_count && child != hw->core)
+			aggre_rate = max(child->rate, aggre_rate);
+	}
+
+	return aggre_rate;
+}
+EXPORT_SYMBOL_GPL(clk_aggregate_rate)
+
 /*
  * __clk_mux_determine_rate - clk_ops::determine_rate implementation for a mux type clk
  * @hw: mux type clk to determine rate on
@@ -3646,7 +3661,7 @@ __clk_register(struct device *dev, struct device_node *np, struct clk_hw *hw)
 	 * Set it to NULL so that provider drivers can't use it either and so that
 	 * we catch use of hw->init early on in the core.
 	 */
-	hw->init = NULL;
+	//hw->init = NULL;
 
 	core = kzalloc(sizeof(*core), GFP_KERNEL);
 	if (!core) {

@@ -10,6 +10,7 @@
 #include <dt-bindings/clock/qcom,gcc-sm8150.h>
 #include <dt-bindings/clock/qcom,gpucc-sm8150.h>
 #include <dt-bindings/clock/qcom,dispcc-sm8150.h>
+#include <dt-bindings/clock/qcom,cpucc-sm8150.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/interconnect/qcom,sm8150.h>
 
@@ -1710,6 +1711,93 @@
 			iommus = <&apps_smmu 0x0640 0x1>;
 			status = "disabled";
 		};
+
+		clock_cpucc: qcom,cpucc {
+			compatible = "qcom,clk-cpu-osm";
+			reg = <0 0x18321000 0 0x1400>,
+				<0 0x18323000 0 0x1400>,
+				<0 0x18325800 0 0x1400>,
+				<0 0x18327800 0 0x1400>;
+			reg-names = "osm_l3_base", "osm_pwrcl_base",
+				"osm_perfcl_base", "osm_perfpcl_base";
+			l3-devs = <&cpu0_cpu_l3_lat &cpu4_cpu_l3_lat &cdsp_cdsp_l3_lat
+				&cpu7_cpu_l3_lat>;
+
+			#clock-cells = <1>;
+		};
+
+	};
+
+	cdsp_cdsp_l3_lat: qcom,cdsp-cdsp-l3-lat {
+		compatible = "devfreq-simple-dev";
+		clock-names = "devfreq_clk";
+		clocks = <&clock_cpucc L3_MISC_VOTE_CLK>;
+		governor = "powersave";
+	};
+
+	cpu0_cpu_l3_lat: qcom,cpu0-cpu-l3-lat {
+		compatible = "devfreq-simple-dev";
+		clock-names = "devfreq_clk";
+		clocks = <&clock_cpucc L3_CLUSTER0_VOTE_CLK>;
+		governor = "performance";
+	};
+
+	cpu0_cpu_l3_latmon: qcom,cpu0-cpu-l3-latmon {
+		compatible = "qcom,arm-memlat-mon";
+		qcom,cpulist = <&CPU0 &CPU1 &CPU2 &CPU3>;
+		qcom,target-dev = <&cpu0_cpu_l3_lat>;
+		qcom,cachemiss-ev = <0x17>;
+		qcom,core-dev-table =
+			<  300000  300000000 >,
+			<  480000  403200000 >,
+			<  672000  480000000 >,
+			<  768000  576000000 >,
+			<  864000  672000000 >,
+			<  979200  768000000 >,
+			< 1075200  864000000 >,
+			< 1267200  960000000 >;
+	};
+
+	cpu4_cpu_l3_lat: qcom,cpu4-cpu-l3-lat {
+		compatible = "devfreq-simple-dev";
+		clock-names = "devfreq_clk";
+		clocks = <&clock_cpucc L3_CLUSTER1_VOTE_CLK>;
+		governor = "performance";
+	};
+
+	cpu4_cpu_l3_latmon: qcom,cpu4-cpu-l3-latmon {
+		compatible = "qcom,arm-memlat-mon";
+		qcom,cpulist = <&CPU4 &CPU5 &CPU6>;
+		qcom,target-dev = <&cpu4_cpu_l3_lat>;
+		qcom,cachemiss-ev = <0x17>;
+		qcom,core-dev-table =
+			<  300000  300000000 >,
+			<  768000  576000000 >,
+			< 1152000  768000000 >,
+			< 1344000  960000000 >,
+			< 1689600 1228800000 >,
+			< 2016000 1344000000 >;
+	};
+
+	cpu7_cpu_l3_lat: qcom,cpu7-cpu-l3-lat {
+		compatible = "devfreq-simple-dev";
+		clock-names = "devfreq_clk";
+		clocks = <&clock_cpucc L3_CLUSTER2_VOTE_CLK>;
+		governor = "performance";
+	};
+
+	cpu7_cpu_l3_latmon: qcom,cpu7-cpu-l3-latmon {
+		compatible = "qcom,arm-memlat-mon";
+		qcom,cpulist = <&CPU7>;
+		qcom,target-dev = <&cpu7_cpu_l3_lat>;
+		qcom,cachemiss-ev = <0x17>;
+		qcom,core-dev-table =
+			<  300000  300000000 >,
+			<  768000  576000000 >,
+			< 1152000  768000000 >,
+			< 1344000  960000000 >,
+			< 1689600 1228800000 >,
+			< 2016000 1344000000 >;
 	};
 
 	timer {

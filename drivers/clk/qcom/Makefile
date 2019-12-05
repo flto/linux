@@ -61,3 +61,4 @@ obj-$(CONFIG_KPSS_XCC) += kpss-xcc.o
 obj-$(CONFIG_QCOM_HFPLL) += hfpll.o
 obj-$(CONFIG_KRAITCC) += krait-cc.o
 obj-y += clk-aop-qmp.o
+obj-y += clk-voter.o clk-cpu-osm.o

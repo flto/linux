@@ -284,6 +284,8 @@ struct clk_init_data {
 	const struct clk_hw		**parent_hws;
 	u8			num_parents;
 	unsigned long		flags;
+	unsigned long		*rate_max;
+	int			num_rate_max;
 };
 
 /**
