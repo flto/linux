@@ -404,8 +404,8 @@ static struct dpu_qos_lut_entry sdm845_qos_nrt[] = {
 };
 
 static struct dpu_perf_cfg sdm845_perf_data = {
-	.max_bw_low = 6800000,
-	.max_bw_high = 6800000,
+	.max_bw_low = 12800000,
+	.max_bw_high = 12800000,
 	.min_core_ib = 2400000,
 	.min_llcc_ib = 800000,
 	.min_dram_ib = 800000,

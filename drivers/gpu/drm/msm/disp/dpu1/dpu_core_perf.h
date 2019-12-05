@@ -12,7 +12,7 @@
 
 #include "dpu_hw_catalog.h"
 
-#define	DPU_PERF_DEFAULT_MAX_CORE_CLK_RATE	412500000
+#define	DPU_PERF_DEFAULT_MAX_CORE_CLK_RATE	690000000
 
 /**
  * enum dpu_core_perf_data_bus_id - data bus identifier

@@ -15,7 +15,7 @@
 #define HW_INTR_STATUS			0x0010
 
 /* Max BW defined in KBps */
-#define MAX_BW				6800000
+#define MAX_BW				(6400000*2)
 
 struct dpu_irq_controller {
 	unsigned long enabled_mask;

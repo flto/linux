@@ -315,6 +315,7 @@ static const struct freq_tbl ftbl_disp_cc_mdss_mdp_clk_src[] = {
 	F(300000000, P_DISP_CC_PLL1_OUT_MAIN, 2, 0, 0),
 	F(345000000, P_DISP_CC_PLL0_OUT_MAIN, 4, 0, 0),
 	F(460000000, P_DISP_CC_PLL0_OUT_MAIN, 3, 0, 0),
+	F(690000000, P_DISP_CC_PLL0_OUT_MAIN, 2, 0, 0),
 	{ }
 };
 
