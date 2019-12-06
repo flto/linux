@@ -252,6 +252,8 @@ int dpu_mdss_init(struct drm_device *dev)
 
 	DRM_DEBUG("mapped mdss address space @%pK\n", dpu_mdss->mmio);
 
+	*(uint32_t*) (dpu_mdss->mmio+0x144) = 0x420;
+
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "mdss");
 	if (!res) {
 		DRM_ERROR("failed to get memory resource for mdss\n");
