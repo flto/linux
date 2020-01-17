@@ -25,4 +25,7 @@ config SPMI_MSM_PMIC_ARB
 	  This is required for communicating with Qualcomm PMICs and
 	  other devices that have the SPMI interface.
 
+config QPNP_REVID
+	tristate "QPNP_REVID"
+
 endif
