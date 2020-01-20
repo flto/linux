@@ -6,7 +6,8 @@
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/hrtimer.h>
-#include <linux/ipc_logging.h>
+//#include <linux/ipc_logging.h>
+#define ipc_log_string(...) ({})
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/module.h>
@@ -192,7 +193,7 @@ enum vdm_state {
 	MODE_EXITED,
 };
 
-static void *usbpd_ipc_log;
+//static void *usbpd_ipc_log;
 #define usbpd_dbg(dev, fmt, ...) do { \
 	ipc_log_string(usbpd_ipc_log, "%s: %s: " fmt, dev_name(dev), __func__, \
 			##__VA_ARGS__); \
@@ -3813,10 +3814,10 @@ static int usbpd_do_swap(struct usbpd *pd, bool dr_swap,
 	return 0;
 }
 
-static int usbpd_typec_dr_set(const struct typec_capability *cap,
+static int usbpd_typec_dr_set(struct typec_port *port,
 				enum typec_data_role role)
 {
-	struct usbpd *pd = container_of(cap, struct usbpd, typec_caps);
+	struct usbpd *pd = typec_get_drvdata(port);
 	bool do_swap = false;
 	int ret;
 
@@ -3850,10 +3851,10 @@ static int usbpd_typec_dr_set(const struct typec_capability *cap,
 	return 0;
 }
 
-static int usbpd_typec_pr_set(const struct typec_capability *cap,
+static int usbpd_typec_pr_set(struct typec_port *port,
 				enum typec_role role)
 {
-	struct usbpd *pd = container_of(cap, struct usbpd, typec_caps);
+	struct usbpd *pd = typec_get_drvdata(port);
 	bool do_swap = false;
 	int ret;
 
@@ -3887,10 +3888,10 @@ static int usbpd_typec_pr_set(const struct typec_capability *cap,
 	return 0;
 }
 
-static int usbpd_typec_port_type_set(const struct typec_capability *cap,
+static int usbpd_typec_port_type_set(struct typec_port *port,
 				enum typec_port_type type)
 {
-	struct usbpd *pd = container_of(cap, struct usbpd, typec_caps);
+	struct usbpd *pd = typec_get_drvdata(port);
 	union power_supply_propval value;
 	int wait_count = 5;
 
@@ -4585,6 +4586,12 @@ static void usbpd_release(struct device *dev)
 
 static int num_pd_instances;
 
+static const struct typec_operations typec_ops = {
+	.dr_set = usbpd_typec_dr_set,
+	.pr_set = usbpd_typec_pr_set,
+	.port_type_set = usbpd_typec_port_type_set
+};
+
 /**
  * usbpd_create - Create a new instance of USB PD protocol/policy engine
  * @parent - parent device to associate with
@@ -4731,9 +4738,7 @@ struct usbpd *usbpd_create(struct device *parent)
 	pd->typec_caps.data = TYPEC_PORT_DRD;
 	pd->typec_caps.revision = 0x0130;
 	pd->typec_caps.pd_revision = 0x0300;
-	pd->typec_caps.dr_set = usbpd_typec_dr_set;
-	pd->typec_caps.pr_set = usbpd_typec_pr_set;
-	pd->typec_caps.port_type_set = usbpd_typec_port_type_set;
+	pd->typec_caps.ops = &typec_ops;
 	pd->partner_desc.identity = &pd->partner_identity;
 
 	ret = get_connector_type(pd);
@@ -4807,7 +4812,7 @@ EXPORT_SYMBOL(usbpd_destroy);
 
 static int __init usbpd_init(void)
 {
-	usbpd_ipc_log = ipc_log_context_create(NUM_LOG_PAGES, "usb_pd", 0);
+	//usbpd_ipc_log = ipc_log_context_create(NUM_LOG_PAGES, "usb_pd", 0);
 	return class_register(&usbpd_class);
 }
 module_init(usbpd_init);

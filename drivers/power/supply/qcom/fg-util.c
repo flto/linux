@@ -1566,19 +1566,10 @@ static int fg_sram_debugfs_create(struct fg_dev *fg)
 
 	dbgfs_data.fg = fg;
 
-	file = debugfs_create_u32("count", dfs_mode, dfs_sram,
-					&(dbgfs_data.cnt));
-	if (!file) {
-		pr_err("error creating 'count' entry\n");
-		goto err_remove_fs;
-	}
+	debugfs_create_u32("count", dfs_mode, dfs_sram, &(dbgfs_data.cnt));
 
-	file = debugfs_create_x32("address", dfs_mode, dfs_sram,
+	 debugfs_create_x32("address", dfs_mode, dfs_sram,
 					&(dbgfs_data.addr));
-	if (!file) {
-		pr_err("error creating 'address' entry\n");
-		goto err_remove_fs;
-	}
 
 	file = debugfs_create_file("data", dfs_mode, dfs_sram, &dbgfs_data,
 					&fg_sram_dfs_reg_fops);
@@ -1643,7 +1634,6 @@ static const struct file_operations fg_alg_flags_fops = {
 int fg_debugfs_create(struct fg_dev *fg)
 {
 	int rc;
-	struct dentry *file;
 
 	pr_debug("Creating debugfs file-system\n");
 	fg->dfs_root = debugfs_create_dir("fg", NULL);
@@ -1656,12 +1646,7 @@ int fg_debugfs_create(struct fg_dev *fg)
 		return -ENODEV;
 	}
 
-	file = debugfs_create_u32("debug_mask", 0600, fg->dfs_root,
-			fg->debug_mask);
-	if (IS_ERR_OR_NULL(file)) {
-		pr_err("failed to create debug_mask\n");
-		goto err_remove_fs;
-	}
+	debugfs_create_u32("debug_mask", 0600, fg->dfs_root, fg->debug_mask);
 
 	rc = fg_sram_debugfs_create(fg);
 	if (rc < 0) {

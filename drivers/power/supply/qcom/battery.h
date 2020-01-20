@@ -14,6 +14,6 @@ struct charger_param {
 	u32 forced_main_fcc;
 };
 
-int qcom_batt_init(struct charger_param *param);
+int qcom_batt_init(struct device *dev, struct charger_param *param);
 void qcom_batt_deinit(void);
 #endif /* __BATTERY_H */

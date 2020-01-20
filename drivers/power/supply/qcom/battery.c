@@ -1926,8 +1926,6 @@ static void pl_config_init(struct pl_data *chip, int smb_version)
 
 static void qcom_batt_create_debugfs(struct pl_data *chip)
 {
-	struct dentry *entry;
-
 	chip->dfs_root = debugfs_create_dir("battery", NULL);
 	if (IS_ERR_OR_NULL(chip->dfs_root)) {
 		pr_err("Couldn't create battery debugfs rc=%ld\n",
@@ -1935,15 +1933,11 @@ static void qcom_batt_create_debugfs(struct pl_data *chip)
 		return;
 	}
 
-	entry = debugfs_create_u32("debug_mask", 0600, chip->dfs_root,
-			&debug_mask);
-	if (IS_ERR_OR_NULL(entry))
-		pr_err("Couldn't create force_dc_psy_update file rc=%ld\n",
-			(long)entry);
+	debugfs_create_u32("debug_mask", 0600, chip->dfs_root, &debug_mask);
 }
 
 #define DEFAULT_RESTRICTED_CURRENT_UA	1000000
-int qcom_batt_init(struct charger_param *chg_param)
+int qcom_batt_init(struct device *dev, struct charger_param *chg_param)
 {
 	struct pl_data *chip;
 	int rc = 0;
@@ -1970,7 +1964,7 @@ int qcom_batt_init(struct charger_param *chg_param)
 	pl_config_init(chip, chg_param->smb_version);
 	chip->restricted_current = DEFAULT_RESTRICTED_CURRENT_UA;
 
-	chip->pl_ws = wakeup_source_register("qcom-battery");
+	chip->pl_ws = wakeup_source_register(dev, "qcom-battery");
 	if (!chip->pl_ws)
 		goto cleanup;
 

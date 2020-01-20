@@ -1818,8 +1818,6 @@ static int smb1390_request_interrupts(struct smb1390 *chip)
 #ifdef CONFIG_DEBUG_FS
 static void smb1390_create_debugfs(struct smb1390 *chip)
 {
-	struct dentry *entry;
-
 	chip->dfs_root = debugfs_create_dir("smb1390_charger_psy", NULL);
 	if (IS_ERR_OR_NULL(chip->dfs_root)) {
 		pr_err("Failed to create debugfs directory, rc=%ld\n",
@@ -1827,12 +1825,8 @@ static void smb1390_create_debugfs(struct smb1390 *chip)
 		return;
 	}
 
-	entry = debugfs_create_u32("debug_mask", 0600, chip->dfs_root,
+	debugfs_create_u32("debug_mask", 0600, chip->dfs_root,
 			&chip->debug_mask);
-	if (IS_ERR_OR_NULL(entry)) {
-		pr_err("Failed to create debug_mask, rc=%ld\n", (long)entry);
-		debugfs_remove_recursive(chip->dfs_root);
-	}
 }
 #else
 static void smb1390_create_debugfs(struct smb1390 *chip)
@@ -1884,7 +1878,7 @@ static int smb1390_master_probe(struct smb1390 *chip)
 		return rc;
 	}
 
-	chip->cp_ws = wakeup_source_register("qcom-chargepump");
+	chip->cp_ws = wakeup_source_register(chip->dev, "qcom-chargepump");
 	if (!chip->cp_ws)
 		return -ENOMEM;
 

@@ -3343,10 +3343,7 @@ static void smb5_create_debugfs(struct smb5 *chip)
 		pr_err("Couldn't create force_dc_psy_update file rc=%ld\n",
 			(long)file);
 
-	file = debugfs_create_u32("debug_mask", 0600, chip->dfs_root,
-			&__debug_mask);
-	if (IS_ERR_OR_NULL(file))
-		pr_err("Couldn't create debug_mask file rc=%ld\n", (long)file);
+	debugfs_create_u32("debug_mask", 0600, chip->dfs_root, &__debug_mask);
 }
 
 #else
