@@ -91,6 +91,14 @@ static int dsi_get_version(const void __iomem *base, u32 *major, u32 *minor)
 		DSI_CLK_CTRL_BYTECLK_ON | DSI_CLK_CTRL_ESCCLK_ON | \
 		DSI_CLK_CTRL_FORCE_ON_DYN_AHBM_HCLK)
 
+struct msm_dsc_config {
+	u32 slice_height;
+	u32 slice_width;
+	u32 slice_per_pkt;
+	u32 bit_per_component;
+	u32 bit_per_pixel;
+};
+
 struct msm_dsi_host {
 	struct mipi_dsi_host base;
 
@@ -163,6 +171,10 @@ struct msm_dsi_host {
 	/* lane data parsed via DT */
 	int dlane_swap;
 	int num_data_lanes;
+
+	/* dsc config via DT */
+	bool is_dsc_enabled;
+	struct msm_dsc_config *dsc_config;
 
 	u32 dma_cmd_ctrl_restore;
 
@@ -1737,6 +1749,65 @@ static int dsi_host_parse_lane_data(struct msm_dsi_host *msm_host,
 	return -EINVAL;
 }
 
+static int dsi_host_parse_dsc(struct msm_dsi_host *msm_host,
+			      struct device_node *np)
+{
+	struct device *dev = &msm_host->pdev->dev;
+	struct msm_dsc_config *dsc;
+	int ret;
+
+	msm_host->is_dsc_enabled = of_property_read_bool(
+					np, "qcom,dsc-enabled");
+	if (!msm_host->is_dsc_enabled)
+		return 0;
+
+	dsc = kzalloc(sizeof(*msm_host->dsc_config), GFP_KERNEL);
+	if (!dsc)
+		return -ENOMEM;
+
+	ret = of_property_read_u32(np, "qcom,dsc-slice-height",
+				   &dsc->slice_height);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "failed to read dsc slice height\n");
+		goto err;
+	}
+
+	ret = of_property_read_u32(np, "qcom,dsc-slice-width",
+				   &dsc->slice_width);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "failed to read dsc slice width\n");
+		goto err;
+	}
+
+	ret = of_property_read_u32(np, "qcom,dsc-slice-per-pkt",
+				   &dsc->slice_per_pkt);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "failed to read dsc slice per pkt\n");
+		goto err;
+	}
+
+	ret = of_property_read_u32(np, "qcom,dsc-bit-per-component",
+				   &dsc->bit_per_component);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "failed to read dsc bit-per-component\n");
+		goto err;
+	}
+
+	ret = of_property_read_u32(np, "qcom,dsc-bit-per-pixel",
+				   &dsc->bit_per_pixel);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "failed to read dsc bit-per-pixel\n");
+		goto err;
+	}
+
+	msm_host->dsc_config = dsc;
+	return 0;
+
+err:
+	kfree(dsc);
+	return ret;
+}
+
 static int dsi_host_parse_dt(struct msm_dsi_host *msm_host)
 {
 	struct device *dev = &msm_host->pdev->dev;
@@ -1754,6 +1825,14 @@ static int dsi_host_parse_dt(struct msm_dsi_host *msm_host)
 	if (!endpoint) {
 		DRM_DEV_DEBUG(dev, "%s: no endpoint\n", __func__);
 		return 0;
+	}
+
+	ret = dsi_host_parse_dsc(msm_host, np);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "%s: invalid dsc configuration %d\n",
+			__func__, ret);
+		ret = -EINVAL;
+		goto err;
 	}
 
 	ret = dsi_host_parse_lane_data(msm_host, endpoint);
