@@ -977,6 +977,59 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 	}
 
 	if (msm_host->mode_flags & MIPI_DSI_MODE_VIDEO) {
+		if (msm_host->is_dsc_enabled) {
+			struct msm_dsc_config *dsc = msm_host->dsc_config;
+			u32 reg, intf_width, slice_per_intf, width;
+			u32 bytes_in_slice, total_bytes_per_intf, bytes_per_pkt;
+			u32 eol_byte_num, pclk_per_line, slice_per_pkt, pkt_per_line;
+
+			/* first calculate dsc parameters and then program
+			 * compress mode registers
+			 */
+			intf_width = hdisplay;
+			slice_per_intf = DIV_ROUND_UP(intf_width, dsc->slice_width);
+
+			/* If slice_per_pkt > slice_per_intf, then use 1
+			 * This can happen during partial update
+			 */
+			slice_per_pkt = dsc->slice_per_pkt;
+			if (slice_per_pkt > slice_per_intf)
+				slice_per_pkt = 1;
+
+			bytes_in_slice = DIV_ROUND_UP(
+					dsc->slice_width *
+					dsi_get_bpp(msm_host->format), 8);
+			total_bytes_per_intf = bytes_in_slice * slice_per_intf;
+
+			eol_byte_num = total_bytes_per_intf % 3;
+			pclk_per_line =  DIV_ROUND_UP(total_bytes_per_intf, 3);
+			bytes_per_pkt = bytes_in_slice * slice_per_pkt;
+			pkt_per_line = slice_per_intf / slice_per_pkt;
+
+			reg = mode->clock << 16;
+			reg |= (0x0b << 8);    /* dtype of compressed image */
+
+			width = pclk_per_line;
+			reg = bytes_per_pkt << 16;
+			reg |= (0x0b << 8);    /* dtype of compressed image */
+
+			/* pkt_per_line:
+			 * 0 == 1 pkt
+			 * 1 == 2 pkt
+			 * 2 == 4 pkt
+			 * 3 pkt is not supported
+			 * above translates to ffs() - 1
+			 */
+			reg = (ffs(pkt_per_line) - 1) << 6;
+
+			eol_byte_num = total_bytes_per_intf % 3;
+			reg |= eol_byte_num << 4;
+			reg |= 1;
+
+			dsi_write(msm_host,
+				  REG_DSI_VIDEO_COMPRESSION_MODE_CTRL, reg);
+		}
+
 		dsi_write(msm_host, REG_DSI_ACTIVE_H,
 			DSI_ACTIVE_H_START(ha_start) |
 			DSI_ACTIVE_H_END(ha_end));
@@ -995,6 +1048,37 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 			DSI_ACTIVE_VSYNC_VPOS_START(vs_start) |
 			DSI_ACTIVE_VSYNC_VPOS_END(vs_end));
 	} else {		/* command mode */
+		if (msm_host->is_dsc_enabled) {
+			struct msm_dsc_config *dsc = msm_host->dsc_config;
+			u32 reg, reg_ctrl, reg_ctrl2;
+			u32 slice_per_intf, bytes_in_slice, total_bytes_per_intf;
+			u32 pkt_per_line, eol_byte_num;
+
+			reg_ctrl = dsi_read(msm_host,
+					REG_DSI_COMMAND_COMPRESSION_MODE_CTRL);
+			reg_ctrl2 = dsi_read(
+					msm_host, REG_DSI_COMMAND_COMPRESSION_MODE_CTRL2);
+
+			slice_per_intf = DIV_ROUND_UP(hdisplay, dsc->slice_width);
+			bytes_in_slice = DIV_ROUND_UP(
+					dsc->slice_width *
+					dsi_get_bpp(msm_host->format), 8);
+			total_bytes_per_intf = bytes_in_slice * slice_per_intf;
+			pkt_per_line = slice_per_intf / dsc->slice_per_pkt;
+			reg = 0x39 << 8;
+			reg = (ffs(pkt_per_line) - 1) << 6;
+
+			eol_byte_num = total_bytes_per_intf % 3;
+			reg |= eol_byte_num << 4;
+			reg |= 1;
+
+			reg_ctrl |= reg;
+			reg_ctrl2 |= bytes_in_slice;
+
+			dsi_write(msm_host, REG_DSI_COMMAND_COMPRESSION_MODE_CTRL, reg_ctrl);
+			dsi_write(msm_host, REG_DSI_COMMAND_COMPRESSION_MODE_CTRL2, reg_ctrl2);
+		}
+
 		/* image data and 1 byte write_memory_start cmd */
 		wc = hdisplay * dsi_get_bpp(msm_host->format) / 8 + 1;
 
