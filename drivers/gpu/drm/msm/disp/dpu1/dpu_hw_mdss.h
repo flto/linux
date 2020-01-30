@@ -95,6 +95,7 @@ enum dpu_hw_blk_type {
 	DPU_HW_BLK_PINGPONG,
 	DPU_HW_BLK_INTF,
 	DPU_HW_BLK_WB,
+	DPU_HW_DSC,
 	DPU_HW_BLK_MAX,
 };
 
@@ -171,6 +172,17 @@ enum dpu_ctl {
 	CTL_3,
 	CTL_4,
 	CTL_MAX
+};
+
+enum dpu_dsc {
+	DSC_NONE = 0,
+	DSC_0,
+	DSC_1,
+	DSC_2,
+	DSC_3,
+	DSC_4,
+	DSC_5,
+	DSC_MAX
 };
 
 enum dpu_pingpong {
@@ -425,5 +437,6 @@ struct dpu_mdss_color {
 #define DPU_DBG_MASK_TOP      (1 << 7)
 #define DPU_DBG_MASK_VBIF     (1 << 8)
 #define DPU_DBG_MASK_ROT      (1 << 9)
+#define DPU_DBG_MASK_DSC      (1 << 10)
 
 #endif  /* _DPU_HW_MDSS_H */

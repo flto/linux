@@ -70,6 +70,16 @@ enum msm_mdp_plane_property {
 #define MAX_H_TILES_PER_DISPLAY 2
 
 /**
+ * enum msm_display_compression_type - compression method used for pixel stream
+ * @MSM_DISPLAY_COMPRESSION_NONE:	Pixel data is not compressed
+ * @MSM_DISPLAY_COMPRESSION_DSC:	DSC compresison is used
+ */
+enum msm_display_compression_type {
+	MSM_DISPLAY_COMPRESSION_NONE,
+	MSM_DISPLAY_COMPRESSION_DSC,
+};
+
+/**
  * enum msm_display_caps - features/capabilities supported by displays
  * @MSM_DISPLAY_CAP_VID_MODE:           Video or "active" mode supported
  * @MSM_DISPLAY_CAP_CMD_MODE:           Command mode supported

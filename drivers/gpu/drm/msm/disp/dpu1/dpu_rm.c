@@ -65,6 +65,14 @@ int dpu_rm_destroy(struct dpu_rm *rm)
 			dpu_hw_intf_destroy(hw);
 		}
 	}
+   for (i = 0; i < ARRAY_SIZE(rm->dsc_blks); i++) {
+		struct dpu_hw_dsc *hw;
+
+		if (rm->intf_blks[i]) {
+			hw = to_dpu_hw_dsc(rm->dsc_blks[i]);
+			dpu_hw_dsc_destroy(hw);
+		}
+	}
 
 	return 0;
 }
@@ -173,6 +181,19 @@ int dpu_rm_init(struct dpu_rm *rm,
 		}
 		rm->ctl_blks[ctl->id - CTL_0] = &hw->base;
 	}
+
+	for (i = 0; i < cat->dsc_count; i++) {
+      struct dpu_hw_dsc *hw;
+      const struct dpu_dsc_cfg *dsc = &cat->dsc[i];
+
+      hw = dpu_hw_dsc_init(dsc->id, mmio, cat);
+		if (IS_ERR_OR_NULL(hw)) {
+			rc = PTR_ERR(hw);
+			DPU_ERROR("failed dsc object creation: err %d\n", rc);
+			goto fail;
+		}
+		rm->dsc_blks[dsc->id - DSC_0] = &hw->base;
+   }
 
 	return 0;
 

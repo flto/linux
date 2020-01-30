@@ -151,6 +151,7 @@ enum {
  * @DPU_PINGPONG_TE2        Additional tear check block for split pipes
  * @DPU_PINGPONG_SPLIT      PP block supports split fifo
  * @DPU_PINGPONG_SLAVE      PP block is a suitable slave for split fifo
+ * @DPU_PINGPONG_DSC        Display stream compression blocks
  * @DPU_PINGPONG_DITHER,    Dither blocks
  * @DPU_PINGPONG_MAX
  */
@@ -159,6 +160,7 @@ enum {
 	DPU_PINGPONG_TE2,
 	DPU_PINGPONG_SPLIT,
 	DPU_PINGPONG_SLAVE,
+	DPU_PINGPONG_DSC,
 	DPU_PINGPONG_DITHER,
 	DPU_PINGPONG_MAX
 };
@@ -380,6 +382,7 @@ struct dpu_lm_sub_blks {
 struct dpu_pingpong_sub_blks {
 	struct dpu_pp_blk te;
 	struct dpu_pp_blk te2;
+	struct dpu_pp_blk dsc;
 	struct dpu_pp_blk dither;
 };
 
@@ -484,6 +487,16 @@ struct dpu_lm_cfg {
 struct dpu_pingpong_cfg  {
 	DPU_HW_BLK_INFO;
 	const struct dpu_pingpong_sub_blks *sblk;
+};
+
+/**
+ * struct dpu_dsc_cfg - information of DSC blocks
+ * @id                 enum identifying this block
+ * @base               register offset of this block
+ * @features           bit mask identifying sub-blocks/features
+ */
+struct dpu_dsc_cfg {
+        DPU_HW_BLK_INFO;
 };
 
 /**
@@ -676,6 +689,9 @@ struct dpu_mdss_cfg {
 
 	u32 pingpong_count;
 	const struct dpu_pingpong_cfg *pingpong;
+
+	u32 dsc_count;
+	struct dpu_dsc_cfg *dsc;
 
 	u32 intf_count;
 	const struct dpu_intf_cfg *intf;
