@@ -27,6 +27,9 @@
 #define PP_FBC_MODE                     0x034
 #define PP_FBC_BUDGET_CTL               0x038
 #define PP_FBC_LOSSY_MODE               0x03C
+#define PP_DSC_MODE                     0x0a0
+#define PP_DCE_DATA_IN_SWAP             0x0ac
+#define PP_DCE_DATA_OUT_SWAP            0x0c8
 
 static const struct dpu_pingpong_cfg *_pingpong_offset(enum dpu_pingpong pp,
 		const struct dpu_mdss_cfg *m,
@@ -180,6 +183,32 @@ static u32 dpu_hw_pp_get_line_count(struct dpu_hw_pingpong *pp)
 	return line;
 }
 
+static int dpu_hw_pp_dsc_enable(struct dpu_hw_pingpong *pp)
+{
+	struct dpu_hw_blk_reg_map *c = &pp->hw;
+
+	DPU_REG_WRITE(c, PP_DSC_MODE, 1);
+	return 0;
+}
+
+static void dpu_hw_pp_dsc_disable(struct dpu_hw_pingpong *pp)
+{
+	struct dpu_hw_blk_reg_map *c = &pp->hw;
+
+	DPU_REG_WRITE(c, PP_DSC_MODE, 0);
+}
+
+static int dpu_hw_pp_setup_dsc(struct dpu_hw_pingpong *pp)
+{
+	struct dpu_hw_blk_reg_map *pp_c = &pp->hw;
+	int data;
+
+	data = DPU_REG_READ(pp_c, PP_DCE_DATA_OUT_SWAP);
+	data |= BIT(18); /* endian flip */
+	DPU_REG_WRITE(pp_c, PP_DCE_DATA_OUT_SWAP, data);
+	return 0;
+}
+
 static void _setup_pingpong_ops(struct dpu_hw_pingpong_ops *ops,
 	const struct dpu_pingpong_cfg *hw_cap)
 {
@@ -189,6 +218,9 @@ static void _setup_pingpong_ops(struct dpu_hw_pingpong_ops *ops,
 	ops->get_vsync_info = dpu_hw_pp_get_vsync_info;
 	ops->poll_timeout_wr_ptr = dpu_hw_pp_poll_timeout_wr_ptr;
 	ops->get_line_count = dpu_hw_pp_get_line_count;
+	ops->enable_dsc = dpu_hw_pp_dsc_enable;
+	ops->disable_dsc = dpu_hw_pp_dsc_disable;
+	ops->setup_dsc = dpu_hw_pp_setup_dsc;
 };
 
 static struct dpu_hw_blk_ops dpu_hw_ops;
