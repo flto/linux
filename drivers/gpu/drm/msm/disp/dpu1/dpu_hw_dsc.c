@@ -42,12 +42,11 @@ static void dpu_hw_dsc_disable(struct dpu_hw_dsc *dsc)
 }
 
 static void dpu_hw_dsc_config(struct dpu_hw_dsc *hw_dsc,
-			      struct dpu_dsc_config *dsc,
+			      struct msm_display_dsc_config *dsc,
 			      u32 mode, bool ich_reset_override)
 {
 	struct dpu_hw_blk_reg_map *c = &hw_dsc->hw;
 	u32 data;
-	int bpp, lsb;
 	u32 initial_lines = dsc->initial_lines;
 	bool is_cmd_mode = !(mode & BIT(2));
 
@@ -63,106 +62,98 @@ static void dpu_hw_dsc_config(struct dpu_hw_dsc *hw_dsc,
 	data |= (initial_lines << 20);
 	data |= ((dsc->slice_last_group_size - 1) << 18);
 	/* bpp is 6.4 format, 4 LSBs bits are for fractional part */
-	lsb = dsc->bpp % 4;
-	bpp = dsc->bpp / 4;
-	bpp *= 4;	/* either 8 or 12 */
-	bpp <<= 4;
-	bpp |= lsb;
-	data |= (bpp << 8);
-	data |= (dsc->block_pred_enable << 7);
-	data |= (dsc->line_buf_depth << 3);
-	data |= (dsc->enable_422 << 2);
-	data |= (dsc->convert_rgb << 1);
-	data |= dsc->input_10_bits;
+	data |= dsc->drm.bits_per_pixel << 8;
+	data |= (dsc->drm.block_pred_enable << 7);
+	data |= (dsc->drm.line_buf_depth << 3);
+	data |= (dsc->drm.simple_422 << 2);
+	data |= (dsc->drm.convert_rgb << 1);
+	if (dsc->drm.bits_per_component  == 10)
+		data |= BIT(0);
 
 	DPU_REG_WRITE(c, DSC_ENC, data);
 
-	data = dsc->pic_width << 16;
-	data |= dsc->pic_height;
+	data = dsc->drm.pic_width << 16;
+	data |= dsc->drm.pic_height;
 	DPU_REG_WRITE(c, DSC_PICTURE, data);
 
-	data = dsc->slice_width << 16;
-	data |= dsc->slice_height;
+	data = dsc->drm.slice_width << 16;
+	data |= dsc->drm.slice_height;
 	DPU_REG_WRITE(c, DSC_SLICE, data);
 
-	data = dsc->chunk_size << 16;
+	data = dsc->drm.slice_chunk_size << 16;
 	DPU_REG_WRITE(c, DSC_CHUNK_SIZE, data);
 
-	data = dsc->initial_dec_delay << 16;
-	data |= dsc->initial_xmit_delay;
+	data = dsc->drm.initial_dec_delay << 16;
+	data |= dsc->drm.initial_xmit_delay;
 	DPU_REG_WRITE(c, DSC_DELAY, data);
 
-	data = dsc->initial_scale_value;
+	data = dsc->drm.initial_scale_value;
 	DPU_REG_WRITE(c, DSC_SCALE_INITIAL, data);
 
-	data = dsc->scale_decrement_interval;
+	data = dsc->drm.scale_decrement_interval;
 	DPU_REG_WRITE(c, DSC_SCALE_DEC_INTERVAL, data);
 
-	data = dsc->scale_increment_interval;
+	data = dsc->drm.scale_increment_interval;
 	DPU_REG_WRITE(c, DSC_SCALE_INC_INTERVAL, data);
 
-	data = dsc->first_line_bpg_offset;
+	data = dsc->drm.first_line_bpg_offset;
 	DPU_REG_WRITE(c, DSC_FIRST_LINE_BPG_OFFSET, data);
 
-	data = dsc->nfl_bpg_offset << 16;
-	data |= dsc->slice_bpg_offset;
+	data = dsc->drm.nfl_bpg_offset << 16;
+	data |= dsc->drm.slice_bpg_offset;
 	DPU_REG_WRITE(c, DSC_BPG_OFFSET, data);
 
-	data = dsc->initial_offset << 16;
-	data |= dsc->final_offset;
+	data = dsc->drm.initial_offset << 16;
+	data |= dsc->drm.final_offset;
 	DPU_REG_WRITE(c, DSC_DSC_OFFSET, data);
 
 	data = dsc->det_thresh_flatness << 10;
-	data |= dsc->max_qp_flatness << 5;
-	data |= dsc->min_qp_flatness;
+	data |= dsc->drm.flatness_max_qp << 5;
+	data |= dsc->drm.flatness_min_qp;
 	DPU_REG_WRITE(c, DSC_FLATNESS, data);
 
-	data = dsc->rc_model_size;
+	data = dsc->drm.rc_model_size;
 	DPU_REG_WRITE(c, DSC_RC_MODEL_SIZE, data);
 
-	data = dsc->tgt_offset_lo << 18;
-	data |= dsc->tgt_offset_hi << 14;
-	data |= dsc->quant_incr_limit1 << 9;
-	data |= dsc->quant_incr_limit0 << 4;
-	data |= dsc->edge_factor;
+	data = dsc->drm.rc_tgt_offset_low << 18;
+	data |= dsc->drm.rc_tgt_offset_high << 14;
+	data |= dsc->drm.rc_quant_incr_limit1 << 9;
+	data |= dsc->drm.rc_quant_incr_limit0 << 4;
+	data |= dsc->drm.rc_edge_factor;
 	DPU_REG_WRITE(c, DSC_RC, data);
 }
 
 static void dpu_hw_dsc_config_thresh(struct dpu_hw_dsc *hw_dsc,
-				     struct dpu_dsc_config *dsc)
+				     struct msm_display_dsc_config *dsc)
 {
-	u32 *lp;
-	char *cp;
-	int i;
-
+	struct drm_dsc_rc_range_parameters *rc = dsc->drm.rc_range_params;
 	struct dpu_hw_blk_reg_map *c = &hw_dsc->hw;
 	u32 off = 0x0;
+	u16 *lp;
+	int i;
 
-	lp = dsc->buf_thresh;
+	lp = dsc->drm.rc_buf_thresh;
 	off = DSC_RC_BUF_THRESH;
-	for (i = 0; i < 14; i++) {
+	for (i = 0; i < DSC_NUM_BUF_RANGES -1 ; i++) {
 		DPU_REG_WRITE(c, off, *lp++);
 		off += 4;
 	}
 
-	cp = dsc->range_min_qp;
 	off = DSC_RANGE_MIN_QP;
-	for (i = 0; i < 15; i++) {
-		DPU_REG_WRITE(c, off, *cp++);
+	for (i = 0; i < DSC_NUM_BUF_RANGES; i++) {
+		DPU_REG_WRITE(c, off, rc[i].range_min_qp);
 		off += 4;
 	}
 
-	cp = dsc->range_max_qp;
 	off = DSC_RANGE_MAX_QP;
 	for (i = 0; i < 15; i++) {
-		DPU_REG_WRITE(c, off, *cp++);
+		DPU_REG_WRITE(c, off, rc[i].range_max_qp);
 		off += 4;
 	}
 
-	cp = dsc->range_bpg_offset;
 	off = DSC_RANGE_BPG_OFFSET;
 	for (i = 0; i < 15; i++) {
-		DPU_REG_WRITE(c, off, *cp++);
+		DPU_REG_WRITE(c, off, rc[i].range_bpg_offset);
 		off += 4;
 	}
 }
@@ -221,7 +212,7 @@ struct dpu_hw_dsc *dpu_hw_dsc_init(enum dpu_dsc idx, void __iomem *addr,
 	c->caps = cfg;
 	_setup_dsc_ops(&c->ops, c->caps->features);
 
-	dpu_hw_blk_init(&c->base, DPU_HW_DSC, idx, &dpu_hw_ops);
+	dpu_hw_blk_init(&c->base, DPU_HW_BLK_DSC, idx, &dpu_hw_ops);
 
 	return c;
 }
