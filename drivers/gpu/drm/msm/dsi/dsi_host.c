@@ -1681,6 +1681,7 @@ static int dsi_host_attach(struct mipi_dsi_host *host,
 					struct mipi_dsi_device *dsi)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+	struct drm_panel *panel;
 	int ret;
 
 	if (dsi->lanes > msm_host->num_data_lanes)
@@ -1699,6 +1700,10 @@ static int dsi_host_attach(struct mipi_dsi_host *host,
 	DBG("id=%d", msm_host->id);
 	if (msm_host->dev)
 		queue_work(msm_host->workqueue, &msm_host->hpd_work);
+
+	panel = msm_dsi_host_get_panel(host);
+	if (panel)
+		panel->dsc = &msm_host->dsc->drm;
 
 	return 0;
 }
@@ -1903,10 +1908,7 @@ static int dsi_host_parse_dsc(struct msm_dsi_host *msm_host,
 			      struct device_node *np)
 {
 	struct device *dev = &msm_host->pdev->dev;
-	struct drm_device *drm = msm_host->dev;
-	struct msm_drm_private *priv = drm->dev_private;
 	struct msm_display_dsc_config *dsc;
-	struct drm_panel *panel;
 	bool is_dsc_enabled;
 	u32 data;
 	int ret;
@@ -1976,20 +1978,6 @@ static int dsi_host_parse_dsc(struct msm_dsi_host *msm_host,
 	dsi_populate_dsc_params(dsc);
 
 	msm_host->dsc = dsc;
-
-	/* now set dsc for msm_priv and drm_panel so that encoder and panel
-	 * drivers can use this
-	 */
-	priv->dsc = dsc;
-	panel = msm_dsi_host_get_panel(&msm_host->base);
-	if (panel)
-		panel->dsc = &dsc->drm;
-	else {
-		DRM_DEV_ERROR(dev, "Failed to find panel, cant set dsc for panel\n");
-		priv->dsc = NULL;
-		msm_host->dsc = NULL;
-		goto err;
-	}
 
 	return 0;
 
@@ -2656,6 +2644,13 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 
 	msm_host->power_on = true;
 	mutex_unlock(&msm_host->dev_mutex);
+
+	if (msm_host->dsc) {
+		struct drm_device *drm = msm_host->dev;
+		struct msm_drm_private *priv = drm->dev_private;
+
+		priv->dsc = msm_host->dsc;
+	}
 
 	return 0;
 
