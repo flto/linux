@@ -490,7 +490,7 @@ struct drm_dsc_picture_parameter_set {
 	 * PPS43[3:0] - Lower end of the variability range around the target
 	 * bits per group that is allowed by short term RC.
 	 * PPS43[7:4]- Upper end of the variability range around the target
-	 * bits per group that i allowed by short term rc.
+	 * bits per group that is allowed by short term rc.
 	 */
 	u8 rc_tgt_offset;
 	/**
@@ -601,7 +601,24 @@ struct drm_dsc_pps_infoframe {
 	struct drm_dsc_picture_parameter_set pps_payload;
 } __packed;
 
+struct dsc_dce_header {
+	u8 bp0;
+	u8 bp1;
+	u8 bp2;
+	u8 bp3;
+	u8 bp4;
+	u8 bp5;
+	u8 bp6;
+} __packed;
+
+struct drm_dsi_dsc_infoframe {
+	struct dsc_dce_header dsc_header;
+	struct drm_dsc_picture_parameter_set pps_payload;
+} __packed;
+
+
 void drm_dsc_dp_pps_header_init(struct dp_sdp_header *pps_header);
+void drm_dsc_dsi_pps_header_init(struct dsc_dce_header *dsc_header);
 void drm_dsc_pps_payload_pack(struct drm_dsc_picture_parameter_set *pps_sdp,
 				const struct drm_dsc_config *dsc_cfg);
 int drm_dsc_compute_rc_parameters(struct drm_dsc_config *vdsc_cfg);
