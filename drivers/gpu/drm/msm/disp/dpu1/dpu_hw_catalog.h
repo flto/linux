@@ -166,6 +166,16 @@ enum {
 };
 
 /**
+ * DSC sub-blocks
+ * @DPU_DSC		DSC sub block
+ * @DPU_DSC_MAX
+ */
+enum {
+	DPU_DSC = 0x1,
+	DPU_DSC_MAX
+};
+
+/**
  * CTL sub-blocks
  * @DPU_CTL_SPLIT_DISPLAY       CTL supports video mode split display
  * @DPU_CTL_MAX
