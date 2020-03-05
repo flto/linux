@@ -143,4 +143,8 @@ msm-$(CONFIG_DRM_MSM_DSI_10NM_PHY) += dsi/pll/dsi_pll_10nm.o
 msm-$(CONFIG_DRM_MSM_DSI_7NM_PHY) += dsi/pll/dsi_pll_7nm.o
 endif
 
+msm-$(CONFIG_DRM_MSM_DP_PLL)+= dp/pll/dp_pll.o
+msm-$(CONFIG_DRM_MSM_DP_10NM_PLL)+= dp/pll/dp_pll_10nm.o \
+	dp/pll/dp_pll_10nm_util.o
+
 obj-$(CONFIG_DRM_MSM)	+= msm.o
