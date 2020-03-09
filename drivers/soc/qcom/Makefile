@@ -25,3 +25,4 @@ obj-$(CONFIG_QCOM_LLCC) += llcc-qcom.o
 obj-$(CONFIG_QCOM_RPMHPD) += rpmhpd.o
 obj-$(CONFIG_QCOM_RPMPD) += rpmpd.o
 obj-$(CONFIG_QPNP_PBS) += qpnp-pbs.o
+obj-$(CONFIG_QCOM_FSA4480_I2C) += fsa4480-i2c.o
