@@ -11,6 +11,7 @@
 #include <linux/debugfs.h>
 #include <linux/component.h>
 #include <linux/of_irq.h>
+#include <linux/soc/qcom/fsa4480-i2c.h>
 
 #include "msm_drv.h"
 #include "msm_kms.h"
@@ -39,6 +40,7 @@ struct dp_display_private {
 	bool audio_supported;
 
 	struct platform_device *pdev;
+	struct device_node *aux_switch_node;
 	struct dentry *root;
 	struct completion notification_comp;
 
@@ -315,6 +317,7 @@ end:
 
 static void dp_display_host_init(struct dp_display_private *dp)
 {
+	enum fsa_function event = FSA_USBC_ORIENTATION_CC1;
 	bool flip = false;
 
 	if (dp->core_initialized) {
@@ -322,9 +325,12 @@ static void dp_display_host_init(struct dp_display_private *dp)
 		return;
 	}
 
-	if (dp->usbpd->orientation == ORIENTATION_CC2)
+	if (dp->usbpd->orientation == ORIENTATION_CC2) {
 		flip = true;
+		event = FSA_USBC_ORIENTATION_CC2;
+	}
 
+	fsa4480_switch_event(dp->aux_switch_node, event);
 	dp_power_init(dp->power, flip);
 	dp_ctrl_host_init(dp->ctrl, flip);
 	enable_irq(dp->irq);
@@ -815,6 +821,46 @@ int dp_display_get_test_bpp(struct msm_dp *dp)
 		dp_display->link->test_video.test_bit_depth);
 }
 
+static int dp_display_fsa4480_callback(struct notifier_block *self,
+		unsigned long event, void *data)
+{
+	return 0;
+}
+
+static int dp_display_init_aux_switch(struct dp_display_private *dp)
+{
+	int rc = 0;
+	const char *phandle = "qcom,dp-aux-switch";
+	struct notifier_block nb;
+
+	if (!dp->pdev->dev.of_node) {
+		DP_ERR("cannot find dev.of_node\n");
+		rc = -ENODEV;
+		goto end;
+	}
+
+	dp->aux_switch_node = of_parse_phandle(dp->pdev->dev.of_node,
+			phandle, 0);
+	if (!dp->aux_switch_node) {
+		DP_WARN("cannot parse %s handle\n", phandle);
+		rc = -ENODEV;
+		goto end;
+	}
+
+	nb.notifier_call = dp_display_fsa4480_callback;
+	nb.priority = 0;
+
+	rc = fsa4480_reg_notifier(&nb, dp->aux_switch_node);
+	if (rc) {
+		DP_ERR("failed to register notifier (%d)\n", rc);
+		goto end;
+	}
+
+	fsa4480_unreg_notifier(&nb, dp->aux_switch_node);
+end:
+	return rc;
+}
+
 static int dp_display_probe(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -833,6 +879,8 @@ static int dp_display_probe(struct platform_device *pdev)
 
 	dp->pdev = pdev;
 	dp->name = "drm_dp";
+
+	rc = dp_display_init_aux_switch(dp);
 
 	rc = dp_init_sub_modules(dp);
 	if (rc) {
