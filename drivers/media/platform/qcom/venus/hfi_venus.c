@@ -368,7 +368,10 @@ static void venus_set_registers(struct venus_hfi_device *hdev)
 
 static void venus_soft_int(struct venus_hfi_device *hdev)
 {
-	venus_writel(hdev, CPU_IC_SOFTINT, BIT(CPU_IC_SOFTINT_H2A_SHIFT));
+	if (IS_IRIS2(hdev->core))
+		venus_writel(hdev, CPU_IC_SOFTINT_IRIS2, BIT(CPU_IC_SOFTINT_H2A_SHIFT_IRIS2));
+	else
+		venus_writel(hdev, CPU_IC_SOFTINT, BIT(CPU_IC_SOFTINT_H2A_SHIFT));
 }
 
 static int venus_iface_cmdq_write_nolock(struct venus_hfi_device *hdev,
@@ -465,6 +468,37 @@ static int venus_boot_core(struct venus_hfi_device *hdev)
 	return ret;
 }
 
+static int venus_boot_core_iris2(struct venus_hfi_device *hdev)
+{
+	struct device *dev = hdev->core->dev;
+	static const unsigned int max_tries = 100;
+	u32 ctrl_status = 0;
+	unsigned int count = 0;
+	int ret = 0;
+
+	venus_writel(hdev, VIDC_CTRL_INIT_IRIS2, BIT(VIDC_CTRL_INIT_CTRL_SHIFT));
+
+	while (!ctrl_status && count < max_tries) {
+		ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0_IRIS2);
+		if ((ctrl_status & CPU_CS_SCIACMDARG0_ERROR_STATUS_MASK) == 4) {
+			dev_err(dev, "invalid setting for UC_REGION\n");
+			ret = -EINVAL;
+			break;
+		}
+
+		usleep_range(500, 1000);
+		count++;
+	}
+
+	if (count >= max_tries)
+		ret = -ETIMEDOUT;
+
+	venus_writel(hdev, CPU_CS_H2XSOFTINTEN_IRIS2, 0x1);
+	venus_writel(hdev, CPU_CS_X2RPMh_IRIS2, 0x0);
+
+	return ret;
+}
+
 static u32 venus_hwversion(struct venus_hfi_device *hdev)
 {
 	struct device *dev = hdev->core->dev;
@@ -511,12 +545,52 @@ static int venus_run(struct venus_hfi_device *hdev)
 	return 0;
 }
 
+static int venus_run_iris2(struct venus_hfi_device *hdev)
+{
+	struct device *dev = hdev->core->dev;
+	int ret;
+	u32 mask_val;
+
+	/*
+	 * Re-program all of the registers that get reset as a result of
+	 * regulator_disable() and _enable()
+	 */
+	venus_set_registers(hdev);
+
+	mask_val = venus_readl(hdev, WRAPPER_INTR_MASK_IRIS2);
+
+	/* Write 0 to unmask CPU and WD interrupts */
+	mask_val &= ~(WRAPPER_INTR_MASK_A2HWD_MASK_IRIS2 | WRAPPER_INTR_MASK_A2HCPU_MASK_IRIS2);
+
+	venus_writel(hdev, WRAPPER_INTR_MASK_IRIS2, mask_val);
+
+	venus_writel(hdev, UC_REGION_ADDR_IRIS2, hdev->ifaceq_table.da);
+	venus_writel(hdev, UC_REGION_SIZE_IRIS2, SHARED_QSIZE);
+	venus_writel(hdev, CPU_CS_SCIACMDARG2_IRIS2, hdev->ifaceq_table.da);
+	venus_writel(hdev, CPU_CS_SCIACMDARG1_IRIS2, 0x01);
+	if (hdev->sfr.da)
+		venus_writel(hdev, SFR_ADDR_IRIS2, hdev->sfr.da);
+
+	ret = venus_boot_core_iris2(hdev);
+	if (ret) {
+		dev_err(dev, "failed to reset venus core\n");
+		return ret;
+	}
+
+	return 0;
+}
+
 static int venus_halt_axi(struct venus_hfi_device *hdev)
 {
 	void __iomem *base = hdev->core->base;
 	struct device *dev = hdev->core->dev;
 	u32 val;
 	int ret;
+
+	if (IS_IRIS2(hdev->core)) {
+		/* TODO */
+		return 0;
+	}
 
 	if (IS_V4(hdev->core)) {
 		val = venus_readl(hdev, WRAPPER_CPU_AXI_HALT);
@@ -585,7 +659,10 @@ static int venus_power_on(struct venus_hfi_device *hdev)
 	if (ret)
 		goto err;
 
-	ret = venus_run(hdev);
+	if (IS_IRIS2(hdev->core))
+		ret = venus_run_iris2(hdev);
+	else
+		ret = venus_run(hdev);
 	if (ret)
 		goto err_suspend;
 
@@ -1042,6 +1119,21 @@ static irqreturn_t venus_isr_thread(struct venus_core *core)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t venus_isr_iris2(struct venus_hfi_device *hdev)
+{
+	u32 status;
+
+	status = venus_readl(hdev, WRAPPER_INTR_STATUS_IRIS2);
+
+	/* TODO */
+	if (status & WRAPPER_INTR_STATUS_A2HWD_MASK_IRIS2)
+		hdev->irq_status = WRAPPER_INTR_STATUS_A2HWD_MASK;
+
+	venus_writel(hdev, CPU_CS_A2HSOFTINTCLR_IRIS2, 1);
+
+	return IRQ_WAKE_THREAD;
+}
+
 static irqreturn_t venus_isr(struct venus_core *core)
 {
 	struct venus_hfi_device *hdev = to_hfi_priv(core);
@@ -1049,6 +1141,9 @@ static irqreturn_t venus_isr(struct venus_core *core)
 
 	if (!hdev)
 		return IRQ_NONE;
+
+	if (IS_IRIS2(core))
+		return venus_isr_iris2(hdev);
 
 	status = venus_readl(hdev, WRAPPER_INTR_STATUS);
 
@@ -1440,12 +1535,22 @@ static int venus_suspend_1xx(struct venus_core *core)
 	return 0;
 }
 
+static void venus_read_status(struct venus_hfi_device *hdev, u32 *ctrl_status, u32 *cpu_status)
+{
+	if (IS_IRIS2(hdev->core)) {
+		*cpu_status = venus_readl(hdev, WRAPPER_CPU_STATUS_IRIS2);
+		*ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0_IRIS2);
+	} else {
+		*cpu_status = venus_readl(hdev, WRAPPER_CPU_STATUS);
+		*ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0);
+	}
+}
+
 static bool venus_cpu_and_video_core_idle(struct venus_hfi_device *hdev)
 {
 	u32 ctrl_status, cpu_status;
 
-	cpu_status = venus_readl(hdev, WRAPPER_CPU_STATUS);
-	ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0);
+	venus_read_status(hdev, &ctrl_status, &cpu_status);
 
 	if (cpu_status & WRAPPER_CPU_STATUS_WFI &&
 	    ctrl_status & CPU_CS_SCIACMDARG0_INIT_IDLE_MSG_MASK)
@@ -1458,8 +1563,7 @@ static bool venus_cpu_idle_and_pc_ready(struct venus_hfi_device *hdev)
 {
 	u32 ctrl_status, cpu_status;
 
-	cpu_status = venus_readl(hdev, WRAPPER_CPU_STATUS);
-	ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0);
+	venus_read_status(hdev, &ctrl_status, &cpu_status);
 
 	if (cpu_status & WRAPPER_CPU_STATUS_WFI &&
 	    ctrl_status & CPU_CS_SCIACMDARG0_PC_READY)
@@ -1488,7 +1592,10 @@ static int venus_suspend_3xx(struct venus_core *core)
 		return -EINVAL;
 	}
 
-	ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0);
+	if (IS_IRIS2(hdev->core))
+		ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0_IRIS2);
+	else
+		ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0);
 	if (ctrl_status & CPU_CS_SCIACMDARG0_PC_READY)
 		goto power_off;
 

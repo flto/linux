@@ -374,6 +374,9 @@ static int vcodec_control_v4(struct venus_core *core, u32 coreid, bool enable)
 	u32 val;
 	int ret;
 
+	if (IS_IRIS2(core))
+		return 0;
+
 	if (coreid == VIDC_CORE_ID_1) {
 		ctrl = core->base + WRAPPER_VCODEC0_MMCC_POWER_CONTROL;
 		stat = core->base + WRAPPER_VCODEC0_MMCC_POWER_STATUS;
