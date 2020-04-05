@@ -192,6 +192,7 @@ struct qcom_pcie {
 	union qcom_pcie_resources res;
 	struct phy *phy;
 	struct gpio_desc *reset;
+	struct gpio_desc *enable;
 	const struct qcom_pcie_ops *ops;
 	int gen;
 };
@@ -536,9 +537,48 @@ err_res:
 	return ret;
 }
 
+#define PCIE_GEN3_PRESET_DEFAULT (0x55555555)
+#define PCIE_GEN3_SPCIE_CAP (0x0154)
+#define PCIE_GEN3_GEN2_CTRL (0x080c)
+#define PCIE_GEN3_RELATED (0x0890)
+#define PCIE_GEN3_EQ_CONTROL (0x08a8)
+#define PCIE_GEN3_EQ_FB_MODE_DIR_CHANGE (0x08ac)
+#define PCIE_GEN3_MISC_CONTROL (0x08bc)
+#define PCIE20_DEVICE_CONTROL_STATUS (0x78)
+
 static void qcom_pcie_2_3_2_ltssm_enable(struct qcom_pcie *pcie)
 {
+	struct dw_pcie *pci = pcie->pci;
 	u32 val;
+
+	// PCIE_GEN3_GEN2_CTRL = PCIE_LINK_WIDTH_SPEED_CONTROL
+	val = readl(pci->dbi_base + PCIE_GEN3_GEN2_CTRL);
+	val &= ~0x1f00;
+	val |= 0x100;
+	writel(val, pci->dbi_base + PCIE_GEN3_GEN2_CTRL);
+
+	// broken PCIE_GEN3_EQ_CONTROL write?
+
+	val = readl(pci->dbi_base + PCIE_GEN3_RELATED);
+	val &= ~BIT(0);
+	writel(val, pci->dbi_base + PCIE_GEN3_RELATED);
+
+	val = readl(pci->dbi_base + PCIE_GEN3_MISC_CONTROL);
+	val |= BIT(0);
+	writel(val, pci->dbi_base + PCIE_GEN3_MISC_CONTROL);
+
+	writel(PCIE_GEN3_PRESET_DEFAULT, pci->dbi_base + PCIE_GEN3_SPCIE_CAP);
+
+	val = readl(pci->dbi_base + PCIE_GEN3_MISC_CONTROL);
+	val &= ~BIT(0);
+	writel(val, pci->dbi_base + PCIE_GEN3_MISC_CONTROL);
+
+	// link speed
+
+	val = readl(pci->dbi_base + PCIE20_DEVICE_CONTROL_STATUS);
+	val &= ~0x7000;
+	val |= 0x5000;
+	writel(val, pci->dbi_base + PCIE20_DEVICE_CONTROL_STATUS);
 
 	/* enable link training */
 	val = readl(pcie->parf + PCIE20_PARF_LTSSM);
@@ -1196,6 +1236,11 @@ static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
 	/* configure PCIe to RC mode */
 	writel(DEVICE_TYPE_RC, pcie->parf + PCIE20_PARF_DEVICE_TYPE);
 
+#define PCIE20_PARF_PM_CTRL (0x20)
+	val = readl(pcie->parf + PCIE20_PARF_PM_CTRL);
+	val &= ~BIT(5);
+	writel(val, pcie->parf + PCIE20_PARF_PM_CTRL);
+
 	/* enable PCIe clocks and resets */
 	val = readl(pcie->parf + PCIE20_PARF_PHY_CTRL);
 	val &= ~BIT(0);
@@ -1204,15 +1249,18 @@ static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
 	/* change DBI base address */
 	writel(0, pcie->parf + PCIE20_PARF_DBI_BASE_ADDR);
 
-	/* MAC PHY_POWERDOWN MUX DISABLE  */
-	val = readl(pcie->parf + PCIE20_PARF_SYS_CTRL);
-	val &= ~BIT(29);
-	writel(val, pcie->parf + PCIE20_PARF_SYS_CTRL);
+	writel(0x365E, pcie->parf + PCIE20_PARF_SYS_CTRL);
 
 	val = readl(pcie->parf + PCIE20_PARF_MHI_CLOCK_RESET_CTRL);
 	val |= BIT(4);
 	writel(val, pcie->parf + PCIE20_PARF_MHI_CLOCK_RESET_CTRL);
 
+#define PCIE20_PARF_INT_ALL_MASK (0x22c)
+	writel(0x7f80c202, pcie->parf + PCIE20_PARF_INT_ALL_MASK);
+
+	writel(SZ_64M, pcie->parf + PCIE20_PARF_SLV_ADDR_SPACE_SIZE);
+
+	// XXX wr_halt_size
 	if (IS_ENABLED(CONFIG_PCI_MSI)) {
 		val = readl(pcie->parf + PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT);
 		val |= BIT(31);
@@ -1250,11 +1298,20 @@ static void qcom_pcie_post_deinit_2_7_0(struct qcom_pcie *pcie)
 	clk_disable_unprepare(res->pipe_clk);
 }
 
+#define PCIE20_ELBI_SYS_STTS (0x08)
+#define XMLH_LINK_UP (0x400)
+
 static int qcom_pcie_link_up(struct dw_pcie *pci)
 {
-	u16 val = readw(pci->dbi_base + PCIE20_CAP + PCI_EXP_LNKSTA);
+	struct qcom_pcie *pcie = to_qcom_pcie(pci);
+	u32 val;
 
-	return !!(val & PCI_EXP_LNKSTA_DLLLA);
+	val = readl(pcie->elbi + PCIE20_ELBI_SYS_STTS);
+	if (!(val & XMLH_LINK_UP))
+		return false;
+
+	val = readl(pci->dbi_base + 0x80);
+	return !!(val & BIT(29));
 }
 
 static int qcom_pcie_host_init(struct pcie_port *pp)
@@ -1262,6 +1319,8 @@ static int qcom_pcie_host_init(struct pcie_port *pp)
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct qcom_pcie *pcie = to_qcom_pcie(pci);
 	int ret;
+
+	gpiod_set_value(pcie->enable, 0);
 
 	qcom_ep_reset_assert(pcie);
 
@@ -1286,9 +1345,16 @@ static int qcom_pcie_host_init(struct pcie_port *pp)
 
 	qcom_ep_reset_deassert(pcie);
 
+	gpiod_set_value(pcie->enable, 1);
+
 	ret = qcom_pcie_establish_link(pcie);
 	if (ret)
 		goto err;
+
+	/* hardcoded msm_pcie_config_sid */
+#define PCIE20_PARF_BDF_TO_SID_TABLE_N (0x2000)
+	writel(0x00000000, pcie->parf + PCIE20_PARF_BDF_TO_SID_TABLE_N + 0x000);
+	writel(0x01000100, pcie->parf + PCIE20_PARF_BDF_TO_SID_TABLE_N + 0x054);
 
 	return 0;
 err:
@@ -1409,6 +1475,9 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		goto err_pm_runtime_put;
 	}
 
+	pcie->enable = devm_gpiod_get_optional(dev, "enable", GPIOD_OUT_HIGH);
+	gpiod_set_value_cansleep(pcie->enable, 0);
+
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi");
 	pci->dbi_base = devm_pci_remap_cfg_resource(dev, res);
 	if (IS_ERR(pci->dbi_base)) {
@@ -1416,11 +1485,15 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		goto err_pm_runtime_put;
 	}
 
+#if 0
 	pcie->elbi = devm_platform_ioremap_resource_byname(pdev, "elbi");
 	if (IS_ERR(pcie->elbi)) {
 		ret = PTR_ERR(pcie->elbi);
 		goto err_pm_runtime_put;
 	}
+#endif
+	pcie->elbi = pci->dbi_base + 0xf20;
+	pci->atu_base = pci->dbi_base + 0x1000;
 
 	pcie->phy = devm_phy_optional_get(dev, "pciephy");
 	if (IS_ERR(pcie->phy)) {
