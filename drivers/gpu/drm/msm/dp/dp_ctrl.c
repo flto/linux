@@ -1385,7 +1385,7 @@ static bool dp_ctrl_use_fixed_nvid(struct dp_ctrl_private *ctrl)
 	 * whenever connected to a VGA dongle downstream.
 	 */
 	if (drm_dp_is_branch(dpcd))
-		return (drm_dp_has_quirk(&ctrl->panel->desc,
+		return (drm_dp_has_quirk(&ctrl->panel->desc, 0,
 				DP_DPCD_QUIRK_CONSTANT_N));
 
 	return false;
