@@ -95,7 +95,7 @@ enum dpu_hw_blk_type {
 	DPU_HW_BLK_PINGPONG,
 	DPU_HW_BLK_INTF,
 	DPU_HW_BLK_WB,
-	DPU_HW_DSC,
+	DPU_HW_BLK_DSC,
 	DPU_HW_BLK_MAX,
 };
 

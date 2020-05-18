@@ -71,4 +71,9 @@ struct dpu_hw_dsc *dpu_hw_dsc_init(enum dpu_dsc idx, void __iomem *addr,
  */
 void dpu_hw_dsc_destroy(struct dpu_hw_dsc *dsc);
 
+static inline struct dpu_hw_dsc *to_dpu_hw_dsc(struct dpu_hw_blk *hw)
+{
+	return container_of(hw, struct dpu_hw_dsc, base);
+}
+
 #endif /* _DPU_HW_DSC_H */

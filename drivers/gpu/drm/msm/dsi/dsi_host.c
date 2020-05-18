@@ -681,6 +681,9 @@ static u32 dsi_get_pclk_rate(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 
 	pclk_rate = mode->clock * 1000;
 
+	// use the real htotal (776) to get the pixel clock (90 is vrefresh)
+	pclk_rate = 776 * msm_host->mode->vtotal * 90;
+
 	/*
 	 * For dual DSI mode, the current DRM mode has the complete width of the
 	 * panel. Since, the complete panel is driven by two DSI controllers,
@@ -696,7 +699,7 @@ static u32 dsi_get_pclk_rate(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 static void dsi_calc_pclk(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 {
 	u8 lanes = msm_host->lanes;
-	u32 bpp = dsi_get_bpp(msm_host->format);
+	u32 bpp = 24; // DSC uses 24 bpp format
 	u32 pclk_rate = dsi_get_pclk_rate(msm_host, is_dual_dsi);
 	u64 pclk_bpp = (u64)pclk_rate * bpp;
 
@@ -948,6 +951,20 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 	u32 hdisplay = mode->hdisplay;
 	u32 wc;
 
+/* divide hdisplay by 3 but keep the back/front-porch and pulse-width the same
+.hdisplay = 2160,
+.hsync_start = (2160 + 28),
+.hsync_end = (2160 + 28 + 4),
+.htotal = (2160 + 28 + 4 + 24),
+*/
+	if (msm_host->dsc) {
+		h_total = 776;
+		hs_end = 4;
+		ha_start = 28;
+		ha_end = 748;
+		hdisplay = 720;
+	}
+
 	DBG("");
 
 	/*
@@ -957,7 +974,7 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 	 * timings have to be split between the two dsi controllers.
 	 * Adjust the DSI host timing values accordingly.
 	 */
-	if (is_dual_dsi) {
+	if (is_dual_dsi && 0) {
 		h_total /= 2;
 		hs_end /= 2;
 		ha_start /= 2;
@@ -978,7 +995,7 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 			/* first calculate dsc parameters and then program
 			 * compress mode registers
 			 */
-			intf_width = hdisplay;
+			intf_width = 2160;
 			slice_per_intf = DIV_ROUND_UP(intf_width, dsc->drm.slice_width);
 
 			/* If slice_per_pkt > slice_per_intf, then use 1
@@ -988,7 +1005,7 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 				dsc->slice_per_pkt = 1;
 
 			dsc->bytes_in_slice = DIV_ROUND_UP(dsc->drm.slice_width *
-						      dsi_get_bpp(msm_host->format), 8);
+						      8, 8);
 			total_bytes_per_intf = dsc->bytes_in_slice * slice_per_intf;
 
 			dsc->eol_byte_num = total_bytes_per_intf % 3;
@@ -1007,7 +1024,7 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 			 * 3 pkt is not supported
 			 * above translates to ffs() - 1
 			 */
-			reg = (ffs(dsc->pkt_per_line) - 1) << 6;
+			reg |= (ffs(dsc->pkt_per_line) - 1) << 6;
 
 			dsc->eol_byte_num = total_bytes_per_intf % 3;
 			reg |= dsc->eol_byte_num << 4;
@@ -1918,7 +1935,7 @@ static int dsi_host_parse_dsc(struct msm_dsi_host *msm_host,
 	if (!is_dsc_enabled)
 		return 0;
 
-	dsc = kzalloc(sizeof(dsc), GFP_KERNEL);
+	dsc = kzalloc(sizeof(*dsc), GFP_KERNEL);
 	if (!dsc)
 		return -ENOMEM;
 

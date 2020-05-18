@@ -29,11 +29,6 @@
 #define DSC_RANGE_MAX_QP                0x0B0
 #define DSC_RANGE_BPG_OFFSET            0x0EC
 
-static inline struct dpu_hw_dsc *to_dpu_hw_dsc(struct dpu_hw_blk *hw)
-{
-	return container_of(hw, struct dpu_hw_dsc, base);
-}
-
 static void dpu_hw_dsc_disable(struct dpu_hw_dsc *dsc)
 {
 	struct dpu_hw_blk_reg_map *c = &dsc->hw;
@@ -60,9 +55,9 @@ static void dpu_hw_dsc_config(struct dpu_hw_dsc *hw_dsc,
 		initial_lines += 1;
 
 	data |= (initial_lines << 20);
-	data |= ((dsc->slice_last_group_size - 1) << 18);
+	data |= ((dsc->slice_last_group_size) << 18);
 	/* bpp is 6.4 format, 4 LSBs bits are for fractional part */
-	data |= dsc->drm.bits_per_pixel << 8;
+	data |= dsc->drm.bits_per_pixel << 12;
 	data |= (dsc->drm.block_pred_enable << 7);
 	data |= (dsc->drm.line_buf_depth << 3);
 	data |= (dsc->drm.simple_422 << 2);
@@ -81,30 +76,42 @@ static void dpu_hw_dsc_config(struct dpu_hw_dsc *hw_dsc,
 	DPU_REG_WRITE(c, DSC_SLICE, data);
 
 	data = dsc->drm.slice_chunk_size << 16;
+
+	data = 0x021C0000; // XXX
 	DPU_REG_WRITE(c, DSC_CHUNK_SIZE, data);
 
 	data = dsc->drm.initial_dec_delay << 16;
 	data |= dsc->drm.initial_xmit_delay;
+
+	data = 0x020E0200; // XXX
 	DPU_REG_WRITE(c, DSC_DELAY, data);
 
 	data = dsc->drm.initial_scale_value;
+	data = 0x00000020; // XXX
 	DPU_REG_WRITE(c, DSC_SCALE_INITIAL, data);
 
 	data = dsc->drm.scale_decrement_interval;
+	data = 0x00000007; // XXX
 	DPU_REG_WRITE(c, DSC_SCALE_DEC_INTERVAL, data);
 
 	data = dsc->drm.scale_increment_interval;
+	data = 0x000000BB; // XXX
 	DPU_REG_WRITE(c, DSC_SCALE_INC_INTERVAL, data);
 
 	data = dsc->drm.first_line_bpg_offset;
+	data = 0x0000000C; // XXX
 	DPU_REG_WRITE(c, DSC_FIRST_LINE_BPG_OFFSET, data);
 
 	data = dsc->drm.nfl_bpg_offset << 16;
 	data |= dsc->drm.slice_bpg_offset;
+
+	data = 0x0DB70CB7; // XXX
 	DPU_REG_WRITE(c, DSC_BPG_OFFSET, data);
 
 	data = dsc->drm.initial_offset << 16;
 	data |= dsc->drm.final_offset;
+
+	data = 0x180010F0; // XXX
 	DPU_REG_WRITE(c, DSC_DSC_OFFSET, data);
 
 	data = dsc->det_thresh_flatness << 10;

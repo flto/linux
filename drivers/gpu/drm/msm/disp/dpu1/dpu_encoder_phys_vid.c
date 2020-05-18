@@ -67,7 +67,7 @@ static void drm_mode_to_intf_timing_params(
 	 * <----------------- [hv]sync_end ------->
 	 * <---------------------------- [hv]total ------------->
 	 */
-	timing->width = mode->hdisplay;	/* active width */
+	timing->width = mode->hdisplay / 3;	/* active width */
 	timing->height = mode->vdisplay;	/* active height */
 	timing->xres = timing->width;
 	timing->yres = timing->height;
