@@ -24,7 +24,9 @@ struct apr {
 	int dest_domain_id;
 	struct pdr_handle *pdr;
 	struct workqueue_struct *rxwq;
+	struct workqueue_struct *initwq;
 	struct work_struct rx_work;
+	struct work_struct init_work;
 	struct list_head rx_list;
 };
 
@@ -412,6 +414,13 @@ static void apr_pd_status(int state, char *svc_path, void *priv)
 	}
 }
 
+static void apr_init_work(struct work_struct *work)
+{
+	struct apr *apr = container_of(work, struct apr, init_work);
+
+	of_register_apr_devices(apr->dev, NULL);
+}
+
 static int apr_probe(struct rpmsg_device *rpdev)
 {
 	struct device *dev = &rpdev->dev;
@@ -454,7 +463,12 @@ static int apr_probe(struct rpmsg_device *rpdev)
 	if (ret)
 		goto handle_release;
 
-	of_register_apr_devices(dev, NULL);
+	/// XXX
+	apr->initwq = create_singlethread_workqueue("qcom_apr_init");
+	INIT_WORK(&apr->init_work, apr_init_work);
+	queue_work(apr->initwq, &apr->init_work);
+
+	//of_register_apr_devices(dev, NULL);
 
 	return 0;
 
