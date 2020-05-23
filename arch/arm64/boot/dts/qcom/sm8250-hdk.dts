@@ -452,3 +452,7 @@
 &usb_2_dwc3 {
 	dr_mode = "host";
 };
+
+&intc {
+	compatible = "hdk865-disable-bootloader-display", "arm,gic-v3";
+};

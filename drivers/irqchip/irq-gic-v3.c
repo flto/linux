@@ -1808,6 +1808,17 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
 	u32 nr_redist_regions;
 	int err, i;
 
+	if (of_device_is_compatible(node, "hdk865-disable-bootloader-display")) {
+#define INTF_TIMING_ENGINE_EN           0x000
+#define INTF_MUX                        0x25C
+		void *ptr = ioremap(0xae6b800, 0x800);
+		for (i = 0; i < 4; i++) {
+			writel(0, ptr + INTF_TIMING_ENGINE_EN);
+			writel(0xf000f, ptr + INTF_MUX);
+		}
+		iounmap(ptr);
+	}
+
 	dist_base = of_iomap(node, 0);
 	if (!dist_base) {
 		pr_err("%pOF: unable to map gic dist registers\n", node);
