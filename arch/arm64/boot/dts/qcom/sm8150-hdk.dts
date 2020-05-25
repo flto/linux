@@ -53,6 +53,23 @@
 			gpios = <&pm8150_gpios 6 GPIO_ACTIVE_LOW>;
 		};
 	};
+
+	LCD_BACKLIGHT_EN: LCD_BACKLIGHT_EN {
+		compatible = "regulator-fixed";
+		regulator-name = "LCD_BACKLIGHT_EN";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		enable-active-high;
+		gpio = <&tlmm 116 GPIO_ACTIVE_HIGH>;
+		regulator-always-on;
+	};
+
+	kona_mtp_batterydata: qcom,battery-data {
+		qcom,batt-id-range-pct = <15>;
+		#include "fg-gen4-batterydata-simplo-6800mah.dtsi"
+		#include "fg-gen4-batterydata-ascent-3450mah.dtsi"
+	};
+
 };
 
 &apps_rsc {
@@ -208,6 +225,7 @@
 			regulator-min-microvolt = <2856000>;
 			regulator-max-microvolt = <3008000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
 		};
 	};
 
@@ -392,6 +410,27 @@
 
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <126 4>;
+
+	panel_default: panel-default {
+		pinmux {
+			pins = "gpio8";
+			function = "mdp_vsync";
+		};
+	};
+
+	fsa_usbc_ana_en: fsa_usbc_ana_en {
+		mux {
+			pins = "gpio100";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio100";
+			drive-strength = <2>;
+			bias-disable;
+			output-low;
+		};
+	};
 };
 
 &uart2 {
@@ -455,9 +494,144 @@
 };
 
 &usb_1_dwc3 {
-	dr_mode = "peripheral";
+	dr_mode = "host";
 };
 
 &usb_2_dwc3 {
 	dr_mode = "host";
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+#if 0
+&dsi0 {
+	status = "okay";
+	vdda-supply = <&vreg_l3c_1p2>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	//qcom,dual-dsi-mode;
+	//qcom,master-dsi;
+
+	ports {
+		port@1 {
+			endpoint {
+				remote-endpoint = <&panel0_in>;
+				data-lanes = <0 1 2 3>;
+			};
+		};
+	};
+
+	panel: panel@0 {
+		reg = <0>;
+		compatible = "truly,nt35597-2K-display";
+
+		reset-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
+
+		vdda-supply = <&vreg_l14a_1p8>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_default>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@0 {
+				reg = <0>;
+				panel0_in: endpoint {
+					remote-endpoint = <&dsi0_out>;
+				};
+			};
+		};
+	};
+};
+
+&dsi0_phy {
+	status = "okay";
+	vdds-supply = <&vdda_dsi_0_pll_0p9>;
+};
+#endif
+
+&msm_dp {
+	status = "okay";
+	extcon = <&usb_1_ssphy>;
+	qcom,dp-usbpd-detection = <&pm8150b_pdphy>;
+	qcom,dp-aux-switch = <&fsa4480>;
+};
+
+&pm8150b_charger {
+	qcom,sec-charger-config = <1>;
+	qcom,auto-recharge-soc = <98>;
+#if 0
+	io-channels = <&pm8150b_vadc ADC_MID_CHG_DIV6>,
+		      <&pm8150b_vadc ADC_USB_IN_I>,
+		      <&pm8150b_vadc ADC_SBUx>,
+		      <&pm8150b_vadc ADC_VPH_PWR>,
+		      <&pm8150b_vadc ADC_CHG_TEMP>;
+	io-channel-names = "mid_voltage",
+			   "usb_in_current",
+			   "sbux_res",
+			   "vph_voltage",
+			   "chg_temp";
+#endif
+	qcom,battery-data = <&kona_mtp_batterydata>;
+	qcom,step-charging-enable;
+	qcom,sw-jeita-enable;
+	qcom,wd-bark-time-secs = <16>;
+	qcom,suspend-input-on-debug-batt;
+	qcom,fcc-stepping-enable;
+	qcom,smb-internal-pull-kohm = <0>;
+
+	dpdm-supply = <&usb_1_hsphy>;
+	smb5_vconn: qcom,smb5-vconn {
+		regulator-name = "smb5-vconn";
+	};
+
+	smb5_vbus: qcom,smb5-vbus {
+		regulator-name = "smb5-vbus";
+	};
+};
+
+&pm8150b_fg {
+	status = "ok";
+	qcom,battery-data = <&kona_mtp_batterydata>;
+	qcom,hold-soc-while-full;
+	qcom,linearize-soc;
+	qcom,five-pin-battery;
+	qcom,cl-wt-enable;
+	qcom,soc-scale-mode-en;
+	/* ESR fast calibration */
+	qcom,fg-esr-timer-chg-fast = <0 7>;
+	qcom,fg-esr-timer-dischg-fast = <0 7>;
+	qcom,fg-esr-timer-chg-slow = <0 96>;
+	qcom,fg-esr-timer-dischg-slow = <0 96>;
+	qcom,fg-esr-cal-soc-thresh = <26 230>;
+	qcom,fg-esr-cal-temp-thresh = <10 40>;
+};
+
+&pm8150b_pdphy {
+	vdd-pdphy-supply = <&vreg_l2a_3p1>;
+	vbus-supply = <&smb5_vbus>;
+	vconn-supply = <&smb5_vconn>;
+};
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&i2c4 {
+	status = "okay";
+	fsa4480: fsa4480@43 {
+		compatible = "qcom,fsa4480-i2c";
+		reg = <0x43>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&fsa_usbc_ana_en>;
+	};
 };
