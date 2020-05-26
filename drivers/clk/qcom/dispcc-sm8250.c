@@ -1235,7 +1235,7 @@ static struct gdsc mdss_gdsc = {
 		.name = "mdss_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = HW_CTRL | POLL_CFG_GDSCR,
+	.flags = ALWAYS_ON, // XXX this is wrong
 };
 
 static struct clk_regmap *disp_cc_sm8250_clocks[] = {

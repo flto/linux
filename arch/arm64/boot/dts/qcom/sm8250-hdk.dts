@@ -63,6 +63,12 @@
 			gpios = <&pm8150_gpios 6 GPIO_ACTIVE_LOW>;
 		};
 	};
+
+	kona_mtp_batterydata: qcom,battery-data {
+		qcom,batt-id-range-pct = <15>;
+		#include "fg-gen4-batterydata-simplo-6800mah.dtsi"
+		#include "fg-gen4-batterydata-ascent-3450mah.dtsi"
+	};
 };
 
 &apps_rsc {
@@ -451,4 +457,88 @@
 
 &usb_2_dwc3 {
 	dr_mode = "host";
+};
+
+&pm8150b_charger {
+	qcom,sec-charger-config = <1>;
+	qcom,auto-recharge-soc = <98>;
+#if 0
+	io-channels = <&pm8150b_vadc ADC_MID_CHG_DIV6>,
+		      <&pm8150b_vadc ADC_USB_IN_I>,
+		      <&pm8150b_vadc ADC_SBUx>,
+		      <&pm8150b_vadc ADC_VPH_PWR>,
+		      <&pm8150b_vadc ADC_CHG_TEMP>;
+	io-channel-names = "mid_voltage",
+			   "usb_in_current",
+			   "sbux_res",
+			   "vph_voltage",
+			   "chg_temp";
+#endif
+	qcom,battery-data = <&kona_mtp_batterydata>;
+	qcom,step-charging-enable;
+	qcom,sw-jeita-enable;
+	qcom,wd-bark-time-secs = <16>;
+	qcom,suspend-input-on-debug-batt;
+	qcom,fcc-stepping-enable;
+	qcom,smb-internal-pull-kohm = <0>;
+
+	dpdm-supply = <&usb_1_hsphy>;
+	smb5_vconn: qcom,smb5-vconn {
+		regulator-name = "smb5-vconn";
+	};
+
+	smb5_vbus: qcom,smb5-vbus {
+		regulator-name = "smb5-vbus";
+	};
+};
+
+&pm8150b_fg {
+	status = "ok";
+	qcom,battery-data = <&kona_mtp_batterydata>;
+	qcom,hold-soc-while-full;
+	qcom,linearize-soc;
+	qcom,five-pin-battery;
+	qcom,cl-wt-enable;
+	qcom,soc-scale-mode-en;
+	/* ESR fast calibration */
+	qcom,fg-esr-timer-chg-fast = <0 7>;
+	qcom,fg-esr-timer-dischg-fast = <0 7>;
+	qcom,fg-esr-timer-chg-slow = <0 96>;
+	qcom,fg-esr-timer-dischg-slow = <0 96>;
+	qcom,fg-esr-cal-soc-thresh = <26 230>;
+	qcom,fg-esr-cal-temp-thresh = <10 40>;
+};
+
+&pm8150b_pdphy {
+	vdd-pdphy-supply = <&vreg_l2a_3p1>;
+	vbus-supply = <&smb5_vbus>;
+	vconn-supply = <&smb5_vconn>;
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&msm_dp {
+	status = "okay";
+	extcon = <&usb_1_ssphy>;
+	qcom,dp-usbpd-detection = <&pm8150b_pdphy>;
+	qcom,dp-aux-switch = <&fsa4480>;
+};
+
+
+&qupv3_id_2 {
+	status = "okay";
+};
+
+&i2c15 {
+	status = "okay";
+	fsa4480: fsa4480@43 {
+		compatible = "qcom,fsa4480-i2c";
+		reg = <0x43>;
+	};
 };
