@@ -30,6 +30,7 @@
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_fb_helper.h>
+#include <drm/drm_dsc.h>
 #include <drm/msm_drm.h>
 #include <drm/drm_gem.h>
 
@@ -227,6 +228,9 @@ struct msm_drm_private {
 
 	/* Properties */
 	struct drm_property *plane_property[PLANE_PROP_MAX_NUM];
+
+	/* DSC configuration */
+	struct drm_dsc_config dsc;
 
 	/* VRAM carveout, used when no IOMMU: */
 	struct {

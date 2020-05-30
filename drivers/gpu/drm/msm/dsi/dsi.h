@@ -111,7 +111,8 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 			bool is_dual_dsi);
 int msm_dsi_host_power_off(struct mipi_dsi_host *host);
 int msm_dsi_host_set_display_mode(struct mipi_dsi_host *host,
-				  const struct drm_display_mode *mode);
+				  const struct drm_display_mode *mode,
+				  const struct drm_dsc_config *dsc);
 struct drm_panel *msm_dsi_host_get_panel(struct mipi_dsi_host *host);
 unsigned long msm_dsi_host_get_mode_flags(struct mipi_dsi_host *host);
 struct drm_bridge *msm_dsi_host_get_bridge(struct mipi_dsi_host *host);
