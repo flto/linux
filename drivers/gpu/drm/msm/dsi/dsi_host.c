@@ -156,6 +156,7 @@ struct msm_dsi_host {
 	struct regmap *sfpb;
 
 	struct drm_display_mode *mode;
+	const struct drm_dsc_config *dsc;
 
 	/* connected device info */
 	struct device_node *device_node;
@@ -696,6 +697,14 @@ static u32 dsi_get_pclk_rate(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 	if (is_dual_dsi)
 		pclk_rate /= 2;
 
+	/*
+	 * For DSC, adjust clock to match htotal used for DSI link
+	 */
+	if (msm_host->dsc) {
+		u32 htotal = mode->hdisplay / 3 + (mode->htotal - mode->hdisplay);
+		pclk_rate = (u64) pclk_rate * htotal / mode->htotal;
+	}
+
 	return pclk_rate;
 }
 
@@ -939,6 +948,29 @@ static void dsi_ctrl_config(struct msm_dsi_host *msm_host, bool enable,
 	dsi_write(msm_host, REG_DSI_CTRL, data);
 }
 
+static void dsi_set_video_dsc(struct msm_dsi_host *msm_host,
+			      const struct drm_dsc_config *dsc)
+{
+	u32 slice_per_pkt = 4;
+	u32 slice_per_intf = 4;
+	u32 pkt_per_line = 1;
+	u32 bytes_in_slice = dsc->slice_width;
+	u32 bytes_per_pkt = bytes_in_slice * slice_per_pkt;
+	u32 total_bytes_per_intf = bytes_in_slice * slice_per_intf;
+
+	if (!dsc) {
+		dsi_write(msm_host, REG_DSI_VIDEO_COMPRESSION_MODE_CTRL, 0);
+		return;
+	}
+
+	dsi_write(msm_host, REG_DSI_VIDEO_COMPRESSION_MODE_CTRL,
+		  bytes_per_pkt << 16 |
+		  (0x0b << 8) |
+		  (ffs(pkt_per_line) - 1) << 6 |
+		  (total_bytes_per_intf % 3) << 4 |
+		  1);
+}
+
 static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 {
 	struct drm_display_mode *mode = msm_host->mode;
@@ -971,7 +1003,21 @@ static void dsi_timing_setup(struct msm_dsi_host *msm_host, bool is_dual_dsi)
 		hdisplay /= 2;
 	}
 
+	/*
+	 * For DSC mode, effectively divide hdisplay by 3,
+	 * while keeping other timings
+	 * DSC is sent as RGB888, with 8-bits per pixel
+	 */
+	if (msm_host->dsc) {
+		h_total -= hdisplay;
+		hdisplay /= 3;
+		h_total += hdisplay;
+		ha_end = ha_start + hdisplay;
+	}
+
 	if (msm_host->mode_flags & MIPI_DSI_MODE_VIDEO) {
+		dsi_set_video_dsc(msm_host, msm_host->dsc);
+
 		dsi_write(msm_host, REG_DSI_ACTIVE_H,
 			DSI_ACTIVE_H_START(ha_start) |
 			DSI_ACTIVE_H_END(ha_end));
@@ -1369,6 +1415,7 @@ static int dsi_cmds2buf_tx(struct msm_dsi_host *msm_host,
 	int len, ret;
 	int bllp_len = msm_host->mode->hdisplay *
 			dsi_get_bpp(msm_host->format) / 8;
+	/* TODO: bllp_len is less with DSC */
 
 	len = dsi_cmd_dma_add(msm_host, msg);
 	if (!len) {
@@ -2453,7 +2500,8 @@ unlock_ret:
 }
 
 int msm_dsi_host_set_display_mode(struct mipi_dsi_host *host,
-				  const struct drm_display_mode *mode)
+				  const struct drm_display_mode *mode,
+				  const struct drm_dsc_config *dsc)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
 
@@ -2467,6 +2515,8 @@ int msm_dsi_host_set_display_mode(struct mipi_dsi_host *host,
 		pr_err("%s: cannot duplicate mode\n", __func__);
 		return -ENOMEM;
 	}
+
+	msm_host->dsc = dsc;
 
 	return 0;
 }

@@ -125,6 +125,15 @@ struct drm_panel_funcs {
 	 */
 	int (*get_timings)(struct drm_panel *panel, unsigned int num_timings,
 			   struct display_timing *timings);
+
+	/**
+	 * @mode_set:
+	 *
+	 * Set the panel display mode
+	 *
+	 * This function is optional.
+	 */
+	int (*mode_set)(struct drm_panel *panel, const struct drm_display_mode *mode);
 };
 
 /**
@@ -187,6 +196,8 @@ int drm_panel_enable(struct drm_panel *panel);
 int drm_panel_disable(struct drm_panel *panel);
 
 int drm_panel_get_modes(struct drm_panel *panel, struct drm_connector *connector);
+
+int drm_panel_mode_set(struct drm_panel *panel, const struct drm_display_mode *mode);
 
 #if defined(CONFIG_OF) && defined(CONFIG_DRM_PANEL)
 struct drm_panel *of_drm_find_panel(const struct device_node *np);

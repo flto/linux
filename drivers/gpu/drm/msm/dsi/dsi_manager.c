@@ -548,6 +548,67 @@ disable_phy:
 	dsi_mgr_phy_disable(id);
 }
 
+
+static u32 dsi_dsc_rc_buf_thresh[DSC_NUM_BUF_RANGES - 1] = {
+	0x0e, 0x1c, 0x2a, 0x38, 0x46, 0x54, 0x62,
+	0x69, 0x70, 0x77, 0x79, 0x7b, 0x7d, 0x7e
+};
+
+/* only 8bpc, 8bpp added */
+static char min_qp[DSC_NUM_BUF_RANGES] = {
+	0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 7, 13
+};
+
+static char max_qp[DSC_NUM_BUF_RANGES] = {
+	4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11, 12, 13, 13, 15
+};
+
+static char bpg_offset[DSC_NUM_BUF_RANGES] = {
+	2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12
+};
+
+static int dsi_populate_dsc_params(struct drm_dsc_config *dsc)
+{
+	int i;
+
+	dsc->rc_model_size = 8192;
+	//dsc->first_line_bpg_offset = 15;
+	dsc->first_line_bpg_offset = 12;
+	dsc->rc_edge_factor = 6;
+	dsc->rc_tgt_offset_high = 3;
+	dsc->rc_tgt_offset_low = 3;
+	dsc->simple_422 = 0;
+	dsc->convert_rgb = 1;
+	dsc->vbr_enable = 0;
+
+	/* handle only bpp = bpc = 8 */
+	for (i = 0; i < DSC_NUM_BUF_RANGES -1 ; i++)
+                dsc->rc_buf_thresh[i] = dsi_dsc_rc_buf_thresh[i];
+
+	for (i = 0; i < DSC_NUM_BUF_RANGES; i++) {
+		dsc->rc_range_params[i].range_min_qp = min_qp[i];
+		dsc->rc_range_params[i].range_max_qp = max_qp[i];
+		dsc->rc_range_params[i].range_bpg_offset = bpg_offset[i];
+	}
+
+	dsc->initial_offset = 6144;
+	dsc->initial_xmit_delay = 512;
+	dsc->line_buf_depth = dsc->bits_per_component + 1;
+
+	/* bpc 8 */
+	dsc->flatness_min_qp = 3;
+	dsc->flatness_max_qp = 12;
+	dsc->rc_quant_incr_limit0 = 11;
+	dsc->rc_quant_incr_limit1 = 11;
+	dsc->mux_word_size = DSC_MUX_WORD_SIZE_8_10_BPC;
+
+	/* need to call drm_dsc_compute_rc_parameters() so that rest of
+	 * params are calculated
+	 */
+
+	return 0;
+}
+
 static void dsi_mgr_bridge_mode_set(struct drm_bridge *bridge,
 		const struct drm_display_mode *mode,
 		const struct drm_display_mode *adjusted_mode)
@@ -557,15 +618,37 @@ static void dsi_mgr_bridge_mode_set(struct drm_bridge *bridge,
 	struct msm_dsi *other_dsi = dsi_mgr_get_other_dsi(id);
 	struct mipi_dsi_host *host = msm_dsi->host;
 	bool is_dual_dsi = IS_DUAL_DSI();
+	struct drm_device *drm = msm_dsi->dev;
+	struct msm_drm_private *priv = drm->dev_private;
+	const struct drm_dsc_config *dsc = NULL;
 
 	DBG("set mode: " DRM_MODE_FMT, DRM_MODE_ARG(mode));
 
 	if (is_dual_dsi && !IS_MASTER_DSI_LINK(id))
 		return;
 
-	msm_dsi_host_set_display_mode(host, adjusted_mode);
+	if (adjusted_mode->hdisplay == 4320) {
+		priv->dsc = (struct drm_dsc_config) {
+			.dsc_version_major = 1,
+			.dsc_version_minor = 1,
+			.slice_height = 48,
+			.slice_width = 540,
+			.bits_per_component = 8,
+			.bits_per_pixel = 8,
+			.block_pred_enable = true,
+		};
+
+		dsi_populate_dsc_params(&priv->dsc);
+		dsc = &priv->dsc;
+	} else {
+		memset(&priv->dsc, 0, sizeof(priv->dsc));
+	}
+
+	msm_dsi_host_set_display_mode(host, adjusted_mode, dsc);
 	if (is_dual_dsi && other_dsi)
-		msm_dsi_host_set_display_mode(other_dsi->host, adjusted_mode);
+		msm_dsi_host_set_display_mode(other_dsi->host, adjusted_mode, dsc);
+
+	drm_panel_mode_set(msm_dsi->panel, adjusted_mode);
 }
 
 static const struct drm_connector_funcs dsi_mgr_connector_funcs = {

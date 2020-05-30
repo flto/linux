@@ -223,6 +223,18 @@ int drm_panel_get_modes(struct drm_panel *panel,
 }
 EXPORT_SYMBOL(drm_panel_get_modes);
 
+int drm_panel_mode_set(struct drm_panel *panel, const struct drm_display_mode *mode)
+{
+	if (!panel)
+		return -EINVAL;
+
+	if (panel->funcs && panel->funcs->mode_set)
+		return panel->funcs->mode_set(panel, mode);
+
+	return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(drm_panel_mode_set);
+
 #ifdef CONFIG_OF
 /**
  * of_drm_find_panel - look up a panel using a device tree node
