@@ -640,6 +640,8 @@ int drm_mode_getplane_res(struct drm_device *dev, void *data,
 
 	plane_ptr = u64_to_user_ptr(plane_resp->plane_id_ptr);
 
+	file_priv->universal_planes = true;
+
 	/*
 	 * This ioctl is called twice, once to determine how much space is
 	 * needed, and the 2nd time to fill it.
