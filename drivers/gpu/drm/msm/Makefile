@@ -55,32 +55,9 @@ msm-$(CONFIG_DRM_MSM_MDP5) += \
 	disp/mdp5/mdp5_smp.o \
 
 msm-$(CONFIG_DRM_MSM_DPU) += \
-	disp/dpu1/dpu_core_perf.o \
-	disp/dpu1/dpu_crtc.o \
-	disp/dpu1/dpu_encoder.o \
-	disp/dpu1/dpu_encoder_phys_cmd.o \
-	disp/dpu1/dpu_encoder_phys_vid.o \
-	disp/dpu1/dpu_encoder_phys_wb.o \
-	disp/dpu1/dpu_formats.o \
-	disp/dpu1/dpu_hw_catalog.o \
-	disp/dpu1/dpu_hw_ctl.o \
-	disp/dpu1/dpu_hw_dsc.o \
-	disp/dpu1/dpu_hw_interrupts.o \
-	disp/dpu1/dpu_hw_intf.o \
-	disp/dpu1/dpu_hw_lm.o \
-	disp/dpu1/dpu_hw_pingpong.o \
-	disp/dpu1/dpu_hw_sspp.o \
-	disp/dpu1/dpu_hw_dspp.o \
-	disp/dpu1/dpu_hw_merge3d.o \
-	disp/dpu1/dpu_hw_top.o \
-	disp/dpu1/dpu_hw_util.o \
-	disp/dpu1/dpu_hw_vbif.o \
-	disp/dpu1/dpu_hw_wb.o \
-	disp/dpu1/dpu_kms.o \
-	disp/dpu1/dpu_plane.o \
-	disp/dpu1/dpu_rm.o \
-	disp/dpu1/dpu_vbif.o \
-	disp/dpu1/dpu_writeback.o
+	disp/dpu2/dpu_crtc.o \
+	disp/dpu2/dpu_kms.o \
+	disp/dpu2/dpu_plane.o
 
 msm-$(CONFIG_DRM_MSM_MDSS) += \
 	msm_mdss.o \
