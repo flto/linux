@@ -7,7 +7,13 @@
 #include <linux/irqchip.h>
 #include <linux/irqdesc.h>
 #include <linux/irqchip/chained_irq.h>
-#include "dpu_kms.h"
+#include "dpu_io_util.h"
+#include "msm_kms.h"
+#define DPU_HW_VER_500	0x50000000
+#define DPU_HW_VER_501	0x50000001
+#define DPU_HW_VER_600	0x60000000
+#define DPU_HW_VER_620	0x62000000 /* sc7180 v1.0 */
+#include <linux/interconnect.h>
 
 #define to_dpu_mdss(x) container_of(x, struct dpu_mdss, base)
 
@@ -155,7 +161,7 @@ static int _dpu_mdss_irq_domain_add(struct dpu_mdss *dpu_mdss)
 	domain = irq_domain_add_linear(dev->of_node, 32,
 			&dpu_mdss_irqdomain_ops, dpu_mdss);
 	if (!domain) {
-		DPU_ERROR("failed to add irq_domain\n");
+		DRM_ERROR("failed to add irq_domain\n");
 		return -EINVAL;
 	}
 
@@ -182,7 +188,7 @@ static int dpu_mdss_enable(struct msm_mdss *mdss)
 
 	ret = msm_dss_enable_clk(mp->clk_config, mp->num_clk, true);
 	if (ret) {
-		DPU_ERROR("clock enable failed, ret:%d\n", ret);
+		DRM_ERROR("clock enable failed, ret:%d\n", ret);
 		return ret;
 	}
 
@@ -217,7 +223,7 @@ static int dpu_mdss_disable(struct msm_mdss *mdss)
 
 	ret = msm_dss_enable_clk(mp->clk_config, mp->num_clk, false);
 	if (ret)
-		DPU_ERROR("clock disable failed, ret:%d\n", ret);
+		DRM_ERROR("clock disable failed, ret:%d\n", ret);
 
 	for (i = 0; i < dpu_mdss->num_paths; i++)
 		icc_set_bw(dpu_mdss->path[i], 0, 0);
@@ -285,7 +291,7 @@ int dpu_mdss_init(struct drm_device *dev)
 	mp = &dpu_mdss->mp;
 	ret = msm_dss_parse_clock(pdev, mp);
 	if (ret) {
-		DPU_ERROR("failed to parse clocks, ret=%d\n", ret);
+		DRM_ERROR("failed to parse clocks, ret=%d\n", ret);
 		goto clk_parse_err;
 	}
 
