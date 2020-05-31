@@ -81,7 +81,7 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy, int src_pll_id,
 
 	DBG("");
 
-	if (msm_dsi_dphy_timing_calc_v3(timing, clk_req)) {
+	if (msm_dsi_dphy_timing_calc_v4(timing, clk_req)) {
 		DRM_DEV_ERROR(&phy->pdev->dev,
 			"%s: D-PHY timing calculation failed\n", __func__);
 		return -EINVAL;
@@ -147,7 +147,6 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy, int src_pll_id,
 	}
 
 	/* DSI PHY timings */
-#if 0
 	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_0,
 		      timing->hs_halfbyte_en);
 	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_1,
@@ -166,31 +165,11 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy, int src_pll_id,
 		      timing->hs_trail);
 	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_8,
 		      timing->hs_rqst);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_9,
-		      2); // TODO timing->ta_go | (timing->ta_sure << 3));
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_10,
-		      timing->ta_get);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_11, 0x00);
-	// TODO: WHY DOES THIS BREAK IT?
-	//dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_12, 0x00);
-	//dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_13, 0x00);
-#else
-// qcom,mdss-dsi-panel-phy-timings = [00 10 04 04 1e 1e 04 04 02 02 04 00 10 14];
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_0, 0x00);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_1, 0x10);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_2, 0x04);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_3, 0x04);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_4, 0x1e);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_5, 0x1e);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_6, 0x04);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_7, 0x04);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_8, 0x02);
 	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_9, 0x02);
 	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_10, 0x04);
 	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_11, 0x00);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_12, 0x10);
-	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_13, 0x14);
-#endif
+	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_12, timing->clk_pre);
+	dsi_phy_write(base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_13, timing->clk_post);
 
 	/* DSI lane settings */
 	dsi_phy_hw_v4_0_lane_settings(phy);
