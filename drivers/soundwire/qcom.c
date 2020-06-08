@@ -15,6 +15,7 @@
 #include <linux/slimbus.h>
 #include <linux/soundwire/sdw.h>
 #include <linux/soundwire/sdw_registers.h>
+#include <linux/pinctrl/consumer.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include "bus.h"
@@ -420,6 +421,9 @@ static int qcom_swrm_port_enable(struct sdw_bus *bus,
 
 	ctrl->reg_read(ctrl, reg, &val);
 
+	if (enable_ch->ch_mask != 1)
+		return 0;
+
 	if (enable_ch->enable)
 		val |= (enable_ch->ch_mask << SWRM_DP_PORT_CTRL_EN_CHAN_SHFT);
 	else
@@ -769,6 +773,7 @@ static int qcom_swrm_probe(struct platform_device *pdev)
 	struct sdw_bus_params *params;
 	struct qcom_swrm_ctrl *ctrl;
 	struct resource *res;
+	struct pinctrl *pinctrl;
 	int ret;
 	u32 val;
 
@@ -808,6 +813,15 @@ static int qcom_swrm_probe(struct platform_device *pdev)
 		ret = PTR_ERR(ctrl->hclk);
 		goto err_init;
 	}
+
+	/* defer probe if pinctrl wasn't ready.. */
+	pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR(pinctrl)) {
+		/* getting -ENODEV for some reason.. */
+		return -EPROBE_DEFER;
+	}
+
+	pinctrl_select_default_state(dev);
 
 	clk_prepare_enable(ctrl->hclk);
 
