@@ -585,7 +585,7 @@ static int dp_link_parse_phy_test_params(struct dp_link_private *link)
 	u8 data;
 	ssize_t rlen;
 
-	rlen = drm_dp_dpcd_readb(link->aux->drm_aux, DP_TEST_PHY_PATTERN,
+	rlen = drm_dp_dpcd_readb(link->aux->drm_aux, DP_PHY_TEST_PATTERN,
 					&data);
 	if (rlen < 0) {
 		DRM_ERROR("failed to read phy link pattern. rlen=%zd\n", rlen);
