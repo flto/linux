@@ -118,7 +118,7 @@ int qcom_snd_parse_of(struct snd_soc_card *card)
 		link->ignore_suspend = 1;
 		link->nonatomic = 1;
 		link->dpcm_playback = 1;
-		link->dpcm_capture = 1;
+		link->dpcm_capture = 0;
 		link->stream_name = link->name;
 		link++;
 
