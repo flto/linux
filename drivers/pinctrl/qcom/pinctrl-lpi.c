@@ -15,12 +15,9 @@
 #include <linux/types.h>
 #include <linux/clk.h>
 #include <linux/bitops.h>
-#include <soc/snd_event.h>
-#include <linux/pm_runtime.h>
-#include <dsp/audio_notifier.h>
 
-#include "core.h"
-#include "pinctrl-utils.h"
+#include "../core.h"
+#include "../pinctrl-utils.h"
 
 #define LPI_AUTO_SUSPEND_DELAY           100 /* delay in msec */
 #define LPI_AUTO_SUSPEND_DELAY_ERROR     1   /* delay in msec */
@@ -152,7 +149,7 @@ static int lpi_gpio_read(struct lpi_gpio_pad *pad, unsigned int addr)
 				   __func__);
 		return 0;
 	}
-	pm_runtime_get_sync(lpi_dev);
+	//pm_runtime_get_sync(lpi_dev);
 	mutex_lock(&state->core_hw_vote_lock);
 	if (!state->core_hw_vote_status) {
 		pr_err_ratelimited("%s: core hw vote clk is not enabled\n",
@@ -161,14 +158,16 @@ static int lpi_gpio_read(struct lpi_gpio_pad *pad, unsigned int addr)
 		goto err;
 	}
 
+	//printk("lpi_gpio_read %.8x %.4x %.4x\n", (u32) pad->base, pad->offset, addr);
+
 	ret = ioread32(pad->base + pad->offset + addr);
-	if (ret < 0)
-		pr_err("%s: read 0x%x failed\n", __func__, addr);
+	//if (ret < 0)
+	//	pr_err("%s: read 0x%x failed\n", __func__, addr);
 
 err:
 	mutex_unlock(&state->core_hw_vote_lock);
-	pm_runtime_mark_last_busy(lpi_dev);
-	pm_runtime_put_autosuspend(lpi_dev);
+	//pm_runtime_mark_last_busy(lpi_dev);
+	//pm_runtime_put_autosuspend(lpi_dev);
 	return ret;
 }
 
@@ -183,7 +182,7 @@ static int lpi_gpio_write(struct lpi_gpio_pad *pad, unsigned int addr,
 				  __func__);
 		return 0;
 	}
-	pm_runtime_get_sync(lpi_dev);
+	//pm_runtime_get_sync(lpi_dev);
 	mutex_lock(&state->core_hw_vote_lock);
 	if (!state->core_hw_vote_status) {
 		pr_err_ratelimited("%s: core hw vote clk is not enabled\n",
@@ -192,11 +191,13 @@ static int lpi_gpio_write(struct lpi_gpio_pad *pad, unsigned int addr,
 		goto err;
 	}
 
+	//printk("lpi_gpio_write %.8x %.4x %.4x %.8x\n", (u32) pad->base, pad->offset, addr, val);
+
 	iowrite32(val, pad->base + pad->offset + addr);
 err:
 	mutex_unlock(&state->core_hw_vote_lock);
-	pm_runtime_mark_last_busy(lpi_dev);
-	pm_runtime_put_autosuspend(lpi_dev);
+	//pm_runtime_mark_last_busy(lpi_dev);
+	//pm_runtime_put_autosuspend(lpi_dev);
 	return ret;
 }
 
@@ -465,34 +466,7 @@ static void lpi_gpio_set(struct gpio_chip *chip, unsigned int pin, int value)
 	lpi_config_set(state->ctrl, pin, &config, 1);
 }
 
-static int lpi_notifier_service_cb(struct notifier_block *this,
-				   unsigned long opcode, void *ptr)
-{
-	static bool initial_boot = true;
-
-	pr_debug("%s: Service opcode 0x%lx\n", __func__, opcode);
-
-	switch (opcode) {
-	case AUDIO_NOTIFIER_SERVICE_DOWN:
-		if (initial_boot) {
-			initial_boot = false;
-			break;
-		}
-		snd_event_notify(lpi_dev, SND_EVENT_DOWN);
-		lpi_dev_up = false;
-		break;
-	case AUDIO_NOTIFIER_SERVICE_UP:
-		if (initial_boot)
-			initial_boot = false;
-		lpi_dev_up = true;
-		snd_event_notify(lpi_dev, SND_EVENT_UP);
-		break;
-	default:
-		break;
-	}
-	return NOTIFY_OK;
-}
-
+#if 0
 int lpi_pinctrl_suspend(struct device *dev)
 {
 	int ret = 0;
@@ -526,22 +500,7 @@ int lpi_pinctrl_resume(struct device *dev)
 {
 	return 0;
 }
-
-static struct notifier_block service_nb = {
-	.notifier_call  = lpi_notifier_service_cb,
-	.priority = -INT_MAX,
-};
-
-static void lpi_pinctrl_ssr_disable(struct device *dev, void *data)
-{
-	trace_printk("%s: enter\n", __func__);
-	lpi_dev_up = false;
-	lpi_pinctrl_suspend(dev);
-}
-
-static const struct snd_event_ops lpi_pinctrl_ssr_ops = {
-	.disable = lpi_pinctrl_ssr_disable,
-};
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 #include <linux/seq_file.h>
@@ -627,17 +586,21 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 	int ret, npins, i;
 	char __iomem *lpi_base;
 	char __iomem *slew_base;
-	u32 reg, slew_reg;
+	u64 reg;
+	u32 slew_reg;
 	struct clk *lpass_core_hw_vote = NULL;
 	struct clk *lpass_audio_hw_vote = NULL;
 
-	ret = of_property_read_u32(dev->of_node, "reg", &reg);
+	if (IS_ERR(devm_clk_get(&pdev->dev, "lpass_core_hw_vote")))
+		return -EPROBE_DEFER;
+
+	ret = of_property_read_u64(dev->of_node, "reg", &reg);
 	if (ret < 0) {
 		dev_err(dev, "missing base address\n");
 		return ret;
 	}
 
-	ret = of_property_read_u32(dev->of_node, "qcom,num-gpios", &npins);
+	ret = of_property_read_u32(dev->of_node, "qcom,num-gpiosx", &npins);
 	if (ret < 0)
 		return ret;
 
@@ -691,7 +654,7 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 		}
 	} else {
 		slew_base = NULL;
-		dev_dbg(dev, "error in reading lpi slew register: %d\n",
+		dev_dbg(dev, "%s error in reading lpi slew register: %d\n",
 			__func__, ret);
 	}
 
@@ -772,22 +735,6 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 
 	lpi_dev = &pdev->dev;
 	lpi_dev_up = true;
-	ret = audio_notifier_register("lpi_tlmm", AUDIO_NOTIFIER_ADSP_DOMAIN,
-				      &service_nb);
-	if (ret < 0) {
-		pr_err("%s: Audio notifier register failed ret = %d\n",
-			__func__, ret);
-		goto err_range;
-	}
-
-	ret = snd_event_client_register(dev, &lpi_pinctrl_ssr_ops, NULL);
-	if (!ret) {
-		snd_event_notify(dev, SND_EVENT_UP);
-	} else {
-		dev_err(dev, "%s: snd_event registration failed, ret [%d]\n",
-			__func__, ret);
-		goto err_snd_evt;
-	}
 
 	/* Register LPASS core hw vote */
 	lpass_core_hw_vote = devm_clk_get(&pdev->dev, "lpass_core_hw_vote");
@@ -811,16 +758,17 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 	}
 	state->lpass_audio_hw_vote = lpass_audio_hw_vote;
 
-	state->core_hw_vote_status = false;
+	state->core_hw_vote_status = true;
+#if 0
 	pm_runtime_set_autosuspend_delay(&pdev->dev, LPI_AUTO_SUSPEND_DELAY);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_set_suspended(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
+#endif
 
 	return 0;
 
 err_snd_evt:
-	audio_notifier_deregister("lpi_tlmm");
 err_range:
 	gpiochip_remove(&state->chip);
 err_chip:
@@ -834,11 +782,9 @@ static int lpi_pinctrl_remove(struct platform_device *pdev)
 {
 	struct lpi_gpio_state *state = platform_get_drvdata(pdev);
 
-	pm_runtime_disable(&pdev->dev);
-	pm_runtime_set_suspended(&pdev->dev);
+	//pm_runtime_disable(&pdev->dev);
+	//pm_runtime_set_suspended(&pdev->dev);
 
-	snd_event_client_deregister(&pdev->dev);
-	audio_notifier_deregister("lpi_tlmm");
 	gpiochip_remove(&state->chip);
 	mutex_destroy(&state->core_hw_vote_lock);
 	mutex_destroy(&state->slew_access_lock);
@@ -853,6 +799,7 @@ static const struct of_device_id lpi_pinctrl_of_match[] = {
 
 MODULE_DEVICE_TABLE(of, lpi_pinctrl_of_match);
 
+#if 0
 int lpi_pinctrl_runtime_resume(struct device *dev)
 {
 	struct lpi_gpio_state *state = dev_get_drvdata(dev);
@@ -925,11 +872,12 @@ static const struct dev_pm_ops lpi_pinctrl_dev_pm_ops = {
 		NULL
 	)
 };
+#endif
 
 static struct platform_driver lpi_pinctrl_driver = {
 	.driver = {
 		   .name = "qcom-lpi-pinctrl",
-		   .pm = &lpi_pinctrl_dev_pm_ops,
+		   //.pm = &lpi_pinctrl_dev_pm_ops,
 		   .of_match_table = lpi_pinctrl_of_match,
 		   .suppress_bind_attrs = true,
 	},
