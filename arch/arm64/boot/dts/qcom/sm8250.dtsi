@@ -8,6 +8,9 @@
 #include <dt-bindings/clock/qcom,rpmh.h>
 #include <dt-bindings/power/qcom-rpmpd.h>
 #include <dt-bindings/soc/qcom,rpmh-rsc.h>
+#include <dt-bindings/power/qcom-aoss-qmp.h>
+#include <dt-bindings/soc/qcom,apr.h>
+#include <dt-bindings/mailbox/qcom-ipcc.h>
 
 / {
 	interrupt-parent = <&intc>;
@@ -163,6 +166,119 @@
 		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
+	adsp_pas: remoteproc-adsp {
+		compatible = "qcom,sdm845-adsp-pas";
+
+		interrupts-extended = <&intc GIC_SPI 486 IRQ_TYPE_EDGE_RISING>,
+				      <&adsp_smp2p_in 0 IRQ_TYPE_EDGE_RISING>,
+				      <&adsp_smp2p_in 1 IRQ_TYPE_EDGE_RISING>,
+				      <&adsp_smp2p_in 2 IRQ_TYPE_EDGE_RISING>,
+				      <&adsp_smp2p_in 3 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "wdog", "fatal", "ready",
+				  "handover", "stop-ack";
+
+		clocks = <&rpmhcc RPMH_CXO_CLK>;
+		clock-names = "xo";
+
+		power-domains = <&aoss_qmp AOSS_QMP_LS_LPASS>,
+				<&rpmhpd SM8250_LCX>,
+				<&rpmhpd SM8250_LMX>;
+		power-domain-names = "load_state", "lcx", "lmx";
+
+		memory-region = <&adsp_mem>;
+
+		qcom,smem-states = <&adsp_smp2p_out 0>;
+		qcom,smem-state-names = "stop";
+
+		status = "disabled";
+
+		glink-edge {
+			interrupts-extended = <&ipcc_mproc IPCC_CLIENT_LPASS IPCC_MPROC_SIGNAL_GLINK_QMP IRQ_TYPE_EDGE_RISING>;
+			label = "lpass";
+			qcom,remote-pid = <2>;
+			mboxes = <&ipcc_mproc IPCC_CLIENT_LPASS IPCC_MPROC_SIGNAL_GLINK_QMP>;
+
+			apr {
+				compatible = "qcom,apr-v2";
+				qcom,glink-channels = "apr_audio_svc";
+				qcom,apr-domain = <APR_DOMAIN_ADSP>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				qcom,intents = <512 20>; // ??
+
+				apr-service@3 {
+					reg = <APR_SVC_ADSP_CORE>;
+					compatible = "qcom,q6core";
+					//qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
+				};
+
+				q6afe: apr-service@4 {
+					compatible = "qcom,q6afe";
+					reg = <APR_SVC_AFE>;
+					//qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
+					q6afedai: dais {
+						compatible = "qcom,q6afe-dais";
+						#address-cells = <1>;
+						#size-cells = <0>;
+						#sound-dai-cells = <1>;
+					};
+
+					q6afeclk: clks {
+						compatible = "qcom,q6afe-clocks";
+						#clock-cells = <1>;
+					};
+				};
+
+				q6asm: apr-service@7 {
+					compatible = "qcom,q6asm";
+					reg = <APR_SVC_ASM>;
+					//qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
+					q6asmdai: dais {
+						compatible = "qcom,q6asm-dais";
+						#address-cells = <1>;
+						#size-cells = <0>;
+						#sound-dai-cells = <1>;
+						iommus = <&apps_smmu 0x1801 0x0>;
+					};
+				};
+
+				q6adm: apr-service@8 {
+					compatible = "qcom,q6adm";
+					reg = <APR_SVC_ADM>;
+					//qcom,protection-domain = "avs/audio", "msm/adsp/audio_pd";
+					q6routing: routing {
+						compatible = "qcom,q6adm-routing";
+						#sound-dai-cells = <0>;
+					};
+				};
+			};
+		};
+	};
+
+	smp2p-lpass {
+		compatible = "qcom,smp2p";
+		qcom,smem = <443>, <429>;
+
+		interrupts-extended = <&ipcc_mproc IPCC_CLIENT_LPASS IPCC_MPROC_SIGNAL_SMP2P IRQ_TYPE_EDGE_RISING>;
+
+		mboxes = <&ipcc_mproc IPCC_CLIENT_LPASS IPCC_MPROC_SIGNAL_SMP2P>;
+
+		qcom,local-pid = <0>;
+		qcom,remote-pid = <2>;
+
+		adsp_smp2p_out: master-kernel {
+			qcom,entry-name = "master-kernel";
+			#qcom,smem-state-cells = <1>;
+		};
+
+		adsp_smp2p_in: slave-kernel {
+			qcom,entry-name = "slave-kernel";
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+	};
+
 	psci {
 		compatible = "arm,psci-1.0";
 		method = "smc";
@@ -286,6 +402,15 @@
 			#power-domain-cells = <1>;
 			clock-names = "bi_tcxo", "sleep_clk";
 			clocks = <&rpmhcc RPMH_CXO_CLK>, <&sleep_clk>;
+		};
+
+		ipcc_mproc: qcom,ipcc@408000 {
+			compatible = "qcom,ipcc";
+			reg = <0 0x408000 0 0x1000>;
+			interrupts = <GIC_SPI 229 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <3>;
+			#mbox-cells = <2>;
 		};
 
 		qupv3_id_1: geniqup@ac0000 {
@@ -575,6 +700,16 @@
 			#interrupt-cells = <2>;
 			interrupt-parent = <&intc>;
 			interrupt-controller;
+		};
+
+		aoss_qmp: power-controller@c300000 {
+			compatible = "qcom,sm8150-aoss-qmp";
+			reg = <0x0 0x0c300000 0x0 0x100000>;
+			interrupts-extended = <&ipcc_mproc IPCC_CLIENT_AOP IPCC_MPROC_SIGNAL_GLINK_QMP IRQ_TYPE_EDGE_RISING>;
+			mboxes = <&ipcc_mproc IPCC_CLIENT_AOP IPCC_MPROC_SIGNAL_GLINK_QMP>;
+
+			#clock-cells = <0>;
+			#power-domain-cells = <1>;
 		};
 
 		spmi_bus: qcom,spmi@c440000 {
@@ -868,6 +1003,129 @@
 			clock-names = "xo", "alternate";
 
 			#freq-domain-cells = <1>;
+		};
+
+		lpi_tlmm: lpi_pinctrl@33c0000 {
+			compatible = "qcom,lpi-pinctrl";
+			reg = <0 0x33c0000 0 0x0>;
+			qcom,slew-reg = <0x355a000 0x0>;
+			qcom,num-gpiosx = <14>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			qcom,lpi-offset-tbl = <0x00000000>, <0x00001000>,
+					<0x00002000>, <0x00003000>,
+					<0x00004000>, <0x00005000>,
+					<0x00006000>, <0x00007000>,
+					<0x00008000>, <0x00009000>,
+					<0x0000A000>, <0x0000B000>,
+					<0x0000C000>, <0x0000D000>;
+			qcom,lpi-slew-offset-tbl = <0x00000000>, <0x00000002>,
+						<0x00000004>, <0x00000008>,
+						<0x0000000A>, <0x0000000C>,
+						<0x00000000>, <0x00000000>,
+						<0x00000000>, <0x00000000>,
+						<0x00000010>, <0x00000012>,
+						<0x00000000>, <0x00000000>;
+
+			clock-names = "lpass_core_hw_vote";
+			clocks = <&q6afeclk 0>; // XXX
+
+			wsa_swr_clk_pin {
+				wsa_swr_clk_sleep: wsa_swr_clk_sleep {
+					mux {
+						pins = "gpio10";
+						function = "func2";
+					};
+
+					config {
+						pins = "gpio10";
+						drive-strength = <2>;
+						input-enable;
+						bias-pull-down;
+					};
+				};
+
+				wsa_swr_clk_active: wsa_swr_clk_active {
+					mux {
+						pins = "gpio10";
+						function = "func2";
+					};
+
+					config {
+						pins = "gpio10";
+						drive-strength = <2>;
+						slew-rate = <1>;
+						bias-disable;
+					};
+				};
+			};
+
+			wsa_swr_data_pin {
+				wsa_swr_data_sleep: wsa_swr_data_sleep {
+					mux {
+						pins = "gpio11";
+						function = "func2";
+					};
+
+					config {
+						pins = "gpio11";
+						drive-strength = <2>;
+						input-enable;
+						bias-pull-down;
+					};
+				};
+
+				wsa_swr_data_active: wsa_swr_data_active {
+					mux {
+						pins = "gpio11";
+						function = "func2";
+					};
+
+					config {
+						pins = "gpio11";
+						drive-strength = <2>;
+						slew-rate = <1>;
+						bias-bus-hold;
+					};
+				};
+			};
+		};
+
+		wsa_macro: wsa-macro@3240000 {
+			compatible = "qcom,wsa-macro";
+			reg = <0 0x3240000 0 0x1000>;
+
+			clocks = <&q6afeclk 0>; // XXX clocks
+			clock-names = "iface";
+
+			#sound-dai-cells = <0>;
+		};
+
+		swr0: wsa_swr@3250000 {
+			compatible = "qcom,soundwire-v1.5.1";
+			reg = <0 0x3250000 0 0x2000>;
+
+			interrupts = <GIC_SPI 202 IRQ_TYPE_LEVEL_HIGH>;
+
+			clocks = <&q6afeclk 0>; // XXX clocks
+			clock-names = "iface";
+
+			qcom,din-ports = <2>;
+			qcom,dout-ports = <6>;
+
+			pinctrl-names = "default";
+			pinctrl-0 = <&wsa_swr_clk_active &wsa_swr_data_active>;
+
+			qcom,ports-sinterval-low =	/bits/ 8 <0x07 0x1F 0x3F 0x07 0x1F 0x3F 0x0F 0x0F>;
+			qcom,ports-offset1 = 		/bits/ 8 <0x01 0x02 0x0C 0x06 0x12 0x0D 0x07 0x0A >;
+			qcom,ports-offset2 = 		/bits/ 8 <0x00 0x00 0x1F 0x00 0x00 0x1F 0x00 0x00>;
+
+			#sound-dai-cells = <1>;
+			#address-cells = <2>;
+			#size-cells = <0>;
+		};
+
+		sound: sound {
 		};
 	};
 
