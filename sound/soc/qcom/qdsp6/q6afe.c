@@ -23,6 +23,38 @@
 #include "q6core.h"
 #include "q6afe.h"
 
+#define AFE_CLK_TOKEN	1024
+
+/* Handles audio-video timer (avtimer) and BTSC vote requests from clients.
+ */
+#define AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST            0x000100f4
+
+struct afe_cmd_remote_lpass_core_hw_vote_request {
+	struct apr_hdr hdr;
+	uint32_t  hw_block_id;
+	/* ID of the hardware block. */
+	char client_name[8];
+	/* Name of the client. */
+} __packed;
+
+#define AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST        0x000100f5
+
+struct afe_cmd_rsp_remote_lpass_core_hw_vote_request {
+	uint32_t client_handle;
+	/**< Handle of the client. */
+} __packed;
+
+#define AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST            0x000100f6
+
+struct afe_cmd_remote_lpass_core_hw_devote_request {
+	struct apr_hdr hdr;
+	uint32_t  hw_block_id;
+	/**< ID of the hardware block.*/
+
+	uint32_t client_handle;
+	/**< Handle of the client.*/
+} __packed;
+
 /* AFE CMDs */
 #define AFE_PORT_CMD_DEVICE_START	0x000100E5
 #define AFE_PORT_CMD_DEVICE_STOP	0x000100E6
@@ -319,6 +351,11 @@ struct q6afe {
 	struct mutex lock;
 	struct list_head port_list;
 	spinlock_t port_list_lock;
+
+	wait_queue_head_t clk_wait;
+	wait_queue_head_t lpass_core_hw_wait;
+	atomic_t clk_state;
+	atomic_t clk_status;
 };
 
 struct afe_port_cmd_device_start {
@@ -768,6 +805,12 @@ static int q6afe_callback(struct apr_device *adev, struct apr_resp_pkt *data)
 
 	res = data->payload;
 	switch (hdr->opcode) {
+	case AFE_CMD_RSP_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
+		// payload[0] is client_handle
+		atomic_set(&afe->clk_state, 0);
+		atomic_set(&afe->clk_status, 0);
+		wake_up(&afe->lpass_core_hw_wait);
+		break;
 	case APR_BASIC_RSP_RESULT: {
 		if (res->status) {
 			dev_err(afe->dev, "cmd = 0x%x returned error = 0x%x\n",
@@ -778,12 +821,24 @@ static int q6afe_callback(struct apr_device *adev, struct apr_resp_pkt *data)
 		case AFE_PORT_CMD_DEVICE_STOP:
 		case AFE_PORT_CMD_DEVICE_START:
 		case AFE_SVC_CMD_SET_PARAM:
+			if (hdr->token == AFE_CLK_TOKEN) {
+				atomic_set(&afe->clk_state, 0);
+				atomic_set(&afe->clk_status, res->status != 0);
+				wake_up(&afe->clk_wait);
+				break;
+			}
 			port = q6afe_find_port(afe, hdr->token);
 			if (port) {
 				port->result = *res;
 				wake_up(&port->wait);
 				kref_put(&port->refcount, q6afe_port_free);
 			}
+			break;
+		case AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
+		case AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST:
+			atomic_set(&afe->clk_state, 0);
+			atomic_set(&afe->clk_status, res->status != 0);
+			wake_up(&afe->lpass_core_hw_wait);
 			break;
 		default:
 			dev_err(afe->dev, "Unknown cmd 0x%x\n",	res->opcode);
@@ -839,6 +894,39 @@ static int afe_apr_send_pkt(struct q6afe *afe, struct apr_pkt *pkt,
 	} else if (port->result.status > 0) {
 		dev_err(afe->dev, "DSP returned error[%x]\n",
 			port->result.status);
+		ret = -EINVAL;
+	} else {
+		ret = 0;
+	}
+
+err:
+	mutex_unlock(&afe->lock);
+
+	return ret;
+}
+
+static int afe_apr_send_pkt_clk(struct q6afe *afe, struct apr_pkt *pkt, wait_queue_head_t *wait)
+{
+	int ret;
+
+	mutex_lock(&afe->lock);
+
+	atomic_set(&afe->clk_state, 1);
+
+	ret = apr_send_pkt(afe->apr, pkt);
+	if (ret < 0) {
+		dev_err(afe->dev, "packet not transmitted (%d)\n", ret);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	ret = wait_event_timeout(*wait, (atomic_read(&afe->clk_state) == 0),
+				 msecs_to_jiffies(TIMEOUT_MS));
+	if (!ret) {
+		ret = -ETIMEDOUT;
+	} else if (atomic_read(&afe->clk_status) > 0) {
+		dev_err(afe->dev, "DSP returned error[%x]\n",
+			atomic_read(&afe->clk_status));
 		ret = -EINVAL;
 	} else {
 		ret = 0;
@@ -1392,6 +1480,102 @@ int q6afe_port_start(struct q6afe_port *port)
 }
 EXPORT_SYMBOL_GPL(q6afe_port_start);
 
+int q6afe_vote_lpass_core_hw(struct q6afe *afe, u32 hw_block_id)
+{
+	struct afe_cmd_remote_lpass_core_hw_vote_request pkt = {};
+	int ret;
+
+	pkt.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+					  APR_HDR_LEN(APR_HDR_SIZE),
+					  APR_PKT_VER);
+	pkt.hdr.pkt_size = sizeof(pkt);
+	pkt.hdr.src_port = 0;
+	pkt.hdr.dest_port = 0;
+	pkt.hdr.token = hw_block_id;
+	pkt.hdr.opcode = AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST;
+	pkt.hw_block_id = hw_block_id;
+
+	ret = afe_apr_send_pkt_clk(afe, (struct apr_pkt*) &pkt, &afe->lpass_core_hw_wait);
+	if (ret)
+		dev_err(afe->dev, "q6afe_vote_lpass_core_hw failed %d\n", ret);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(q6afe_vote_lpass_core_hw);
+
+static int q6afe_clk_set_param(struct q6afe *afe, void *data,
+				int param_id, int module_id, int psize)
+{
+	struct afe_svc_cmd_set_param *param;
+	struct afe_port_param_data_v2 *pdata;
+	struct apr_pkt *pkt;
+	int ret, pkt_size;
+	void *p, *pl;
+
+	pkt_size = APR_HDR_SIZE + sizeof(*param) + sizeof(*pdata) + psize;
+	p = kzalloc(pkt_size, GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+
+	pkt = p;
+	param = p + APR_HDR_SIZE;
+	pdata = p + APR_HDR_SIZE + sizeof(*param);
+	pl = p + APR_HDR_SIZE + sizeof(*param) + sizeof(*pdata);
+	memcpy(pl, data, psize);
+
+	pkt->hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+					   APR_HDR_LEN(APR_HDR_SIZE),
+					   APR_PKT_VER);
+	pkt->hdr.pkt_size = pkt_size;
+	pkt->hdr.src_port = 0;
+	pkt->hdr.dest_port = 0;
+	pkt->hdr.token = AFE_CLK_TOKEN;
+	pkt->hdr.opcode = AFE_SVC_CMD_SET_PARAM;
+
+	param->payload_size = sizeof(*pdata) + psize;
+	param->payload_address_lsw = 0x00;
+	param->payload_address_msw = 0x00;
+	param->mem_map_handle = 0x00;
+	pdata->module_id = module_id;
+	pdata->param_id = param_id;
+	pdata->param_size = psize;
+
+	ret = afe_apr_send_pkt_clk(afe, pkt, &afe->clk_wait);
+
+	kfree(pkt);
+	return ret;
+}
+
+#define Q6AFE_LPASS_CLK_ATTRIBUTE_COUPLE_NO		0x1
+
+#define Q6AFE_LPASS_CLK_CONFIG_API_VERSION		0x1
+
+int q6afe_set_lpass_clk(struct q6afe *afe, u32 clk_id, u32 freq)
+{
+	int ret;
+
+	struct afe_clk_set cfg = {
+		.clk_set_minor_version = Q6AFE_LPASS_CLK_CONFIG_API_VERSION,
+		.clk_id = clk_id,
+		.clk_freq_in_hz = freq,
+		.clk_attri = Q6AFE_LPASS_CLK_ATTRIBUTE_COUPLE_NO,
+		.clk_root = 0,
+		.enable = 1,
+	};
+
+	ret = q6afe_clk_set_param(afe,
+				&cfg,
+				AFE_PARAM_ID_CLOCK_SET,
+				AFE_MODULE_CLOCK_SET,
+				sizeof(cfg));
+	if (ret)
+		dev_err(afe->dev, "AFE enable for clk 0x%.3x failed %d\n",
+		       clk_id, ret);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(q6afe_set_lpass_clk);
+
 /**
  * q6afe_port_get_from_id() - Get port instance from a port id
  *
@@ -1500,6 +1684,15 @@ void q6afe_port_put(struct q6afe_port *port)
 }
 EXPORT_SYMBOL_GPL(q6afe_port_put);
 
+enum {
+	AFE_LPASS_CORE_HW_BLOCK_ID_NONE,
+	AFE_LPASS_CORE_HW_RSVD,
+	AFE_LPASS_CORE_HW_BLOCK_ID_AVTIMER,
+	AFE_LPASS_CORE_HW_MACRO_BLOCK,
+	AFE_LPASS_CORE_HW_DCODEC_BLOCK,
+	AFE_LPASS_CORE_HW_VOTE_MAX
+};
+
 static int q6afe_probe(struct apr_device *adev)
 {
 	struct q6afe *afe;
@@ -1517,6 +1710,9 @@ static int q6afe_probe(struct apr_device *adev)
 	spin_lock_init(&afe->port_list_lock);
 
 	dev_set_drvdata(dev, afe);
+
+	init_waitqueue_head(&afe->clk_wait);
+	init_waitqueue_head(&afe->lpass_core_hw_wait);
 
 	return of_platform_populate(dev->of_node, NULL, NULL, dev);
 }
