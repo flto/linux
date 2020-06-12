@@ -456,6 +456,9 @@ static const struct snd_kcontrol_new hdmi_mixer_controls[] = {
 static const struct snd_kcontrol_new display_port_mixer_controls[] = {
 	Q6ROUTING_RX_MIXERS(DISPLAY_PORT_RX) };
 
+static const struct snd_kcontrol_new wsa_cdc_dma_rx_0_mixer_controls[] = {
+	Q6ROUTING_RX_MIXERS(WSA_CDC_DMA_RX_0) };
+
 static const struct snd_kcontrol_new primary_mi2s_rx_mixer_controls[] = {
 	Q6ROUTING_RX_MIXERS(PRIMARY_MI2S_RX) };
 
@@ -662,6 +665,10 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 			   display_port_mixer_controls,
 			   ARRAY_SIZE(display_port_mixer_controls)),
 
+	SND_SOC_DAPM_MIXER("WSA_CDC_DMA_RX_0 Audio Mixer", SND_SOC_NOPM, 0, 0,
+			   wsa_cdc_dma_rx_0_mixer_controls,
+			   ARRAY_SIZE(wsa_cdc_dma_rx_0_mixer_controls)),
+
 	SND_SOC_DAPM_MIXER("SLIMBUS_0_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
 			   slimbus_rx_mixer_controls,
 			   ARRAY_SIZE(slimbus_rx_mixer_controls)),
@@ -842,6 +849,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	Q6ROUTING_RX_DAPM_ROUTE("HDMI Mixer", "HDMI_RX"),
 	Q6ROUTING_RX_DAPM_ROUTE("DISPLAY_PORT_RX Audio Mixer",
 				"DISPLAY_PORT_RX"),
+	Q6ROUTING_RX_DAPM_ROUTE("WSA_CDC_DMA_RX_0 Audio Mixer",
+				"WSA_CDC_DMA_RX_0"),
 	Q6ROUTING_RX_DAPM_ROUTE("SLIMBUS_0_RX Audio Mixer", "SLIMBUS_0_RX"),
 	Q6ROUTING_RX_DAPM_ROUTE("SLIMBUS_1_RX Audio Mixer", "SLIMBUS_1_RX"),
 	Q6ROUTING_RX_DAPM_ROUTE("SLIMBUS_2_RX Audio Mixer", "SLIMBUS_2_RX"),

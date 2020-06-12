@@ -5,7 +5,7 @@
 
 #include <dt-bindings/sound/qcom,q6afe.h>
 
-#define AFE_PORT_MAX		105
+#define AFE_PORT_MAX		106
 
 #define MSM_AFE_PORT_TYPE_RX 0
 #define MSM_AFE_PORT_TYPE_TX 1
@@ -184,11 +184,18 @@ struct q6afe_tdm_cfg {
 	u16	ch_mapping[AFE_MAX_CHAN_COUNT];
 };
 
+struct q6afe_cdc_dma_cfg {
+	u32	sample_rate;
+	u16	bit_width;
+	u16	num_channels;
+};
+
 struct q6afe_port_config {
 	struct q6afe_hdmi_cfg hdmi;
 	struct q6afe_slim_cfg slim;
 	struct q6afe_i2s_cfg i2s_cfg;
 	struct q6afe_tdm_cfg tdm;
+	struct q6afe_cdc_dma_cfg cdc_dma;
 };
 
 struct q6afe_port;
@@ -200,6 +207,8 @@ void q6afe_port_put(struct q6afe_port *port);
 int q6afe_get_port_id(int index);
 void q6afe_hdmi_port_prepare(struct q6afe_port *port,
 			    struct q6afe_hdmi_cfg *cfg);
+void q6afe_cdc_dma_port_prepare(struct q6afe_port *port,
+			    struct q6afe_cdc_dma_cfg *cfg);
 void q6afe_slim_port_prepare(struct q6afe_port *port,
 			  struct q6afe_slim_cfg *cfg);
 int q6afe_i2s_port_prepare(struct q6afe_port *port, struct q6afe_i2s_cfg *cfg);

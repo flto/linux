@@ -41,6 +41,7 @@
 #define AFE_PARAM_ID_SLIMBUS_CONFIG    0x00010212
 #define AFE_PARAM_ID_I2S_CONFIG	0x0001020D
 #define AFE_PARAM_ID_TDM_CONFIG	0x0001029D
+#define AFE_PARAM_ID_CODEC_DMA_CONFIG	0x000102B8
 #define AFE_PARAM_ID_PORT_SLOT_MAPPING_CONFIG	0x00010297
 
 /* I2S config specific */
@@ -72,6 +73,7 @@
 #define AFE_API_VERSION_HDMI_CONFIG	0x1
 #define AFE_PORT_ID_MULTICHAN_HDMI_RX	0x100E
 #define AFE_PORT_ID_HDMI_OVER_DP_RX	0x6020
+#define AFE_PORT_ID_WSA_CODEC_DMA_RX_0  0xB000
 
 #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
 /* Clock set API version */
@@ -448,11 +450,21 @@ struct afe_param_id_tdm_cfg {
 	u32	slot_mask;
 } __packed;
 
+struct afe_param_id_cdc_dma_cfg {
+	u32	cdc_dma_cfg_minor_version;
+	u32	sample_rate;
+	u16	bit_width;
+	u16	data_format;
+	u16	num_channels;
+	u16	active_channels_mask;
+} __packed;
+
 union afe_port_config {
 	struct afe_param_id_hdmi_multi_chan_audio_cfg hdmi_multi_ch;
 	struct afe_param_id_slimbus_cfg           slim_cfg;
 	struct afe_param_id_i2s_cfg	i2s_cfg;
 	struct afe_param_id_tdm_cfg	tdm_cfg;
+	struct afe_param_id_cdc_dma_cfg	cdc_dma_cfg;
 } __packed;
 
 
@@ -707,6 +719,8 @@ static struct afe_port_map port_maps[AFE_PORT_MAX] = {
 				QUINARY_TDM_TX_7, 0, 1},
 	[DISPLAY_PORT_RX] = { AFE_PORT_ID_HDMI_OVER_DP_RX,
 				DISPLAY_PORT_RX, 1, 1},
+	[WSA_CDC_DMA_RX_0] = { AFE_PORT_ID_WSA_CODEC_DMA_RX_0,
+				WSA_CDC_DMA_RX_0, 1, 1},
 };
 
 static void q6afe_port_free(struct kref *ref)
@@ -1146,6 +1160,30 @@ void q6afe_hdmi_port_prepare(struct q6afe_port *port,
 EXPORT_SYMBOL_GPL(q6afe_hdmi_port_prepare);
 
 /**
+ * q6afe_cdc_dma_port_prepare() - Prepare cdc_cma afe port.
+ *
+ * @port: Instance of afe port
+ * @cfg: HDMI configuration for the afe port
+ *
+ */
+void q6afe_cdc_dma_port_prepare(struct q6afe_port *port,
+				struct q6afe_cdc_dma_cfg *cfg)
+{
+	union afe_port_config *pcfg = &port->port_cfg;
+
+#define AFE_API_VERSION_CODEC_DMA_CONFIG                                   0x1
+
+	pcfg->cdc_dma_cfg.cdc_dma_cfg_minor_version = AFE_API_VERSION_CODEC_DMA_CONFIG;
+	pcfg->cdc_dma_cfg.sample_rate = cfg->sample_rate;
+	pcfg->cdc_dma_cfg.bit_width = cfg->bit_width;
+	pcfg->cdc_dma_cfg.data_format = 0x0; // AFE_LINEAR_PCM_DATA, or 0x6?
+	pcfg->cdc_dma_cfg.num_channels = cfg->num_channels;
+	// XXX this mask can be sparse - channel_map
+	pcfg->cdc_dma_cfg.active_channels_mask = (1 << cfg->num_channels) - 1;
+}
+EXPORT_SYMBOL_GPL(q6afe_hdmi_port_prepare);
+
+/**
  * q6afe_i2s_port_prepare() - Prepare i2s afe port.
  *
  * @port: Instance of afe port
@@ -1419,6 +1457,10 @@ struct q6afe_port *q6afe_port_get_from_id(struct device *dev, int id)
 		break;
 	case AFE_PORT_ID_PRIMARY_TDM_RX ... AFE_PORT_ID_QUINARY_TDM_TX_7:
 		cfg_type = AFE_PARAM_ID_TDM_CONFIG;
+		break;
+
+	case AFE_PORT_ID_WSA_CODEC_DMA_RX_0:
+		cfg_type = AFE_PARAM_ID_CODEC_DMA_CONFIG;
 		break;
 
 	default:

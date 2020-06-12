@@ -151,6 +151,20 @@ static int q6hdmi_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+static int q6dma_hw_params(struct snd_pcm_substream *substream,
+				struct snd_pcm_hw_params *params,
+				struct snd_soc_dai *dai)
+{
+	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
+	struct q6afe_cdc_dma_cfg *cdc_dma = &dai_data->port_config[dai->id].cdc_dma;
+
+	cdc_dma->sample_rate = params_rate(params);
+	cdc_dma->bit_width = params_width(params);
+	cdc_dma->num_channels = params_channels(params);
+
+	return 0;
+}
+
 static int q6i2s_hw_params(struct snd_pcm_substream *substream,
 			   struct snd_pcm_hw_params *params,
 			   struct snd_soc_dai *dai)
@@ -362,6 +376,10 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 		q6afe_tdm_port_prepare(dai_data->port[dai->id],
 					&dai_data->port_config[dai->id].tdm);
 		break;
+	case WSA_CDC_DMA_RX_0:
+		q6afe_cdc_dma_port_prepare(dai_data->port[dai->id],
+					&dai_data->port_config[dai->id].cdc_dma);
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -562,6 +580,8 @@ static const struct snd_soc_dapm_route q6afe_dapm_routes[] = {
 	{"PRI_MI2S_TX", NULL, "Primary MI2S Capture"},
 	{"SEC_MI2S_TX", NULL, "Secondary MI2S Capture"},
 	{"QUAT_MI2S_TX", NULL, "Quaternary MI2S Capture"},
+
+	{"WSA CDC DMA0 Playback", NULL, "WSA_CDC_DMA_RX_0"},
 };
 
 static const struct snd_soc_dai_ops q6hdmi_ops = {
@@ -592,6 +612,14 @@ static const struct snd_soc_dai_ops q6tdm_ops = {
 	.set_tdm_slot     = q6tdm_set_tdm_slot,
 	.set_channel_map  = q6tdm_set_channel_map,
 	.hw_params        = q6tdm_hw_params,
+};
+
+static const struct snd_soc_dai_ops msm_dai_q6_cdc_wsa_dma_ops = {
+	.prepare	= q6afe_dai_prepare,
+	.shutdown	= q6afe_dai_shutdown,
+	//.set_channel_map  = q6dma_set_channel_map,
+	.hw_params        = q6dma_hw_params,
+	// .digital_mute = msm_dai_q6_spk_digital_mute,
 };
 
 static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
@@ -1127,6 +1155,30 @@ static struct snd_soc_dai_driver q6afe_dais[] = {
 		.name = "DISPLAY_PORT",
 		.probe = msm_dai_q6_dai_probe,
 		.remove = msm_dai_q6_dai_remove,
+	}, {
+		.playback = {
+			.stream_name = "WSA CDC DMA0 Playback",
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_11025 |
+				 SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_22050 |
+				 SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 |
+				 SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_88200 |
+				 SNDRV_PCM_RATE_96000 | SNDRV_PCM_RATE_176400 |
+				 SNDRV_PCM_RATE_192000 | SNDRV_PCM_RATE_352800 |
+				 SNDRV_PCM_RATE_384000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE |
+				   SNDRV_PCM_FMTBIT_S24_LE |
+				   SNDRV_PCM_FMTBIT_S24_3LE |
+				   SNDRV_PCM_FMTBIT_S32_LE,
+			.channels_min = 1,
+			.channels_max = 4,
+			.rate_min = 8000,
+			.rate_max = 384000,
+		},
+		.name = "WSA_CDC_DMA_RX_0",
+		.ops = &msm_dai_q6_cdc_wsa_dma_ops,
+		.id = WSA_CDC_DMA_RX_0,
+		.probe = msm_dai_q6_dai_probe,
+		.remove = msm_dai_q6_dai_remove,
 	},
 };
 
@@ -1350,6 +1402,8 @@ static const struct snd_soc_dapm_widget q6afe_dai_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("QUIN_TDM_TX_7", NULL,
 						0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("DISPLAY_PORT_RX", "NULL", 0, 0, 0, 0),
+
+	SND_SOC_DAPM_AIF_IN("WSA_CDC_DMA_RX_0", NULL, 0, 0, 0, 0),
 };
 
 static const struct snd_soc_component_driver q6afe_dai_component = {
