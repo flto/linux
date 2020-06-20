@@ -78,9 +78,14 @@ struct task_struct init_task
 	.static_prio	= MAX_PRIO - 20,
 	.normal_prio	= MAX_PRIO - 20,
 	.policy		= SCHED_NORMAL,
+<<<<<<< HEAD
 	.cpus_ptr	= &init_task.cpus_mask,
 	.cpus_mask	= CPU_MASK_ALL,
 	.nr_cpus_allowed= NR_CPUS,
+=======
+	.cpus_allowed	= CPU_MASK_CPU0,
+	.nr_cpus_allowed= 1,
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	.mm		= NULL,
 	.active_mm	= &init_mm,
 	.restart_block	= {

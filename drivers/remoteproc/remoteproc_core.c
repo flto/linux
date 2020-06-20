@@ -66,6 +66,23 @@ static const char * const rproc_crash_names[] = {
 	[RPROC_FATAL_ERROR]	= "fatal error",
 };
 
+#ifdef CONFIG_OF
+static int rproc_get_index(struct rproc *rproc)
+{
+	/* Assign a unique device index and name */
+	int id = of_alias_get_id(rproc->dev.parent->of_node, "rproc");
+	if (id < 0)
+		return ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
+
+	return ida_simple_get(&rproc_dev_index, id, id + 1, GFP_KERNEL);
+}
+#else
+static int rproc_get_index(struct rproc *rproc)
+{
+	return ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
+}
+#endif
+
 /* translate rproc_crash_type to string */
 static const char *rproc_crash_to_string(enum rproc_crash_type type)
 {
@@ -2138,9 +2155,13 @@ struct rproc *rproc_alloc(struct device *dev, const char *name,
 		return NULL;
 
 	rproc->priv = &rproc[1];
+<<<<<<< HEAD
 	rproc->auto_boot = true;
 	rproc->elf_class = ELFCLASSNONE;
 	rproc->elf_machine = EM_NONE;
+=======
+	rproc->auto_boot = false;
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 
 	device_initialize(&rproc->dev);
 	rproc->dev.parent = dev;
@@ -2159,11 +2180,16 @@ struct rproc *rproc_alloc(struct device *dev, const char *name,
 	if (rproc_alloc_ops(rproc, ops))
 		goto put_device;
 
-	/* Assign a unique device index and name */
-	rproc->index = ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
+	rproc->index = rproc_get_index(rproc);
 	if (rproc->index < 0) {
+<<<<<<< HEAD
 		dev_err(dev, "ida_simple_get failed: %d\n", rproc->index);
 		goto put_device;
+=======
+		dev_err(dev, "rproc_get_index failed: %d\n", rproc->index);
+		put_device(&rproc->dev);
+		return NULL;
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	}
 
 	dev_set_name(&rproc->dev, "remoteproc%d", rproc->index);

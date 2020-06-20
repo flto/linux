@@ -142,11 +142,20 @@ config MSM_GCC_8916
 	  Say Y if you want to use devices such as UART, SPI i2c, USB,
 	  SD/eMMC, display, graphics, camera etc.
 
+<<<<<<< HEAD
 config MSM_GCC_8939
 	tristate "MSM8939 Global Clock Controller"
 	select QCOM_GDSC
 	help
 	  Support for the global clock controller on msm8939 devices.
+=======
+config MSM_GCC_8917
+	tristate "MSM8917 Global Clock Controller"
+	select QCOM_GDSC
+	depends on COMMON_CLK_QCOM
+	help
+	  Support for the global clock controller on msm8917 devices.
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	  Say Y if you want to use devices such as UART, SPI i2c, USB,
 	  SD/eMMC, display, graphics, camera etc.
 

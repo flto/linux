@@ -474,9 +474,9 @@ static void recover_worker(struct work_struct *work)
 	}
 
 	/* Record the crash state */
-	pm_runtime_get_sync(&gpu->pdev->dev);
-	msm_gpu_crashstate_capture(gpu, submit, comm, cmd);
-	pm_runtime_put_sync(&gpu->pdev->dev);
+	//pm_runtime_get_sync(&gpu->pdev->dev);
+	//msm_gpu_crashstate_capture(gpu, submit, comm, cmd);
+	//pm_runtime_put_sync(&gpu->pdev->dev);
 
 	kfree(cmd);
 	kfree(comm);

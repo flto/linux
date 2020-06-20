@@ -595,6 +595,59 @@ static const struct regulator_desc pms405_pldo600 = {
 	.ops = &rpm_smps_ldo_ops,
 };
 
+static const struct regulator_desc pm8937_ftsmps = {
+	.linear_ranges = (struct regulator_linear_range[]) {
+		REGULATOR_LINEAR_RANGE(350000, 0, 201, 5000),
+	},
+	.n_linear_ranges = 1,
+	.n_voltages = 202,
+	.ops = &rpm_smps_ldo_ops,
+};
+
+static const struct regulator_desc pm8937_hfsmps = {
+	.linear_ranges = (struct regulator_linear_range[]) {
+		REGULATOR_LINEAR_RANGE( 375000,  0,  95, 12500),
+		REGULATOR_LINEAR_RANGE(1575000, 96, 158, 25000),
+	},
+	.n_linear_ranges = 2,
+	.n_voltages = 159,
+	.ops = &rpm_smps_ldo_ops,
+};
+
+static const struct regulator_desc pm8937_ultsmps = {
+	.linear_ranges = (struct regulator_linear_range[]) {
+		REGULATOR_LINEAR_RANGE(375000, 0, 93, 12500),
+		REGULATOR_LINEAR_RANGE(1550000, 94, 157, 25000),
+	},
+	.n_linear_ranges = 2,
+	.n_voltages = 158,
+	.ops = &rpm_smps_ldo_ops,
+};
+
+static const struct regulator_desc pm8937_nldo = {
+	.linear_ranges = (struct regulator_linear_range[]) {
+		REGULATOR_LINEAR_RANGE(375000, 0, 93, 12500),
+	},
+	.n_linear_ranges = 1,
+	.n_voltages = 94,
+	.ops = &rpm_smps_ldo_ops,
+};
+
+static const struct regulator_desc pm8937_pldo = {
+	.linear_ranges = (struct regulator_linear_range[]) {
+		REGULATOR_LINEAR_RANGE(1750000, 0, 127, 12500),
+	},
+	.n_linear_ranges = 1,
+	.n_voltages = 128,
+	.ops = &rpm_smps_ldo_ops,
+};
+
+static const struct regulator_desc pm8937_lnldo = {
+	.fixed_uV = 1740000,
+	.n_voltages = 1,
+	.ops = &rpm_smps_ldo_ops_fixed,
+};
+
 struct rpm_regulator_data {
 	const char *name;
 	u32 type;
@@ -900,6 +953,39 @@ static const struct rpm_regulator_data rpm_pms405_regulators[] = {
 	{}
 };
 
+static const struct rpm_regulator_data rpm_pm8937_regulators[] = {
+	{ "s1", QCOM_SMD_RPM_SMPA, 1, &pm8937_ultsmps, "vdd_s1" },
+	{ "s2", QCOM_SMD_RPM_SMPA, 2, &pm8937_ultsmps, "vdd_s2" },
+	{ "s3", QCOM_SMD_RPM_SMPA, 3, &pm8937_hfsmps, "vdd_s3" },
+	{ "s4", QCOM_SMD_RPM_SMPA, 4, &pm8937_ultsmps, "vdd_s4" },
+	{ "s5", QCOM_SMD_RPM_SMPA, 5, &pm8937_ftsmps, "vdd_s5" },
+	{ "s6", QCOM_SMD_RPM_SMPA, 6, &pm8937_ftsmps, "vdd_s6" },
+	{ "l1", QCOM_SMD_RPM_LDOA, 1, &pm8937_nldo, "vdd_l1_l19" },
+	{ "l2", QCOM_SMD_RPM_LDOA, 2, &pm8937_nldo, "vdd_l2_l23" },
+	{ "l3", QCOM_SMD_RPM_LDOA, 3, &pm8937_nldo, "vdd_l3" },
+	{ "l4", QCOM_SMD_RPM_LDOA, 4, &pm8937_pldo, "vdd_l4_l5_l6_l7_l16" },
+	{ "l5", QCOM_SMD_RPM_LDOA, 5, &pm8937_pldo, "vdd_l4_l5_l6_l7_l16" },
+	{ "l6", QCOM_SMD_RPM_LDOA, 6, &pm8937_pldo, "vdd_l4_l5_l6_l7_l16" },
+	{ "l7", QCOM_SMD_RPM_LDOA, 7, &pm8937_pldo, "vdd_l4_l5_l6_l7_l16" },
+	{ "l8", QCOM_SMD_RPM_LDOA, 8, &pm8937_pldo, "vdd_l8_l11_l12_l17_l22" },
+	{ "l9", QCOM_SMD_RPM_LDOA, 9, &pm8937_pldo, "vdd_l9_l10_l13_l14_l15_l18" },
+	{ "l10", QCOM_SMD_RPM_LDOA, 10, &pm8937_pldo, "vdd_l9_l10_l13_l14_l15_l18"},
+	{ "l11", QCOM_SMD_RPM_LDOA, 11, &pm8937_pldo, "vdd_l8_l11_l12_l17_l22"},
+	{ "l12", QCOM_SMD_RPM_LDOA, 12, &pm8937_pldo, "vdd_l8_l11_l12_l17_l22"},
+	{ "l13", QCOM_SMD_RPM_LDOA, 13, &pm8937_pldo, "vdd_l9_l10_l13_l14_l15_l18"},
+	{ "l14", QCOM_SMD_RPM_LDOA, 14, &pm8937_pldo, "vdd_l9_l10_l13_l14_l15_l18"},
+	{ "l15", QCOM_SMD_RPM_LDOA, 15, &pm8937_pldo, "vdd_l9_l10_l13_l14_l15_l18"},
+	{ "l16", QCOM_SMD_RPM_LDOA, 16, &pm8937_pldo, "vdd_l4_l5_l6_l7_l16"},
+	{ "l17", QCOM_SMD_RPM_LDOA, 17, &pm8937_pldo, "vdd_l8_l11_l12_l17_l22"},
+	{ "l18", QCOM_SMD_RPM_LDOA, 18, &pm8937_pldo, "vdd_l9_l10_l13_l14_l15_l18"},
+	{ "l19", QCOM_SMD_RPM_LDOA, 19, &pm8937_nldo, "vdd_l1_l19"},
+	{ "l20", QCOM_SMD_RPM_LDOA, 20, &pm8937_lnldo, "vdd_l20_l21"},
+	{ "l21", QCOM_SMD_RPM_LDOA, 21, &pm8937_lnldo, "vdd_l20_l21"},
+	{ "l22", QCOM_SMD_RPM_LDOA, 22, &pm8937_pldo, "vdd_l8_l11_l12_l17_l22"},
+	{ "l23", QCOM_SMD_RPM_LDOA, 23, &pm8937_nldo, "vdd_l2_l23"},
+	{}
+};
+
 static const struct of_device_id rpm_of_match[] = {
 	{ .compatible = "qcom,rpm-pm8841-regulators", .data = &rpm_pm8841_regulators },
 	{ .compatible = "qcom,rpm-pm8916-regulators", .data = &rpm_pm8916_regulators },
@@ -911,6 +997,7 @@ static const struct of_device_id rpm_of_match[] = {
 	{ .compatible = "qcom,rpm-pmi8994-regulators", .data = &rpm_pmi8994_regulators },
 	{ .compatible = "qcom,rpm-pmi8998-regulators", .data = &rpm_pmi8998_regulators },
 	{ .compatible = "qcom,rpm-pms405-regulators", .data = &rpm_pms405_regulators },
+	{ .compatible = "qcom,rpm-pm8937-regulators", .data = &rpm_pm8937_regulators },
 	{}
 };
 MODULE_DEVICE_TABLE(of, rpm_of_match);

@@ -4203,6 +4203,7 @@ static const struct panel_desc_dsi panasonic_vvx10f004b00 = {
 	.lanes = 4,
 };
 
+<<<<<<< HEAD
 static const struct drm_display_mode lg_acx467akm_7_mode = {
 	.clock = 150000,
 	.hdisplay = 1080,
@@ -4258,6 +4259,35 @@ static const struct panel_desc_dsi osd101t2045_53ts = {
 	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
 		 MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
 		 MIPI_DSI_MODE_EOT_PACKET,
+=======
+static const struct drm_display_mode ilitek_ili9881c_txd_mode = {
+	.clock = 107732,
+	.hdisplay = 720,
+	.hsync_start = 720 + 300,
+	.hsync_end = 720 + 300 + 28,
+	.htotal = 720 + 300 + 28 + 300,
+	.vdisplay = 1280,
+	.vsync_start = 1280 + 28,
+	.vsync_end = 1280 + 28 + 4,
+	.vtotal = 1280 + 28 + 4 + 20,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc_dsi ilitek_ili9881c_txd = {
+	.desc = {
+		.modes = &ilitek_ili9881c_txd_mode,
+		.num_modes = 1,
+		.bpc = 8,
+		.size = {
+			.width = 65,
+			.height = 115,
+		},
+	},
+	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_HSE |
+		MIPI_DSI_CLOCK_NON_CONTINUOUS | MIPI_DSI_MODE_VIDEO_BURST |
+		MIPI_DSI_MODE_EOT_PACKET | MIPI_DSI_MODE_VIDEO_HSA |
+		MIPI_DSI_MODE_VIDEO_HBP | MIPI_DSI_MODE_VIDEO_HFP,
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	.format = MIPI_DSI_FMT_RGB888,
 	.lanes = 4,
 };
@@ -4279,11 +4309,16 @@ static const struct of_device_id dsi_of_match[] = {
 		.compatible = "panasonic,vvx10f004b00",
 		.data = &panasonic_vvx10f004b00
 	}, {
+<<<<<<< HEAD
 		.compatible = "lg,acx467akm-7",
 		.data = &lg_acx467akm_7
 	}, {
 		.compatible = "osddisplays,osd101t2045-53ts",
 		.data = &osd101t2045_53ts
+=======
+		.compatible = "ilitek,ili9881c-txd",
+		.data = &ilitek_ili9881c_txd
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	}, {
 		/* sentinel */
 	}

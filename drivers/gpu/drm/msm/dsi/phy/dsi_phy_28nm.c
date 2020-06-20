@@ -44,12 +44,12 @@ static void dsi_28nm_phy_regulator_enable_dcdc(struct msm_dsi_phy *phy)
 	void __iomem *base = phy->reg_base;
 
 	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_0, 0x0);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CAL_PWR_CFG, 1);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_5, 0);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CAL_PWR_CFG, 0);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_5, 7);
 	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_3, 0);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_2, 0x3);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_1, 0x9);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_0, 0x7);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_2, 1);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_1, 1);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_0, 0);
 	dsi_phy_write(base + REG_DSI_28nm_PHY_REGULATOR_CTRL_4, 0x20);
 	dsi_phy_write(phy->base + REG_DSI_28nm_PHY_LDO_CNTRL, 0x00);
 }
@@ -105,6 +105,11 @@ static int dsi_28nm_phy_enable(struct msm_dsi_phy *phy, int src_pll_id,
 
 	dsi_28nm_phy_regulator_ctrl(phy, true);
 
+<<<<<<< HEAD
+=======
+	dsi_phy_write(base + REG_DSI_28nm_PHY_LDO_CNTRL, 0x05);
+
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	dsi_28nm_dphy_set_timing(phy, timing);
 
 	dsi_phy_write(base + REG_DSI_28nm_PHY_CTRL_1, 0x00);
@@ -113,11 +118,11 @@ static int dsi_28nm_phy_enable(struct msm_dsi_phy *phy, int src_pll_id,
 	dsi_phy_write(base + REG_DSI_28nm_PHY_STRENGTH_1, 0x6);
 
 	for (i = 0; i < 4; i++) {
-		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_0(i), 0);
-		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_1(i), 0);
+		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_0(i), 1);
+		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_1(i), 0xc0);
 		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_2(i), 0);
 		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_3(i), 0);
-		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_4(i), 0);
+		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_CFG_4(i), 5 * i);
 		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_TEST_DATAPATH(i), 0);
 		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_DEBUG_SEL(i), 0);
 		dsi_phy_write(base + REG_DSI_28nm_PHY_LN_TEST_STR_0(i), 0x1);
@@ -125,9 +130,9 @@ static int dsi_28nm_phy_enable(struct msm_dsi_phy *phy, int src_pll_id,
 	}
 
 	dsi_phy_write(base + REG_DSI_28nm_PHY_LNCK_CFG_4, 0);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_LNCK_CFG_1, 0xc0);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_LNCK_CFG_1, 0x40);
 	dsi_phy_write(base + REG_DSI_28nm_PHY_LNCK_TEST_STR0, 0x1);
-	dsi_phy_write(base + REG_DSI_28nm_PHY_LNCK_TEST_STR1, 0xbb);
+	dsi_phy_write(base + REG_DSI_28nm_PHY_LNCK_TEST_STR1, 0xff);
 
 	dsi_phy_write(base + REG_DSI_28nm_PHY_CTRL_0, 0x5f);
 
@@ -200,7 +205,7 @@ const struct msm_dsi_phy_cfg dsi_phy_28nm_lp_cfgs = {
 		.disable = dsi_28nm_phy_disable,
 		.init = msm_dsi_phy_init_common,
 	},
-	.io_start = { 0x1a98500 },
+	.io_start = { 0x1a94400 },
 	.num_dsi_phy = 1,
 };
 

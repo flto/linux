@@ -8,10 +8,9 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <sound/soc.h>
+#include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
-#include <linux/spinlock.h>
-#include <sound/compress_driver.h>
 #include <asm/dma.h>
 #include <linux/dma-mapping.h>
 #include <linux/of_device.h>
@@ -32,6 +31,7 @@
 #define CAPTURE_MIN_PERIOD_SIZE     320
 #define SID_MASK_DEFAULT	0xF
 
+<<<<<<< HEAD
 /* Default values used if user space does not set */
 #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
 #define COMPR_PLAYBACK_MAX_FRAGMENT_SIZE (128 * 1024)
@@ -44,6 +44,8 @@
 #define ALAC_CH_LAYOUT_MONO   ((101 << 16) | 1)
 #define ALAC_CH_LAYOUT_STEREO ((101 << 16) | 2)
 
+=======
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 enum stream_state {
 	Q6ASM_STREAM_IDLE = 0,
 	Q6ASM_STREAM_STOPPED,
@@ -52,18 +54,11 @@ enum stream_state {
 
 struct q6asm_dai_rtd {
 	struct snd_pcm_substream *substream;
-	struct snd_compr_stream *cstream;
-	struct snd_compr_params codec_param;
-	struct snd_dma_buffer dma_buffer;
-	spinlock_t lock;
 	phys_addr_t phys;
 	unsigned int pcm_size;
 	unsigned int pcm_count;
 	unsigned int pcm_irq_pos;       /* IRQ position */
 	unsigned int periods;
-	unsigned int bytes_sent;
-	unsigned int bytes_received;
-	unsigned int copied_total;
 	uint16_t bits_per_sample;
 	uint16_t source; /* Encoding source bit mask */
 	struct audio_client *audio_client;
@@ -145,6 +140,7 @@ static struct snd_pcm_hardware q6asm_dai_hardware_playback = {
 			.rate_max =	48000,				\
 		},							\
 		.name = "MultiMedia"#num,				\
+		.probe = fe_dai_probe,					\
 		.id = MSM_FRONTEND_DAI_MULTIMEDIA##num,			\
 	}
 
@@ -158,21 +154,6 @@ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
 	.count = ARRAY_SIZE(supported_sample_rates),
 	.list = supported_sample_rates,
 	.mask = 0,
-};
-
-static const struct snd_compr_codec_caps q6asm_compr_caps = {
-	.num_descriptors = 1,
-	.descriptor[0].max_ch = 2,
-	.descriptor[0].sample_rates = {	8000, 11025, 12000, 16000, 22050,
-					24000, 32000, 44100, 48000, 88200,
-					96000, 176400, 192000 },
-	.descriptor[0].num_sample_rates = 13,
-	.descriptor[0].bit_rate[0] = 320,
-	.descriptor[0].bit_rate[1] = 128,
-	.descriptor[0].num_bitrates = 2,
-	.descriptor[0].profiles = 0,
-	.descriptor[0].modes = SND_AUDIOCHANMODE_MP3_STEREO,
-	.descriptor[0].formats = 0,
 };
 
 static void event_handler(uint32_t opcode, uint32_t token,
@@ -356,11 +337,10 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 	prtd->audio_client = q6asm_audio_client_alloc(dev,
 				(q6asm_cb)event_handler, prtd, stream_id,
 				LEGACY_PCM_MODE);
-	if (IS_ERR(prtd->audio_client)) {
+	if (!prtd->audio_client) {
 		pr_info("%s: Could not allocate memory\n", __func__);
-		ret = PTR_ERR(prtd->audio_client);
 		kfree(prtd);
-		return ret;
+		return -ENOMEM;
 	}
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
@@ -489,6 +469,7 @@ static int q6asm_dai_hw_params(struct snd_soc_component *component,
 	return 0;
 }
 
+<<<<<<< HEAD
 static void compress_event_handler(uint32_t opcode, uint32_t token,
 				   void *payload, void *priv)
 {
@@ -966,6 +947,20 @@ static struct snd_compress_ops q6asm_dai_compress_ops = {
 
 static int q6asm_dai_pcm_new(struct snd_soc_component *component,
 			     struct snd_soc_pcm_runtime *rtd)
+=======
+static struct snd_pcm_ops q6asm_dai_ops = {
+	.open           = q6asm_dai_open,
+	.hw_params	= q6asm_dai_hw_params,
+	.close          = q6asm_dai_close,
+	.ioctl          = snd_pcm_lib_ioctl,
+	.prepare        = q6asm_dai_prepare,
+	.trigger        = q6asm_dai_trigger,
+	.pointer        = q6asm_dai_pointer,
+	.mmap		= q6asm_dai_mmap,
+};
+
+static int q6asm_dai_pcm_new(struct snd_soc_pcm_runtime *rtd)
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 {
 	struct snd_pcm_substream *psubstream, *csubstream;
 	struct snd_pcm *pcm = rtd->pcm;
@@ -996,7 +991,7 @@ static int q6asm_dai_pcm_new(struct snd_soc_component *component,
 		}
 	}
 
-	return 0;
+	return ret;
 }
 
 static void q6asm_dai_pcm_free(struct snd_soc_component *component,
@@ -1015,8 +1010,41 @@ static void q6asm_dai_pcm_free(struct snd_soc_component *component,
 	}
 }
 
+static const struct snd_soc_dapm_route afe_pcm_routes[] = {
+	{"MM_DL1",  NULL, "MultiMedia1 Playback" },
+	{"MM_DL2",  NULL, "MultiMedia2 Playback" },
+	{"MM_DL3",  NULL, "MultiMedia3 Playback" },
+	{"MM_DL4",  NULL, "MultiMedia4 Playback" },
+	{"MM_DL5",  NULL, "MultiMedia5 Playback" },
+	{"MM_DL6",  NULL, "MultiMedia6 Playback" },
+	{"MM_DL7",  NULL, "MultiMedia7 Playback" },
+	{"MM_DL7",  NULL, "MultiMedia8 Playback" },
+	{"MultiMedia1 Capture", NULL, "MM_UL1"},
+	{"MultiMedia2 Capture", NULL, "MM_UL2"},
+	{"MultiMedia3 Capture", NULL, "MM_UL3"},
+	{"MultiMedia4 Capture", NULL, "MM_UL4"},
+	{"MultiMedia5 Capture", NULL, "MM_UL5"},
+	{"MultiMedia6 Capture", NULL, "MM_UL6"},
+	{"MultiMedia7 Capture", NULL, "MM_UL7"},
+	{"MultiMedia8 Capture", NULL, "MM_UL8"},
+
+};
+
+static int fe_dai_probe(struct snd_soc_dai *dai)
+{
+	struct snd_soc_dapm_context *dapm;
+
+	dapm = snd_soc_component_get_dapm(dai->component);
+	snd_soc_dapm_add_routes(dapm, afe_pcm_routes,
+				ARRAY_SIZE(afe_pcm_routes));
+
+	return 0;
+}
+
+
 static const struct snd_soc_component_driver q6asm_fe_dai_component = {
 	.name		= DRV_NAME,
+<<<<<<< HEAD
 	.open		= q6asm_dai_open,
 	.hw_params	= q6asm_dai_hw_params,
 	.close		= q6asm_dai_close,
@@ -1027,6 +1055,12 @@ static const struct snd_soc_component_driver q6asm_fe_dai_component = {
 	.pcm_construct	= q6asm_dai_pcm_new,
 	.pcm_destruct	= q6asm_dai_pcm_free,
 	.compress_ops	= &q6asm_dai_compress_ops,
+=======
+	.ops		= &q6asm_dai_ops,
+	.pcm_new	= q6asm_dai_pcm_new,
+	.pcm_free	= q6asm_dai_pcm_free,
+
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 };
 
 static struct snd_soc_dai_driver q6asm_fe_dais_template[] = {
@@ -1040,6 +1074,7 @@ static struct snd_soc_dai_driver q6asm_fe_dais_template[] = {
 	Q6ASM_FEDAI_DRIVER(8),
 };
 
+<<<<<<< HEAD
 static int of_q6asm_parse_dai_data(struct device *dev,
 				    struct q6asm_dai_data *pdata)
 {
@@ -1088,6 +1123,8 @@ static int of_q6asm_parse_dai_data(struct device *dev,
 	return 0;
 }
 
+=======
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 static int q6asm_dai_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1108,10 +1145,13 @@ static int q6asm_dai_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, pdata);
 
+<<<<<<< HEAD
 	rc = of_q6asm_parse_dai_data(dev, pdata);
 	if (rc)
 		return rc;
 
+=======
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	return devm_snd_soc_register_component(dev, &q6asm_fe_dai_component,
 					       pdata->dais, pdata->num_dais);
 }

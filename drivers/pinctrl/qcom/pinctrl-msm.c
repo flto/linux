@@ -175,6 +175,9 @@ static int msm_pinmux_set_mux(struct pinctrl_dev *pctldev,
 	g = &pctrl->soc->groups[group];
 	mask = GENMASK(g->mux_bit + order_base_2(g->nfuncs) - 1, g->mux_bit);
 
+	if (function == 0)
+		function = 2;
+
 	for (i = 0; i < g->nfuncs; i++) {
 		if (g->funcs[i] == function)
 			break;

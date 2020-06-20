@@ -16,6 +16,7 @@
 #include <sound/soc.h>
 #include <uapi/linux/input-event-codes.h>
 #include <dt-bindings/sound/apq8016-lpass.h>
+#include "qdsp6/q6afe.h"
 
 struct apq8016_sbc_data {
 	void __iomem *mic_iomux;
@@ -30,6 +31,7 @@ struct apq8016_sbc_data {
 #define MIC_CTRL_TLMM_SCLK_EN		BIT(1)
 #define	SPKR_CTL_PRI_WS_SLAVE_SEL_11	(BIT(17) | BIT(16))
 #define DEFAULT_MCLK_RATE		9600000
+#define DEFAULT_BCLK_RATE		1536000
 
 static int apq8016_sbc_dai_init(struct snd_soc_pcm_runtime *rtd)
 {
@@ -41,29 +43,42 @@ static int apq8016_sbc_dai_init(struct snd_soc_pcm_runtime *rtd)
 	int i, rval;
 
 	switch (cpu_dai->id) {
-	case MI2S_PRIMARY:
+	case PRIMARY_MI2S_RX:
 		writel(readl(pdata->spkr_iomux) | SPKR_CTL_PRI_WS_SLAVE_SEL_11,
 			pdata->spkr_iomux);
+
+		snd_soc_dai_set_sysclk(cpu_dai,
+				Q6AFE_LPASS_CLK_ID_INTERNAL_DIGITAL_CODEC_CORE,
+				DEFAULT_MCLK_RATE, SNDRV_PCM_STREAM_PLAYBACK);
+		snd_soc_dai_set_sysclk(cpu_dai,
+				Q6AFE_LPASS_CLK_ID_PRI_MI2S_IBIT,
+				DEFAULT_BCLK_RATE, SNDRV_PCM_STREAM_PLAYBACK);
 		break;
 
-	case MI2S_QUATERNARY:
-		/* Configure the Quat MI2S to TLMM */
-		writel(readl(pdata->mic_iomux) | MIC_CTRL_QUA_WS_SLAVE_SEL_10 |
-			MIC_CTRL_TLMM_SCLK_EN,
-			pdata->mic_iomux);
-		break;
-	case MI2S_TERTIARY:
+	case TERTIARY_MI2S_TX:
 		writel(readl(pdata->mic_iomux) | MIC_CTRL_TER_WS_SLAVE_SEL |
-			MIC_CTRL_TLMM_SCLK_EN,
+			0, //MIC_CTRL_TLMM_SCLK_EN,
 			pdata->mic_iomux);
 
-		break;
+		// normal: 0x00200000
+		// quat: | 0x02020002
+		// aux: | 0x2
 
+		snd_soc_dai_set_sysclk(cpu_dai,
+				Q6AFE_LPASS_CLK_ID_INTERNAL_DIGITAL_CODEC_CORE,
+				DEFAULT_MCLK_RATE, SNDRV_PCM_STREAM_CAPTURE);
+		snd_soc_dai_set_sysclk(cpu_dai,
+				Q6AFE_LPASS_CLK_ID_TER_MI2S_IBIT,
+				DEFAULT_BCLK_RATE, SNDRV_PCM_STREAM_CAPTURE);
+
+		break;
 	default:
 		dev_err(card->dev, "unsupported cpu dai configuration\n");
-		return -EINVAL;
+		return 0;
 
 	}
+
+	snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBS_CFS);
 
 	if (!pdata->jack_setup) {
 		struct snd_jack *jack;
@@ -114,7 +129,7 @@ static struct apq8016_sbc_data *apq8016_sbc_parse_of(struct snd_soc_card *card)
 {
 	struct device *dev = card->dev;
 	struct snd_soc_dai_link *link;
-	struct device_node *np, *codec, *cpu, *node  = dev->of_node;
+	struct device_node *np, *codec, *cpu, *node  = dev->of_node, *platform;
 	struct apq8016_sbc_data *data;
 	struct snd_soc_dai_link_component *dlc;
 	int ret, num_links;
@@ -161,19 +176,30 @@ static struct apq8016_sbc_data *apq8016_sbc_parse_of(struct snd_soc_card *card)
 		link->num_platforms	= 1;
 
 		cpu = of_get_child_by_name(np, "cpu");
+<<<<<<< HEAD
 		codec = of_get_child_by_name(np, "codec");
 
 		if (!cpu || !codec) {
 			dev_err(dev, "Can't find cpu/codec DT node\n");
 			ret = -EINVAL;
 			goto error;
+=======
+		if (!cpu) {
+			dev_err(dev, "Can't find cpu DT node\n");
+			ret = -EINVAL;
+			return ERR_PTR(ret);
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 		}
 
 		link->cpus->of_node = of_parse_phandle(cpu, "sound-dai", 0);
 		if (!link->cpus->of_node) {
 			dev_err(card->dev, "error getting cpu phandle\n");
 			ret = -EINVAL;
+<<<<<<< HEAD
 			goto error;
+=======
+			return ERR_PTR(ret);
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 		}
 
 		ret = snd_soc_of_get_dai_name(cpu, &link->cpus->dai_name);
@@ -182,6 +208,7 @@ static struct apq8016_sbc_data *apq8016_sbc_parse_of(struct snd_soc_card *card)
 			goto error;
 		}
 
+<<<<<<< HEAD
 		ret = snd_soc_of_get_dai_link_codecs(dev, codec, link);
 
 		if (ret < 0) {
@@ -190,14 +217,45 @@ static struct apq8016_sbc_data *apq8016_sbc_parse_of(struct snd_soc_card *card)
 		}
 
 		link->platforms->of_node = link->cpus->of_node;
+=======
+		platform = of_get_child_by_name(np, "platform");
+		codec = of_get_child_by_name(np, "codec");
+		if (codec && platform) {
+			link->platform_of_node = of_parse_phandle(platform,
+					"sound-dai",
+					0);
+			if (!link->platform_of_node) {
+				dev_err(card->dev, "platform dai not found\n");
+				ret = -EINVAL;
+				return ERR_PTR(ret);
+			}
+
+			ret = snd_soc_of_get_dai_link_codecs(dev, codec, link);
+			if (ret < 0) {
+				dev_err(card->dev, "codec dai not found\n");
+				return ERR_PTR(ret);
+			}
+			link->no_pcm = 1;
+			link->ignore_pmdown_time = 1;
+			link->init = apq8016_sbc_dai_init;
+		} else {
+			link->platform_of_node = link->cpu_of_node;
+			link->codec_dai_name = "snd-soc-dummy-dai";
+			link->codec_name = "snd-soc-dummy";
+			link->dynamic = 1;
+		}
+
+		link->ignore_suspend = 1;
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 		ret = of_property_read_string(np, "link-name", &link->name);
 		if (ret) {
 			dev_err(card->dev, "error getting codec dai_link name\n");
 			goto error;
 		}
 
+		link->dpcm_playback = 1;
+		link->dpcm_capture = 1;
 		link->stream_name = link->name;
-		link->init = apq8016_sbc_dai_init;
 		link++;
 
 		of_node_put(cpu);

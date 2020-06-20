@@ -11,7 +11,11 @@ obj-$(CONFIG_PINCTRL_MSM8660)	+= pinctrl-msm8660.o
 obj-$(CONFIG_PINCTRL_MSM8960)	+= pinctrl-msm8960.o
 obj-$(CONFIG_PINCTRL_MSM8X74)	+= pinctrl-msm8x74.o
 obj-$(CONFIG_PINCTRL_MSM8916)	+= pinctrl-msm8916.o
+<<<<<<< HEAD
 obj-$(CONFIG_PINCTRL_MSM8976)	+= pinctrl-msm8976.o
+=======
+obj-$(CONFIG_PINCTRL_MSM8917)	+= pinctrl-msm8917.o
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 obj-$(CONFIG_PINCTRL_MSM8994)   += pinctrl-msm8994.o
 obj-$(CONFIG_PINCTRL_MSM8996)   += pinctrl-msm8996.o
 obj-$(CONFIG_PINCTRL_MSM8998)   += pinctrl-msm8998.o

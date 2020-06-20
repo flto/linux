@@ -106,6 +106,26 @@ static const struct msm_dsi_config msm8994_dsi_cfg = {
 	.num_dsi = 2,
 };
 
+static const char * const dsi_8937_bus_clk_names[] = {
+	"mdp_core", "iface", "bus",
+};
+
+static const struct msm_dsi_config msm8937_dsi_cfg = {
+	.io_offset = DSI_6G_REG_SHIFT,
+	.reg_cfg = {
+		.num = 3,
+		.regs = {
+			{"gdsc", -1, -1},
+			{"vdda", 100000, 100},	/* 1.2 V */
+			{"vddio", 100000, 100},	/* 1.8 V */
+		},
+	},
+	.bus_clk_names = dsi_8937_bus_clk_names,
+	.num_bus_clks = ARRAY_SIZE(dsi_8937_bus_clk_names),
+	.io_start = { 0x1a94000 },
+	.num_dsi = 1,
+};
+
 /*
  * TODO: core_mmss_clk fails to enable for some reason, but things work fine
  * without it too. Figure out why it doesn't enable and uncomment below
@@ -239,9 +259,13 @@ static const struct msm_dsi_cfg_handler dsi_cfg_handlers[] = {
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V1_4_1,
 		&msm8996_dsi_cfg, &msm_dsi_6g_host_ops},
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V1_4_2,
+<<<<<<< HEAD
 		&msm8976_dsi_cfg, &msm_dsi_6g_host_ops},
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V2_2_0,
 		&msm8998_dsi_cfg, &msm_dsi_6g_v2_host_ops},
+=======
+		&msm8937_dsi_cfg, &msm_dsi_6g_host_ops},
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V2_2_1,
 		&sdm845_dsi_cfg, &msm_dsi_6g_v2_host_ops},
 	{MSM_DSI_VER_MAJOR_6G, MSM_DSI_6G_VER_MINOR_V2_4_1,

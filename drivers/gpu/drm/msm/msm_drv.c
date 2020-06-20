@@ -433,11 +433,16 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 
 	drm_mode_config_init(ddev);
 
+	ret = msm_init_vram(ddev);
+	if (ret)
+		goto err_msm_uninit;
+
 	/* Bind all our sub-components: */
 	ret = component_bind_all(dev, ddev);
 	if (ret)
 		goto err_destroy_mdss;
 
+<<<<<<< HEAD
 	ret = msm_init_vram(ddev);
 	if (ret)
 		goto err_msm_uninit;
@@ -452,6 +457,8 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	}
 	dma_set_max_seg_size(dev, DMA_BIT_MASK(32));
 
+=======
+>>>>>>> f1aa5f4ab0f4c7b9bb0400ec261a2febad98f3ee
 	msm_gem_shrinker_init(ddev);
 
 	switch (get_mdp_ver(pdev)) {
@@ -1291,6 +1298,10 @@ static int msm_pdev_probe(struct platform_device *pdev)
 {
 	struct component_match *match = NULL;
 	int ret;
+
+	static int xx;
+	if (++xx < 5)
+		return -EPROBE_DEFER;
 
 	if (get_mdp_ver(pdev)) {
 		ret = add_display_components(&pdev->dev, &match);

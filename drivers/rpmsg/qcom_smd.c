@@ -23,6 +23,8 @@
 
 #include "rpmsg_internal.h"
 
+#define dev_dbg dev_warn
+
 /*
  * The Qualcomm Shared Memory communication solution provides point-to-point
  * channels for clients to send and receive streaming or packet based data.
@@ -1273,6 +1275,12 @@ static void qcom_channel_state_worker(struct work_struct *work)
 			continue;
 
 		remote_state = GET_RX_CHANNEL_INFO(channel, state);
+		if (remote_state == SMD_CHANNEL_CLOSING &&
+		    !strcmp(channel->name, "rpm_requests")) {
+			printk("using hack for rpm_requests\n");
+			remote_state = SMD_CHANNEL_OPENING;
+		}
+
 		if (remote_state != SMD_CHANNEL_OPENING &&
 		    remote_state != SMD_CHANNEL_OPENED)
 			continue;

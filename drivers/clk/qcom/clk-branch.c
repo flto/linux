@@ -136,7 +136,7 @@ static int clk_branch2_enable(struct clk_hw *hw)
 
 static void clk_branch2_disable(struct clk_hw *hw)
 {
-	clk_branch_toggle(hw, false, clk_branch2_check_halt);
+	//clk_branch_toggle(hw, false, clk_branch2_check_halt);
 }
 
 const struct clk_ops clk_branch2_ops = {
