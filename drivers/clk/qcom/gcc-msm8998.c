@@ -1042,7 +1042,7 @@ static struct clk_rcg2 sdcc2_apps_clk_src = {
 		.name = "sdcc2_apps_clk_src",
 		.parent_names = gcc_parent_names_4,
 		.num_parents = 4,
-		.ops = &clk_rcg2_ops,
+		.ops = &clk_rcg2_floor_ops,
 	},
 };
 
@@ -1066,7 +1066,7 @@ static struct clk_rcg2 sdcc4_apps_clk_src = {
 		.name = "sdcc4_apps_clk_src",
 		.parent_names = gcc_parent_names_1,
 		.num_parents = 3,
-		.ops = &clk_rcg2_ops,
+		.ops = &clk_rcg2_floor_ops,
 	},
 };
 
@@ -1110,8 +1110,30 @@ static struct clk_rcg2 ufs_axi_clk_src = {
 	},
 };
 
+static const struct freq_tbl ftbl_ufs_unipro_core_clk_src[] = {
+	F(37500000, P_GPLL0_OUT_MAIN, 16, 0, 0),
+	F(75000000, P_GPLL0_OUT_MAIN, 8, 0, 0),
+	F(150000000, P_GPLL0_OUT_MAIN, 4, 0, 0),
+	{ }
+};
+
+static struct clk_rcg2 ufs_unipro_core_clk_src = {
+	.cmd_rcgr = 0x76028,
+	.mnd_width = 8,
+	.hid_width = 5,
+	.parent_map = gcc_parent_map_0,
+	.freq_tbl = ftbl_ufs_unipro_core_clk_src,
+	.clkr.hw.init = &(struct clk_init_data){
+		.name = "ufs_unipro_core_clk_src",
+		.parent_names = gcc_parent_names_0,
+		.num_parents = 4,
+		.ops = &clk_rcg2_ops,
+	},
+};
+
 static const struct freq_tbl ftbl_usb30_master_clk_src[] = {
 	F(19200000, P_XO, 1, 0, 0),
+	F(60000000, P_GPLL0_OUT_MAIN, 10, 0, 0),
 	F(120000000, P_GPLL0_OUT_MAIN, 5, 0, 0),
 	F(150000000, P_GPLL0_OUT_MAIN, 4, 0, 0),
 	{ }
@@ -1189,6 +1211,7 @@ static struct clk_branch gcc_aggre1_ufs_axi_clk = {
 				"ufs_axi_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1206,6 +1229,7 @@ static struct clk_branch gcc_aggre1_usb3_axi_clk = {
 				"usb30_master_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1263,6 +1287,72 @@ static struct clk_branch gcc_bimc_mss_q6_axi_clk = {
 	},
 };
 
+static struct clk_branch gcc_mss_cfg_ahb_clk = {
+	.halt_reg = 0x8a000,
+	.halt_check = BRANCH_HALT,
+	.clkr = {
+		.enable_reg = 0x8a000,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_mss_cfg_ahb_clk",
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct clk_branch gcc_mss_snoc_axi_clk = {
+	.halt_reg = 0x8a03c,
+	.halt_check = BRANCH_HALT,
+	.clkr = {
+		.enable_reg = 0x8a03c,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_mss_snoc_axi_clk",
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct clk_branch gcc_mss_mnoc_bimc_axi_clk = {
+	.halt_reg = 0x8a004,
+	.halt_check = BRANCH_HALT,
+	.clkr = {
+		.enable_reg = 0x8a004,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_mss_mnoc_bimc_axi_clk",
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct clk_branch gcc_boot_rom_ahb_clk = {
+	.halt_reg = 0x38004,
+	.halt_check = BRANCH_HALT_VOTED,
+	.hwcg_reg = 0x38004,
+	.hwcg_bit = 1,
+	.clkr = {
+		.enable_reg = 0x52004,
+		.enable_mask = BIT(10),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_boot_rom_ahb_clk",
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct clk_branch gcc_mss_gpll0_div_clk_src = {
+	.halt_check = BRANCH_HALT_DELAY,
+	.clkr = {
+		.enable_reg = 0x5200c,
+		.enable_mask = BIT(2),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_mss_gpll0_div_clk_src",
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
 static struct clk_branch gcc_blsp1_ahb_clk = {
 	.halt_reg = 0x17004,
 	.halt_check = BRANCH_HALT_VOTED,
@@ -1288,6 +1378,7 @@ static struct clk_branch gcc_blsp1_qup1_i2c_apps_clk = {
 				"blsp1_qup1_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1305,6 +1396,7 @@ static struct clk_branch gcc_blsp1_qup1_spi_apps_clk = {
 				"blsp1_qup1_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1322,6 +1414,7 @@ static struct clk_branch gcc_blsp1_qup2_i2c_apps_clk = {
 				"blsp1_qup2_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1339,6 +1432,7 @@ static struct clk_branch gcc_blsp1_qup2_spi_apps_clk = {
 				"blsp1_qup2_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1356,6 +1450,7 @@ static struct clk_branch gcc_blsp1_qup3_i2c_apps_clk = {
 				"blsp1_qup3_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1373,6 +1468,7 @@ static struct clk_branch gcc_blsp1_qup3_spi_apps_clk = {
 				"blsp1_qup3_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1390,6 +1486,7 @@ static struct clk_branch gcc_blsp1_qup4_i2c_apps_clk = {
 				"blsp1_qup4_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1407,6 +1504,7 @@ static struct clk_branch gcc_blsp1_qup4_spi_apps_clk = {
 				"blsp1_qup4_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1424,6 +1522,7 @@ static struct clk_branch gcc_blsp1_qup5_i2c_apps_clk = {
 				"blsp1_qup5_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1441,6 +1540,7 @@ static struct clk_branch gcc_blsp1_qup5_spi_apps_clk = {
 				"blsp1_qup5_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1458,6 +1558,7 @@ static struct clk_branch gcc_blsp1_qup6_i2c_apps_clk = {
 				"blsp1_qup6_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1475,6 +1576,7 @@ static struct clk_branch gcc_blsp1_qup6_spi_apps_clk = {
 				"blsp1_qup6_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1505,6 +1607,7 @@ static struct clk_branch gcc_blsp1_uart1_apps_clk = {
 				"blsp1_uart1_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1522,6 +1625,7 @@ static struct clk_branch gcc_blsp1_uart2_apps_clk = {
 				"blsp1_uart2_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1539,6 +1643,7 @@ static struct clk_branch gcc_blsp1_uart3_apps_clk = {
 				"blsp1_uart3_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1569,6 +1674,7 @@ static struct clk_branch gcc_blsp2_qup1_i2c_apps_clk = {
 				"blsp2_qup1_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1586,6 +1692,7 @@ static struct clk_branch gcc_blsp2_qup1_spi_apps_clk = {
 				"blsp2_qup1_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1603,6 +1710,7 @@ static struct clk_branch gcc_blsp2_qup2_i2c_apps_clk = {
 				"blsp2_qup2_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1620,6 +1728,7 @@ static struct clk_branch gcc_blsp2_qup2_spi_apps_clk = {
 				"blsp2_qup2_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1637,6 +1746,7 @@ static struct clk_branch gcc_blsp2_qup3_i2c_apps_clk = {
 				"blsp2_qup3_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1654,6 +1764,7 @@ static struct clk_branch gcc_blsp2_qup3_spi_apps_clk = {
 				"blsp2_qup3_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1671,6 +1782,7 @@ static struct clk_branch gcc_blsp2_qup4_i2c_apps_clk = {
 				"blsp2_qup4_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1688,6 +1800,7 @@ static struct clk_branch gcc_blsp2_qup4_spi_apps_clk = {
 				"blsp2_qup4_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1705,6 +1818,7 @@ static struct clk_branch gcc_blsp2_qup5_i2c_apps_clk = {
 				"blsp2_qup5_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1722,6 +1836,7 @@ static struct clk_branch gcc_blsp2_qup5_spi_apps_clk = {
 				"blsp2_qup5_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1739,6 +1854,7 @@ static struct clk_branch gcc_blsp2_qup6_i2c_apps_clk = {
 				"blsp2_qup6_i2c_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1756,6 +1872,7 @@ static struct clk_branch gcc_blsp2_qup6_spi_apps_clk = {
 				"blsp2_qup6_spi_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1786,6 +1903,7 @@ static struct clk_branch gcc_blsp2_uart1_apps_clk = {
 				"blsp2_uart1_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1803,6 +1921,7 @@ static struct clk_branch gcc_blsp2_uart2_apps_clk = {
 				"blsp2_uart2_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1820,6 +1939,7 @@ static struct clk_branch gcc_blsp2_uart3_apps_clk = {
 				"blsp2_uart3_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1837,6 +1957,7 @@ static struct clk_branch gcc_cfg_noc_usb3_axi_clk = {
 				"usb30_master_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1854,6 +1975,7 @@ static struct clk_branch gcc_gp1_clk = {
 				"gp1_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1871,6 +1993,7 @@ static struct clk_branch gcc_gp2_clk = {
 				"gp2_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1888,6 +2011,20 @@ static struct clk_branch gcc_gp3_clk = {
 				"gp3_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct clk_branch gcc_bimc_gfx_clk = {
+	.halt_reg = 0x46040,
+	.halt_check = BRANCH_HALT,
+	.clkr = {
+		.enable_reg = 0x46040,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gcc_bimc_gfx_clk",
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1957,6 +2094,7 @@ static struct clk_branch gcc_hmss_ahb_clk = {
 				"hmss_ahb_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1987,6 +2125,7 @@ static struct clk_branch gcc_hmss_rbcpr_clk = {
 				"hmss_rbcpr_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2088,6 +2227,7 @@ static struct clk_branch gcc_pcie_0_aux_clk = {
 				"pcie_aux_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2121,7 +2261,7 @@ static struct clk_branch gcc_pcie_0_mstr_axi_clk = {
 
 static struct clk_branch gcc_pcie_0_pipe_clk = {
 	.halt_reg = 0x6b018,
-	.halt_check = BRANCH_HALT,
+	.halt_check = BRANCH_HALT_SKIP,
 	.clkr = {
 		.enable_reg = 0x6b018,
 		.enable_mask = BIT(0),
@@ -2157,6 +2297,7 @@ static struct clk_branch gcc_pcie_phy_aux_clk = {
 				"pcie_aux_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2174,6 +2315,7 @@ static struct clk_branch gcc_pdm2_clk = {
 				"pdm2_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2243,6 +2385,7 @@ static struct clk_branch gcc_sdcc2_apps_clk = {
 				"sdcc2_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2273,6 +2416,7 @@ static struct clk_branch gcc_sdcc4_apps_clk = {
 				"sdcc4_apps_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2316,6 +2460,7 @@ static struct clk_branch gcc_tsif_ref_clk = {
 				"tsif_ref_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2346,6 +2491,7 @@ static struct clk_branch gcc_ufs_axi_clk = {
 				"ufs_axi_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2424,6 +2570,11 @@ static struct clk_branch gcc_ufs_unipro_core_clk = {
 		.enable_mask = BIT(0),
 		.hw.init = &(struct clk_init_data){
 			.name = "gcc_ufs_unipro_core_clk",
+			.parent_names = (const char *[]){
+				"ufs_unipro_core_clk_src",
+			},
+			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2441,6 +2592,7 @@ static struct clk_branch gcc_usb30_master_clk = {
 				"usb30_master_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2458,6 +2610,7 @@ static struct clk_branch gcc_usb30_mock_utmi_clk = {
 				"usb30_mock_utmi_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2488,6 +2641,7 @@ static struct clk_branch gcc_usb3_phy_aux_clk = {
 				"usb3_phy_aux_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2495,7 +2649,7 @@ static struct clk_branch gcc_usb3_phy_aux_clk = {
 
 static struct clk_branch gcc_usb3_phy_pipe_clk = {
 	.halt_reg = 0x50004,
-	.halt_check = BRANCH_HALT,
+	.halt_check = BRANCH_HALT_SKIP,
 	.clkr = {
 		.enable_reg = 0x50004,
 		.enable_mask = BIT(0),
@@ -2695,6 +2849,7 @@ static struct clk_regmap *gcc_msm8998_clocks[] = {
 	[GCC_GP1_CLK] = &gcc_gp1_clk.clkr,
 	[GCC_GP2_CLK] = &gcc_gp2_clk.clkr,
 	[GCC_GP3_CLK] = &gcc_gp3_clk.clkr,
+	[GCC_BIMC_GFX_CLK] = &gcc_bimc_gfx_clk.clkr,
 	[GCC_GPU_BIMC_GFX_CLK] = &gcc_gpu_bimc_gfx_clk.clkr,
 	[GCC_GPU_BIMC_GFX_SRC_CLK] = &gcc_gpu_bimc_gfx_src_clk.clkr,
 	[GCC_GPU_CFG_AHB_CLK] = &gcc_gpu_cfg_ahb_clk.clkr,
@@ -2775,6 +2930,7 @@ static struct clk_regmap *gcc_msm8998_clocks[] = {
 	[SDCC4_APPS_CLK_SRC] = &sdcc4_apps_clk_src.clkr,
 	[TSIF_REF_CLK_SRC] = &tsif_ref_clk_src.clkr,
 	[UFS_AXI_CLK_SRC] = &ufs_axi_clk_src.clkr,
+	[UFS_UNIPRO_CORE_CLK_SRC] = &ufs_unipro_core_clk_src.clkr,
 	[USB30_MASTER_CLK_SRC] = &usb30_master_clk_src.clkr,
 	[USB30_MOCK_UTMI_CLK_SRC] = &usb30_mock_utmi_clk_src.clkr,
 	[USB3_PHY_AUX_CLK_SRC] = &usb3_phy_aux_clk_src.clkr,
@@ -2783,6 +2939,11 @@ static struct clk_regmap *gcc_msm8998_clocks[] = {
 	[GCC_USB3_CLKREF_CLK] = &gcc_usb3_clkref_clk.clkr,
 	[GCC_PCIE_CLKREF_CLK] = &gcc_pcie_clkref_clk.clkr,
 	[GCC_RX1_USB2_CLKREF_CLK] = &gcc_rx1_usb2_clkref_clk.clkr,
+	[GCC_MSS_CFG_AHB_CLK] = &gcc_mss_cfg_ahb_clk.clkr,
+	[GCC_BOOT_ROM_AHB_CLK] = &gcc_boot_rom_ahb_clk.clkr,
+	[GCC_MSS_GPLL0_DIV_CLK_SRC] = &gcc_mss_gpll0_div_clk_src.clkr,
+	[GCC_MSS_SNOC_AXI_CLK] = &gcc_mss_snoc_axi_clk.clkr,
+	[GCC_MSS_MNOC_BIMC_AXI_CLK] = &gcc_mss_mnoc_bimc_axi_clk.clkr,
 };
 
 static struct gdsc *gcc_msm8998_gdscs[] = {
@@ -2879,6 +3040,7 @@ static const struct qcom_reset_map gcc_msm8998_resets[] = {
 	[GCC_GPU_BCR] = { 0x71000 },
 	[GCC_SPSS_BCR] = { 0x72000 },
 	[GCC_OBT_ODT_BCR] = { 0x73000 },
+	[GCC_MSS_RESTART] = { 0x79000 },
 	[GCC_VS_BCR] = { 0x7a000 },
 	[GCC_MSS_VS_RESET] = { 0x7a100 },
 	[GCC_GPU_VS_RESET] = { 0x7a104 },
@@ -2910,6 +3072,10 @@ static const struct regmap_config gcc_msm8998_regmap_config = {
 	.fast_io	= true,
 };
 
+static struct clk_hw *gcc_msm8998_hws[] = {
+	&xo.hw,
+};
+
 static const struct qcom_cc_desc gcc_msm8998_desc = {
 	.config = &gcc_msm8998_regmap_config,
 	.clks = gcc_msm8998_clocks,
@@ -2918,6 +3084,8 @@ static const struct qcom_cc_desc gcc_msm8998_desc = {
 	.num_resets = ARRAY_SIZE(gcc_msm8998_resets),
 	.gdscs = gcc_msm8998_gdscs,
 	.num_gdscs = ARRAY_SIZE(gcc_msm8998_gdscs),
+	.clk_hws = gcc_msm8998_hws,
+	.num_clk_hws = ARRAY_SIZE(gcc_msm8998_hws),
 };
 
 static int gcc_msm8998_probe(struct platform_device *pdev)
@@ -2934,10 +3102,6 @@ static int gcc_msm8998_probe(struct platform_device *pdev)
 	 * turned off by hardware during certain apps low power modes.
 	 */
 	ret = regmap_update_bits(regmap, 0x52008, BIT(21), BIT(21));
-	if (ret)
-		return ret;
-
-	ret = devm_clk_hw_register(&pdev->dev, &xo.hw);
 	if (ret)
 		return ret;
 

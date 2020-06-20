@@ -266,7 +266,9 @@ static bool __vmw_piter_non_sg_next(struct vmw_piter *viter)
 
 static bool __vmw_piter_sg_next(struct vmw_piter *viter)
 {
-	return __sg_page_iter_next(&viter->iter);
+	bool ret = __vmw_piter_non_sg_next(viter);
+
+	return __sg_page_iter_dma_next(&viter->iter) && ret;
 }
 
 
@@ -283,12 +285,6 @@ static struct page *__vmw_piter_non_sg_page(struct vmw_piter *viter)
 {
 	return viter->pages[viter->i];
 }
-
-static struct page *__vmw_piter_sg_page(struct vmw_piter *viter)
-{
-	return sg_page_iter_page(&viter->iter);
-}
-
 
 /**
  * Helper functions to return the DMA address of the current page.
@@ -330,26 +326,23 @@ void vmw_piter_start(struct vmw_piter *viter, const struct vmw_sg_table *vsgt,
 {
 	viter->i = p_offset - 1;
 	viter->num_pages = vsgt->num_pages;
+	viter->page = &__vmw_piter_non_sg_page;
+	viter->pages = vsgt->pages;
 	switch (vsgt->mode) {
 	case vmw_dma_phys:
 		viter->next = &__vmw_piter_non_sg_next;
 		viter->dma_address = &__vmw_piter_phys_addr;
-		viter->page = &__vmw_piter_non_sg_page;
-		viter->pages = vsgt->pages;
 		break;
 	case vmw_dma_alloc_coherent:
 		viter->next = &__vmw_piter_non_sg_next;
 		viter->dma_address = &__vmw_piter_dma_addr;
-		viter->page = &__vmw_piter_non_sg_page;
 		viter->addrs = vsgt->addrs;
-		viter->pages = vsgt->pages;
 		break;
 	case vmw_dma_map_populate:
 	case vmw_dma_map_bind:
 		viter->next = &__vmw_piter_sg_next;
 		viter->dma_address = &__vmw_piter_sg_addr;
-		viter->page = &__vmw_piter_sg_page;
-		__sg_page_iter_start(&viter->iter, vsgt->sgt->sgl,
+		__sg_page_iter_start(&viter->iter.base, vsgt->sgt->sgl,
 				     vsgt->sgt->orig_nents, p_offset);
 		break;
 	default:
@@ -448,11 +441,11 @@ static int vmw_ttm_map_dma(struct vmw_ttm_tt *vmw_tt)
 		if (unlikely(ret != 0))
 			return ret;
 
-		ret = sg_alloc_table_from_pages(&vmw_tt->sgt, vsgt->pages,
-						vsgt->num_pages, 0,
-						(unsigned long)
-						vsgt->num_pages << PAGE_SHIFT,
-						GFP_KERNEL);
+		ret = __sg_alloc_table_from_pages
+			(&vmw_tt->sgt, vsgt->pages, vsgt->num_pages, 0,
+			 (unsigned long) vsgt->num_pages << PAGE_SHIFT,
+			 dma_get_max_seg_size(dev_priv->dev->dev),
+			 GFP_KERNEL);
 		if (unlikely(ret != 0))
 			goto out_sg_alloc_fail;
 
@@ -743,11 +736,6 @@ out_no_init:
 	return NULL;
 }
 
-static int vmw_invalidate_caches(struct ttm_bo_device *bdev, uint32_t flags)
-{
-	return 0;
-}
-
 static int vmw_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 		      struct ttm_mem_type_manager *man)
 {
@@ -761,7 +749,7 @@ static int vmw_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 		break;
 	case TTM_PL_VRAM:
 		/* "On-card" video ram */
-		man->func = &ttm_bo_manager_func;
+		man->func = &vmw_thp_func;
 		man->gpu_offset = 0;
 		man->flags = TTM_MEMTYPE_FLAG_FIXED | TTM_MEMTYPE_FLAG_MAPPABLE;
 		man->available_caching = TTM_PL_FLAG_CACHED;
@@ -873,7 +861,6 @@ struct ttm_bo_driver vmw_bo_driver = {
 	.ttm_tt_create = &vmw_ttm_tt_create,
 	.ttm_tt_populate = &vmw_ttm_populate,
 	.ttm_tt_unpopulate = &vmw_ttm_unpopulate,
-	.invalidate_caches = vmw_invalidate_caches,
 	.init_mem_type = vmw_init_mem_type,
 	.eviction_valuable = ttm_bo_eviction_valuable,
 	.evict_flags = vmw_evict_flags,

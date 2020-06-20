@@ -1,14 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/clk.h>
@@ -212,13 +204,16 @@ static int dsi_pll_28nm_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 	DBG("sdm_cfg2=%d", sdm_cfg2);
 	DBG("sdm_cfg3=%d", sdm_cfg3);
 
+	sdm_cfg2 = 0xbd;
+	sdm_cfg3 = 0xbf;
+
 	cal_cfg11 = (u32)(gen_vco_clk / (256 * 1000000));
 	cal_cfg10 = (u32)((gen_vco_clk % (256 * 1000000)) / 1000000);
 	DBG("cal_cfg10=%d, cal_cfg11=%d", cal_cfg10, cal_cfg11);
 
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CHGPUMP_CFG, 0x02);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG3,    0x2b);
-	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG4,    0x06);
+	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG4,    0x66);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_LKDET_CFG2,  0x0d);
 
 	pll_write(base + REG_DSI_28nm_PHY_PLL_SDM_CFG1, sdm_cfg1);
@@ -234,9 +229,9 @@ static int dsi_pll_28nm_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	pll_write(base + REG_DSI_28nm_PHY_PLL_REFCLK_CFG, refclk_cfg);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_PWRGEN_CFG, 0x00);
-	pll_write(base + REG_DSI_28nm_PHY_PLL_VCOLPF_CFG, 0x31);
+	pll_write(base + REG_DSI_28nm_PHY_PLL_VCOLPF_CFG, 0x71);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_SDM_CFG0,   sdm_cfg0);
-	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG0,   0x12);
+	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG0,   0x0a);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG6,   0x30);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG7,   0x00);
 	pll_write(base + REG_DSI_28nm_PHY_PLL_CAL_CFG8,   0x60);
@@ -562,9 +557,9 @@ static int pll_28nm_register(struct dsi_pll_28nm *pll_28nm)
 	snprintf(parent1, 32, "dsi%dvco_clk", pll_28nm->id);
 	snprintf(parent2, 32, "dsi%dindirect_path_div2_clk", pll_28nm->id);
 	clks[num++] = clk_register_mux(dev, clk_name,
-			(const char *[]){
+			((const char *[]){
 				parent1, parent2
-			}, 2, CLK_SET_RATE_PARENT, pll_28nm->mmio +
+			}), 2, CLK_SET_RATE_PARENT, pll_28nm->mmio +
 			REG_DSI_28nm_PHY_PLL_VREG_CFG, 1, 1, 0, NULL);
 
 	snprintf(clk_name, 32, "dsi%dpllbyte", pll_28nm->id);

@@ -292,7 +292,7 @@ static void cleanup_scsitaskmgmt_handles(struct idr *idrtable,
  * @tasktype: Type of taskmgmt command
  * @scsidev:  Scsidev that issued command
  *
- * Create a cmdrsp packet and send it to the Serivce Partition
+ * Create a cmdrsp packet and send it to the Service Partition
  * that will service this request.
  *
  * Return: Int representing whether command was queued successfully or not
@@ -871,12 +871,11 @@ static void do_scsi_nolinuxstat(struct uiscmdrsp *cmdrsp,
 			return;
 		}
 
-		sg = scsi_sglist(scsicmd);
-		for (i = 0; i < scsi_sg_count(scsicmd); i++) {
-			this_page_orig = kmap_atomic(sg_page(sg + i));
+		scsi_for_each_sg(scsicmd, sg, scsi_sg_count(scsicmd), i) {
+			this_page_orig = kmap_atomic(sg_page(sg));
 			this_page = (void *)((unsigned long)this_page_orig |
-					     sg[i].offset);
-			memcpy(this_page, buf + bufind, sg[i].length);
+					     sg->offset);
+			memcpy(this_page, buf + bufind, sg->length);
 			kunmap_atomic(this_page_orig);
 		}
 		kfree(buf);

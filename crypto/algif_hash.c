@@ -1,15 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * algif_hash: User-space interface for hash algorithms
  *
  * This file provides the user-space API for hash algorithms.
  *
  * Copyright (c) 2010 Herbert Xu <herbert@gondor.apana.org.au>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
- *
  */
 
 #include <crypto/hash.h>
@@ -88,7 +83,7 @@ static int hash_sendmsg(struct socket *sock, struct msghdr *msg,
 			goto unlock;
 	}
 
-	ctx->more = 0;
+	ctx->more = false;
 
 	while (msg_data_left(msg)) {
 		int len = msg_data_left(msg);
@@ -216,7 +211,7 @@ static int hash_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 	}
 
 	if (!result || ctx->more) {
-		ctx->more = 0;
+		ctx->more = false;
 		err = crypto_wait_req(crypto_ahash_final(&ctx->req),
 				      &ctx->wait);
 		if (err)
@@ -441,7 +436,7 @@ static int hash_accept_parent_nokey(void *private, struct sock *sk)
 
 	ctx->result = NULL;
 	ctx->len = len;
-	ctx->more = 0;
+	ctx->more = false;
 	crypto_init_wait(&ctx->wait);
 
 	ask->private = ctx;

@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) Sistina Software, Inc.  1997-2003 All rights reserved.
  * Copyright (C) 2004-2006 Red Hat, Inc.  All rights reserved.
- *
- * This copyrighted material is made available to anyone wishing to use,
- * modify, copy, or redistribute it subject to the terms and conditions
- * of the GNU General Public License version 2.
  */
 
 #include <linux/module.h>
@@ -114,7 +111,7 @@ void gfs2_revoke_clean(struct gfs2_jdesc *jd)
 	struct gfs2_revoke_replay *rr;
 
 	while (!list_empty(head)) {
-		rr = list_entry(head->next, struct gfs2_revoke_replay, rr_list);
+		rr = list_first_entry(head, struct gfs2_revoke_replay, rr_list);
 		list_del(&rr->rr_list);
 		kfree(rr);
 	}
@@ -193,7 +190,7 @@ static int get_log_header(struct gfs2_jdesc *jd, unsigned int blk,
  * Returns: errno
  */
 
-static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
+static int foreach_descriptor(struct gfs2_jdesc *jd, u32 start,
 			      unsigned int end, int pass)
 {
 	struct gfs2_sbd *sdp = GFS2_SB(jd->jd_inode);
@@ -263,12 +260,16 @@ static void clean_journal(struct gfs2_jdesc *jd,
 			  struct gfs2_log_header_host *head)
 {
 	struct gfs2_sbd *sdp = GFS2_SB(jd->jd_inode);
+	u32 lblock = head->lh_blkno;
 
-	sdp->sd_log_flush_head = head->lh_blkno;
-	gfs2_replay_incr_blk(jd, &sdp->sd_log_flush_head);
-	gfs2_write_log_header(sdp, jd, head->lh_sequence + 1, 0,
+	gfs2_replay_incr_blk(jd, &lblock);
+	gfs2_write_log_header(sdp, jd, head->lh_sequence + 1, 0, lblock,
 			      GFS2_LOG_HEAD_UNMOUNT | GFS2_LOG_HEAD_RECOVERY,
 			      REQ_PREFLUSH | REQ_FUA | REQ_META | REQ_SYNC);
+	if (jd->jd_jid == sdp->sd_lockstruct.ls_jid) {
+		sdp->sd_log_flush_head = lblock;
+		gfs2_log_incr_head(sdp);
+	}
 }
 
 
@@ -304,6 +305,11 @@ void gfs2_recover_func(struct work_struct *work)
 	int error = 0;
 	int jlocked = 0;
 
+	if (gfs2_withdrawn(sdp)) {
+		fs_err(sdp, "jid=%u: Recovery not attempted due to withdraw.\n",
+		       jd->jd_jid);
+		goto fail;
+	}
 	t_start = ktime_get();
 	if (sdp->sd_args.ar_spectator)
 		goto fail;
@@ -327,7 +333,7 @@ void gfs2_recover_func(struct work_struct *work)
 
 		default:
 			goto fail;
-		};
+		}
 
 		error = gfs2_glock_nq_init(ip->i_gl, LM_ST_SHARED,
 					   LM_FLAG_NOEXP | GL_NOCACHE, &ji_gh);
@@ -344,7 +350,7 @@ void gfs2_recover_func(struct work_struct *work)
 	if (error)
 		goto fail_gunlock_ji;
 
-	error = gfs2_find_jhead(jd, &head);
+	error = gfs2_find_jhead(jd, &head, true);
 	if (error)
 		goto fail_gunlock_ji;
 	t_jhd = ktime_get();
@@ -389,8 +395,13 @@ void gfs2_recover_func(struct work_struct *work)
 		}
 
 		t_tlck = ktime_get();
-		fs_info(sdp, "jid=%u: Replaying journal...\n", jd->jd_jid);
+		fs_info(sdp, "jid=%u: Replaying journal...0x%x to 0x%x\n",
+			jd->jd_jid, head.lh_tail, head.lh_blkno);
 
+		/* We take the sd_log_flush_lock here primarily to prevent log
+		 * flushes and simultaneous journal replays from stomping on
+		 * each other wrt sd_log_bio. */
+		down_read(&sdp->sd_log_flush_lock);
 		for (pass = 0; pass < 2; pass++) {
 			lops_before_scan(jd, &head, pass);
 			error = foreach_descriptor(jd, head.lh_tail,
@@ -401,6 +412,7 @@ void gfs2_recover_func(struct work_struct *work)
 		}
 
 		clean_journal(jd, &head);
+		up_read(&sdp->sd_log_flush_lock);
 
 		gfs2_glock_dq_uninit(&thaw_gh);
 		t_rep = ktime_get();

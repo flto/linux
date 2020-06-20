@@ -37,7 +37,7 @@ static bool event_interrupt_isr_v9(struct kfd_dev *dev,
 	vmid = SOC15_VMID_FROM_IH_ENTRY(ih_ring_entry);
 	if (vmid < dev->vm_info.first_vmid_kfd ||
 	    vmid > dev->vm_info.last_vmid_kfd)
-		return 0;
+		return false;
 
 	source_id = SOC15_SOURCE_ID_FROM_IH_ENTRY(ih_ring_entry);
 	client_id = SOC15_CLIENT_ID_FROM_IH_ENTRY(ih_ring_entry);
@@ -54,8 +54,7 @@ static bool event_interrupt_isr_v9(struct kfd_dev *dev,
 		memcpy(patched_ihre, ih_ring_entry,
 				dev->device_info->ih_ring_entry_size);
 
-		pasid = dev->kfd2kgd->get_atc_vmid_pasid_mapping_pasid(
-				dev->kgd, vmid);
+		pasid = dev->dqm->vmid_pasid[vmid];
 
 		/* Patch the pasid field */
 		patched_ihre[3] = cpu_to_le32((le32_to_cpu(patched_ihre[3])
@@ -70,7 +69,7 @@ static bool event_interrupt_isr_v9(struct kfd_dev *dev,
 
 	/* If there is no valid PASID, it's likely a bug */
 	if (WARN_ONCE(pasid == 0, "Bug: No PASID in KFD interrupt"))
-		return 0;
+		return false;
 
 	/* Interrupt types we care about: various signals and faults.
 	 * They will be forwarded to a work queue (see below).
@@ -80,6 +79,7 @@ static bool event_interrupt_isr_v9(struct kfd_dev *dev,
 		source_id == SOC15_INTSRC_SQ_INTERRUPT_MSG ||
 		source_id == SOC15_INTSRC_CP_BAD_OPCODE ||
 		client_id == SOC15_IH_CLIENTID_VMC ||
+		client_id == SOC15_IH_CLIENTID_VMC1 ||
 		client_id == SOC15_IH_CLIENTID_UTCL2;
 }
 
@@ -104,6 +104,7 @@ static void event_interrupt_wq_v9(struct kfd_dev *dev,
 	else if (source_id == SOC15_INTSRC_CP_BAD_OPCODE)
 		kfd_signal_hw_exception_event(pasid);
 	else if (client_id == SOC15_IH_CLIENTID_VMC ||
+		client_id == SOC15_IH_CLIENTID_VMC1 ||
 		 client_id == SOC15_IH_CLIENTID_UTCL2) {
 		struct kfd_vm_fault_info info = {0};
 		uint16_t ring_id = SOC15_RING_ID_FROM_IH_ENTRY(ih_ring_entry);

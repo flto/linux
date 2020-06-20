@@ -1,34 +1,36 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * builtin-ftrace.c
  *
  * Copyright (c) 2013  LG Electronics,  Namhyung Kim <namhyung@kernel.org>
- *
- * Released under the GPL v2.
  */
 
 #include "builtin.h"
-#include "perf.h"
 
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <linux/capability.h>
+#include <linux/string.h>
 
 #include "debug.h"
+#include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
 #include <api/fs/tracing_path.h>
 #include "evlist.h"
 #include "target.h"
 #include "cpumap.h"
 #include "thread_map.h"
+#include "util/cap.h"
 #include "util/config.h"
-
 
 #define DEFAULT_TRACER  "function_graph"
 
 struct perf_ftrace {
-	struct perf_evlist	*evlist;
+	struct evlist		*evlist;
 	struct target		target;
 	const char		*tracer;
 	struct list_head	filters;
@@ -43,6 +45,7 @@ struct filter_entry {
 	char			name[];
 };
 
+static volatile int workload_exec_errno;
 static bool done;
 
 static void sig_handler(int sig __maybe_unused)
@@ -61,7 +64,7 @@ static void ftrace__workload_exec_failed_signal(int signo __maybe_unused,
 						siginfo_t *info __maybe_unused,
 						void *ucontext __maybe_unused)
 {
-	/* workload_exec_errno = info->si_value.sival_int; */
+	workload_exec_errno = info->si_value.sival_int;
 	done = true;
 }
 
@@ -157,16 +160,16 @@ static int set_tracing_pid(struct perf_ftrace *ftrace)
 	if (target__has_cpu(&ftrace->target))
 		return 0;
 
-	for (i = 0; i < thread_map__nr(ftrace->evlist->threads); i++) {
+	for (i = 0; i < perf_thread_map__nr(ftrace->evlist->core.threads); i++) {
 		scnprintf(buf, sizeof(buf), "%d",
-			  ftrace->evlist->threads->map[i]);
+			  ftrace->evlist->core.threads->map[i]);
 		if (append_tracing_file("set_ftrace_pid", buf) < 0)
 			return -1;
 	}
 	return 0;
 }
 
-static int set_tracing_cpumask(struct cpu_map *cpumap)
+static int set_tracing_cpumask(struct perf_cpu_map *cpumap)
 {
 	char *cpumask;
 	size_t mask_size;
@@ -174,7 +177,7 @@ static int set_tracing_cpumask(struct cpu_map *cpumap)
 	int last_cpu;
 
 	last_cpu = cpu_map__cpu(cpumap, cpumap->nr - 1);
-	mask_size = (last_cpu + 3) / 4 + 1;
+	mask_size = last_cpu / 4 + 2; /* one more byte for EOS */
 	mask_size += last_cpu / 32; /* ',' is needed for every 32th cpus */
 
 	cpumask = malloc(mask_size);
@@ -193,7 +196,7 @@ static int set_tracing_cpumask(struct cpu_map *cpumap)
 
 static int set_tracing_cpu(struct perf_ftrace *ftrace)
 {
-	struct cpu_map *cpumap = ftrace->evlist->cpus;
+	struct perf_cpu_map *cpumap = ftrace->evlist->core.cpus;
 
 	if (!target__has_cpu(&ftrace->target))
 		return 0;
@@ -203,11 +206,11 @@ static int set_tracing_cpu(struct perf_ftrace *ftrace)
 
 static int reset_tracing_cpu(void)
 {
-	struct cpu_map *cpumap = cpu_map__new(NULL);
+	struct perf_cpu_map *cpumap = perf_cpu_map__new(NULL);
 	int ret;
 
 	ret = set_tracing_cpumask(cpumap);
-	cpu_map__put(cpumap);
+	perf_cpu_map__put(cpumap);
 	return ret;
 }
 
@@ -282,8 +285,15 @@ static int __cmd_ftrace(struct perf_ftrace *ftrace, int argc, const char **argv)
 		.events = POLLIN,
 	};
 
-	if (geteuid() != 0) {
-		pr_err("ftrace only works for root!\n");
+	if (!(perf_cap__capable(CAP_PERFMON) ||
+	      perf_cap__capable(CAP_SYS_ADMIN))) {
+		pr_err("ftrace only works for %s!\n",
+#ifdef HAVE_LIBCAP_SUPPORT
+		"users with the CAP_PERFMON or CAP_SYS_ADMIN capability"
+#else
+		"root"
+#endif
+		);
 		return -1;
 	}
 
@@ -374,6 +384,14 @@ static int __cmd_ftrace(struct perf_ftrace *ftrace, int argc, const char **argv)
 
 	write_tracing_file("tracing_on", "0");
 
+	if (workload_exec_errno) {
+		const char *emsg = str_error_r(workload_exec_errno, buf, sizeof(buf));
+		/* flush stdout first so below error msg appears at the end. */
+		fflush(stdout);
+		pr_err("workload failed: %s\n", emsg);
+		goto out_close_fd;
+	}
+
 	/* read remaining buffer contents */
 	while (true) {
 		int n = read(trace_fd, buf, sizeof(buf));
@@ -388,7 +406,7 @@ out_close_fd:
 out_reset:
 	reset_tracing_files(ftrace);
 out:
-	return done ? 0 : -1;
+	return (done && !workload_exec_errno) ? 0 : -1;
 }
 
 static int perf_ftrace_config(const char *var, const char *value, void *cb)
@@ -432,7 +450,7 @@ static void delete_filter_func(struct list_head *head)
 	struct filter_entry *pos, *tmp;
 
 	list_for_each_entry_safe(pos, tmp, head, list) {
-		list_del(&pos->list);
+		list_del_init(&pos->list);
 		free(pos);
 	}
 }
@@ -485,7 +503,7 @@ int cmd_ftrace(int argc, const char **argv)
 	argc = parse_options(argc, argv, ftrace_options, ftrace_usage,
 			    PARSE_OPT_STOP_AT_NON_OPTION);
 	if (!argc && target__none(&ftrace.target))
-		usage_with_options(ftrace_usage, ftrace_options);
+		ftrace.target.system_wide = true;
 
 	ret = target__validate(&ftrace.target);
 	if (ret) {
@@ -496,7 +514,7 @@ int cmd_ftrace(int argc, const char **argv)
 		goto out_delete_filters;
 	}
 
-	ftrace.evlist = perf_evlist__new();
+	ftrace.evlist = evlist__new();
 	if (ftrace.evlist == NULL) {
 		ret = -ENOMEM;
 		goto out_delete_filters;
@@ -509,7 +527,7 @@ int cmd_ftrace(int argc, const char **argv)
 	ret = __cmd_ftrace(&ftrace, argc, argv);
 
 out_delete_evlist:
-	perf_evlist__delete(ftrace.evlist);
+	evlist__delete(ftrace.evlist);
 
 out_delete_filters:
 	delete_filter_func(&ftrace.filters);

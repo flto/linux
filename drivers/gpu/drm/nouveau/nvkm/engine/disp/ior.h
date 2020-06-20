@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: MIT */
 #ifndef __NVKM_DISP_IOR_H__
 #define __NVKM_DISP_IOR_H__
 #include "priv.h"
@@ -87,7 +87,8 @@ struct nvkm_ior_func {
 
 	struct {
 		void (*hpd)(struct nvkm_ior *, int head, bool present);
-		void (*eld)(struct nvkm_ior *, u8 *data, u8 size);
+		void (*eld)(struct nvkm_ior *, int head, u8 *data, u8 size);
+		void (*device_entry)(struct nvkm_ior *, int head);
 	} hda;
 };
 
@@ -158,10 +159,13 @@ void gv100_hdmi_ctrl(struct nvkm_ior *, int, bool, u8, u8, u8 *, u8 , u8 *, u8);
 void gm200_hdmi_scdc(struct nvkm_ior *, int, u8);
 
 void gt215_hda_hpd(struct nvkm_ior *, int, bool);
-void gt215_hda_eld(struct nvkm_ior *, u8 *, u8);
+void gt215_hda_eld(struct nvkm_ior *, int, u8 *, u8);
 
 void gf119_hda_hpd(struct nvkm_ior *, int, bool);
-void gf119_hda_eld(struct nvkm_ior *, u8 *, u8);
+void gf119_hda_eld(struct nvkm_ior *, int, u8 *, u8);
+void gf119_hda_device_entry(struct nvkm_ior *, int);
+
+void gv100_hda_device_entry(struct nvkm_ior *, int);
 
 #define IOR_MSG(i,l,f,a...) do {                                               \
 	struct nvkm_ior *_ior = (i);                                           \
@@ -197,9 +201,10 @@ int gf119_sor_new(struct nvkm_disp *, int);
 int gk104_sor_new(struct nvkm_disp *, int);
 int gm107_sor_new(struct nvkm_disp *, int);
 int gm200_sor_new(struct nvkm_disp *, int);
+int gp100_sor_new(struct nvkm_disp *, int);
 
 int gv100_sor_cnt(struct nvkm_disp *, unsigned long *);
 int gv100_sor_new(struct nvkm_disp *, int);
 
-int tu104_sor_new(struct nvkm_disp *, int);
+int tu102_sor_new(struct nvkm_disp *, int);
 #endif

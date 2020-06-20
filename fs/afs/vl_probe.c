@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* AFS vlserver probing
  *
  * Copyright (C) 2018 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public Licence
- * as published by the Free Software Foundation; either version
- * 2 of the Licence, or (at your option) any later version.
  */
 
 #include <linux/sched.h>
@@ -33,12 +29,11 @@ static bool afs_vl_probe_done(struct afs_vlserver *server)
 void afs_vlserver_probe_result(struct afs_call *call)
 {
 	struct afs_addr_list *alist = call->alist;
-	struct afs_vlserver *server = call->reply[0];
-	unsigned int server_index = (long)call->reply[1];
+	struct afs_vlserver *server = call->vlserver;
+	unsigned int server_index = call->server_index;
+	unsigned int rtt_us = 0;
 	unsigned int index = call->addr_ix;
-	unsigned int rtt = UINT_MAX;
 	bool have_result = false;
-	u64 _rtt;
 	int ret = call->error;
 
 	_enter("%s,%u,%u,%d,%d", server->name, server_index, index, ret, call->abort_code);
@@ -97,15 +92,9 @@ responded:
 		}
 	}
 
-	/* Get the RTT and scale it to fit into a 32-bit value that represents
-	 * over a minute of time so that we can access it with one instruction
-	 * on a 32-bit system.
-	 */
-	_rtt = rxrpc_kernel_get_rtt(call->net->socket, call->rxcall);
-	_rtt /= 64;
-	rtt = (_rtt > UINT_MAX) ? UINT_MAX : _rtt;
-	if (rtt < server->probe.rtt) {
-		server->probe.rtt = rtt;
+	rtt_us = rxrpc_kernel_get_srtt(call->net->socket, call->rxcall);
+	if (rtt_us < server->probe.rtt) {
+		server->probe.rtt = rtt_us;
 		alist->preferred = index;
 		have_result = true;
 	}
@@ -117,8 +106,7 @@ out:
 	spin_unlock(&server->probe_lock);
 
 	_debug("probe [%u][%u] %pISpc rtt=%u ret=%d",
-	       server_index, index, &alist->addrs[index].transport,
-	       (unsigned int)rtt, ret);
+	       server_index, index, &alist->addrs[index].transport, rtt_us, ret);
 
 	have_result |= afs_vl_probe_done(server);
 	if (have_result) {
@@ -141,8 +129,8 @@ static bool afs_do_probe_vlserver(struct afs_net *net,
 	struct afs_addr_cursor ac = {
 		.index = 0,
 	};
+	struct afs_call *call;
 	bool in_progress = false;
-	int err;
 
 	_enter("%s", server->name);
 
@@ -156,12 +144,14 @@ static bool afs_do_probe_vlserver(struct afs_net *net,
 	server->probe.rtt = UINT_MAX;
 
 	for (ac.index = 0; ac.index < ac.alist->nr_addrs; ac.index++) {
-		err = afs_vl_get_capabilities(net, &ac, key, server,
-					      server_index, true);
-		if (err == -EINPROGRESS)
+		call = afs_vl_get_capabilities(net, &ac, key, server,
+					       server_index);
+		if (!IS_ERR(call)) {
+			afs_put_call(call);
 			in_progress = true;
-		else
-			afs_prioritise_error(_e, err, ac.abort_code);
+		} else {
+			afs_prioritise_error(_e, PTR_ERR(call), ac.abort_code);
+		}
 	}
 
 	if (!in_progress)

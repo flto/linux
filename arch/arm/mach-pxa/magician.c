@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Support for HTC Magician PDA phones:
  * i-mate JAM, O2 Xda mini, Orange SPV M500, Qtek s100, Qtek s110
@@ -6,11 +7,6 @@
  * Copyright (c) 2006-2007 Philipp Zabel
  *
  * Based on hx4700.c, spitz.c and others.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/kernel.h>
@@ -31,7 +27,6 @@
 #include <linux/regulator/fixed.h>
 #include <linux/regulator/gpio-regulator.h>
 #include <linux/regulator/machine.h>
-#include <linux/usb/gpio_vbus.h>
 #include <linux/platform_data/i2c-pxa.h>
 
 #include <mach/hardware.h>
@@ -406,7 +401,6 @@ static void magician_backlight_exit(struct device *dev)
 static struct platform_pwm_backlight_data backlight_data = {
 	.max_brightness	= 272,
 	.dft_brightness	= 100,
-	.enable_gpio	= -1,
 	.init		= magician_backlight_init,
 	.notify		= magician_backlight_notify,
 	.exit		= magician_backlight_exit,
@@ -510,9 +504,20 @@ static struct resource gpio_vbus_resource = {
 	.end	= IRQ_MAGICIAN_VBUS,
 };
 
-static struct gpio_vbus_mach_info gpio_vbus_info = {
-	.gpio_pullup	= GPIO27_MAGICIAN_USBC_PUEN,
-	.gpio_vbus	= EGPIO_MAGICIAN_CABLE_VBUS,
+static struct gpiod_lookup_table gpio_vbus_gpiod_table = {
+	.dev_id = "gpio-vbus",
+	.table = {
+		/*
+		 * EGPIO on register 4 index 1, the second EGPIO chip
+		 * starts at register 4 so this will be at index 1 on that
+		 * chip.
+		 */
+		GPIO_LOOKUP("htc-egpio-1", 1,
+			    "vbus", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio-pxa", GPIO27_MAGICIAN_USBC_PUEN,
+			    "pullup", GPIO_ACTIVE_HIGH),
+		{ },
+	},
 };
 
 static struct platform_device gpio_vbus = {
@@ -520,9 +525,6 @@ static struct platform_device gpio_vbus = {
 	.id		= -1,
 	.num_resources	= 1,
 	.resource	= &gpio_vbus_resource,
-	.dev = {
-		.platform_data = &gpio_vbus_info,
-	},
 };
 
 /*
@@ -645,9 +647,8 @@ static struct regulator_init_data bq24022_init_data = {
 	.consumer_supplies	= bq24022_consumers,
 };
 
-static struct gpio bq24022_gpios[] = {
-	{ EGPIO_MAGICIAN_BQ24022_ISET2, GPIOF_OUT_INIT_LOW, "bq24022_iset2" },
-};
+
+static enum gpiod_flags bq24022_gpiod_gflags[] = { GPIOD_OUT_LOW };
 
 static struct gpio_regulator_state bq24022_states[] = {
 	{ .value = 100000, .gpios = (0 << 0) },
@@ -657,12 +658,10 @@ static struct gpio_regulator_state bq24022_states[] = {
 static struct gpio_regulator_config bq24022_info = {
 	.supply_name		= "bq24022",
 
-	.enable_gpio		= GPIO30_MAGICIAN_BQ24022_nCHARGE_EN,
-	.enable_high		= 0,
 	.enabled_at_boot	= 1,
 
-	.gpios			= bq24022_gpios,
-	.nr_gpios		= ARRAY_SIZE(bq24022_gpios),
+	.gflags = bq24022_gpiod_gflags,
+	.ngpios = ARRAY_SIZE(bq24022_gpiod_gflags),
 
 	.states			= bq24022_states,
 	.nr_states		= ARRAY_SIZE(bq24022_states),
@@ -676,6 +675,17 @@ static struct platform_device bq24022 = {
 	.id	= -1,
 	.dev	= {
 		.platform_data = &bq24022_info,
+	},
+};
+
+static struct gpiod_lookup_table bq24022_gpiod_table = {
+	.dev_id = "gpio-regulator",
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", EGPIO_MAGICIAN_BQ24022_ISET2,
+			    NULL, GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio-pxa", GPIO30_MAGICIAN_BQ24022_nCHARGE_EN,
+			    "enable", GPIO_ACTIVE_LOW),
+		{ },
 	},
 };
 
@@ -932,7 +942,7 @@ struct pxa2xx_spi_chip tsc2046_chip_info = {
 	.gpio_cs	= GPIO14_MAGICIAN_TSC2046_CS,
 };
 
-static struct pxa2xx_spi_master magician_spi_info = {
+static struct pxa2xx_spi_controller magician_spi_info = {
 	.num_chipselect	= 1,
 	.enable_dma	= 1,
 };
@@ -1004,7 +1014,7 @@ static void __init magician_init(void)
 	pxa_set_udc_info(&magician_udc_info);
 
 	/* Check LCD type we have */
-	cpld = ioremap_nocache(PXA_CS3_PHYS, 0x1000);
+	cpld = ioremap(PXA_CS3_PHYS, 0x1000);
 	if (cpld) {
 		u8 board_id = __raw_readb(cpld + 0x14);
 
@@ -1027,6 +1037,8 @@ static void __init magician_init(void)
 	regulator_register_always_on(0, "power", pwm_backlight_supply,
 		ARRAY_SIZE(pwm_backlight_supply), 5000000);
 
+	gpiod_add_lookup_table(&bq24022_gpiod_table);
+	gpiod_add_lookup_table(&gpio_vbus_gpiod_table);
 	platform_add_devices(ARRAY_AND_SIZE(devices));
 }
 

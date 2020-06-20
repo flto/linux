@@ -66,7 +66,7 @@ struct rdma_id_private {
 	struct mutex		qp_mutex;
 
 	struct completion	comp;
-	atomic_t		refcount;
+	refcount_t refcount;
 	struct mutex		handler_mutex;
 
 	int			backlog;
@@ -84,15 +84,18 @@ struct rdma_id_private {
 	u32			options;
 	u8			srq;
 	u8			tos;
-	bool			tos_set;
+	u8			tos_set:1;
+	u8                      timeout_set:1;
 	u8			reuseaddr;
 	u8			afonly;
+	u8			timeout;
 	enum ib_gid_type	gid_type;
 
 	/*
 	 * Internal to RDMA/core, don't use in the drivers
 	 */
 	struct rdma_restrack_entry     res;
+	struct rdma_ucm_ece ece;
 };
 
 #if IS_ENABLED(CONFIG_INFINIBAND_ADDR_TRANS_CONFIGFS)
@@ -109,8 +112,8 @@ static inline void cma_configfs_exit(void)
 }
 #endif
 
-void cma_ref_dev(struct cma_device *dev);
-void cma_deref_dev(struct cma_device *dev);
+void cma_dev_get(struct cma_device *dev);
+void cma_dev_put(struct cma_device *dev);
 typedef bool (*cma_device_filter)(struct ib_device *, void *);
 struct cma_device *cma_enum_devices_by_ibdev(cma_device_filter filter,
 					     void *cookie);

@@ -15,6 +15,7 @@
 #include "../perf.h"
 #include "parse-events.h"
 #include "parse-events-bison.h"
+#include "evsel.h"
 
 char *parse_events_get_text(yyscan_t yyscanner);
 YYSTYPE *parse_events_get_lval(yyscan_t yyscanner);
@@ -154,6 +155,14 @@ static int sym(yyscan_t scanner, int type, int config)
 	return type == PERF_TYPE_HARDWARE ? PE_VALUE_SYM_HW : PE_VALUE_SYM_SW;
 }
 
+static int tool(yyscan_t scanner, enum perf_tool_event event)
+{
+	YYSTYPE *yylval = parse_events_get_lval(scanner);
+
+	yylval->num = event;
+	return PE_VALUE_SYM_TOOL;
+}
+
 static int term(yyscan_t scanner, int type)
 {
 	YYSTYPE *yylval = parse_events_get_lval(scanner);
@@ -200,10 +209,10 @@ modifier_bp	[rwx]{1,3}
 %%
 
 %{
-	{
-		int start_token;
+	struct parse_events_state *_parse_state = parse_events_get_extra(yyscanner);
 
-		start_token = parse_events_get_extra(yyscanner);
+	{
+		int start_token = _parse_state->stoken;
 
 		if (start_token == PE_START_TERMS)
 			BEGIN(config);
@@ -211,7 +220,7 @@ modifier_bp	[rwx]{1,3}
 			BEGIN(event);
 
 		if (start_token) {
-			parse_events_set_extra(NULL, yyscanner);
+			_parse_state->stoken = 0;
 			/*
 			 * The flex parser does not init locations variable
 			 * via the scan_string interface, so we need do the
@@ -243,7 +252,9 @@ modifier_bp	[rwx]{1,3}
 			BEGIN(INITIAL);
 			REWIND(0);
 		}
-
+,		{
+			return ',';
+		}
 }
 
 <array>{
@@ -274,6 +285,10 @@ inherit			{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_INHERIT); }
 no-inherit		{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_NOINHERIT); }
 overwrite		{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_OVERWRITE); }
 no-overwrite		{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_NOOVERWRITE); }
+percore			{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_PERCORE); }
+aux-output		{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_AUX_OUTPUT); }
+aux-sample-size		{ return term(yyscanner, PARSE_EVENTS__TERM_TYPE_AUX_SAMPLE_SIZE); }
+r{num_raw_hex}		{ return raw(yyscanner); }
 ,			{ return ','; }
 "/"			{ BEGIN(INITIAL); return '/'; }
 {name_minus}		{ return str(yyscanner, PE_NAME); }
@@ -322,7 +337,7 @@ cpu-migrations|migrations			{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COU
 alignment-faults				{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_ALIGNMENT_FAULTS); }
 emulation-faults				{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_EMULATION_FAULTS); }
 dummy						{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_DUMMY); }
-duration_time					{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_DUMMY); }
+duration_time					{ return tool(yyscanner, PERF_TOOL_DURATION_TIME); }
 bpf-output					{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_BPF_OUTPUT); }
 
 	/*
@@ -330,11 +345,13 @@ bpf-output					{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_BPF_OUT
 	 * Because the prefix cycles is mixed up with cpu-cycles.
 	 * loads and stores are mixed up with cache event
 	 */
-cycles-ct					{ return str(yyscanner, PE_KERNEL_PMU_EVENT); }
-cycles-t					{ return str(yyscanner, PE_KERNEL_PMU_EVENT); }
-mem-loads					{ return str(yyscanner, PE_KERNEL_PMU_EVENT); }
-mem-stores					{ return str(yyscanner, PE_KERNEL_PMU_EVENT); }
-topdown-[a-z-]+					{ return str(yyscanner, PE_KERNEL_PMU_EVENT); }
+cycles-ct				|
+cycles-t				|
+mem-loads				|
+mem-stores				|
+topdown-[a-z-]+				|
+tx-capacity-[a-z-]+			|
+el-capacity-[a-z-]+			{ return str(yyscanner, PE_KERNEL_PMU_EVENT); }
 
 L1-dcache|l1-d|l1d|L1-data		|
 L1-icache|l1-i|l1i|L1-instruction	|

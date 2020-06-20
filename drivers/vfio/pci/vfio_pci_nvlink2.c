@@ -1,13 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0+
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * VFIO PCI NVIDIA Whitherspoon GPU support a.k.a. NVLink2.
  *
  * Copyright (C) 2018 IBM Corp.  All rights reserved.
  *     Author: Alexey Kardashevskiy <aik@ozlabs.ru>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Register an on-GPU RAM region for cacheable access.
  *
@@ -71,7 +67,7 @@ static size_t vfio_pci_nvgpu_rw(struct vfio_pci_device *vdev,
 	 *
 	 * This is not fast path anyway.
 	 */
-	sizealigned = _ALIGN_UP(posoff + count, PAGE_SIZE);
+	sizealigned = ALIGN(posoff + count, PAGE_SIZE);
 	ptr = ioremap_cache(data->gpu_hpa + posaligned, sizealigned);
 	if (!ptr)
 		return -EFAULT;
@@ -101,8 +97,10 @@ static void vfio_pci_nvgpu_release(struct vfio_pci_device *vdev,
 
 	/* If there were any mappings at all... */
 	if (data->mm) {
-		ret = mm_iommu_put(data->mm, data->mem);
-		WARN_ON(ret);
+		if (data->mem) {
+			ret = mm_iommu_put(data->mm, data->mem);
+			WARN_ON(ret);
+		}
 
 		mmdrop(data->mm);
 	}
@@ -163,10 +161,9 @@ static int vfio_pci_nvgpu_mmap(struct vfio_pci_device *vdev,
 	data->useraddr = vma->vm_start;
 	data->mm = current->mm;
 
-	atomic_inc(&data->mm->mm_count);
+	mmgrab(data->mm);
 	ret = (int) mm_iommu_newdev(data->mm, data->useraddr,
-			(vma->vm_end - vma->vm_start) >> PAGE_SHIFT,
-			data->gpu_hpa, &data->mem);
+			vma_pages(vma), data->gpu_hpa, &data->mem);
 
 	trace_vfio_pci_nvgpu_mmap(vdev->pdev, data->gpu_hpa, data->useraddr,
 			vma->vm_end - vma->vm_start, ret);
@@ -178,11 +175,11 @@ static int vfio_pci_nvgpu_add_capability(struct vfio_pci_device *vdev,
 		struct vfio_pci_region *region, struct vfio_info_cap *caps)
 {
 	struct vfio_pci_nvgpu_data *data = region->data;
-	struct vfio_region_info_cap_nvlink2_ssatgt cap = { 0 };
-
-	cap.header.id = VFIO_REGION_INFO_CAP_NVLINK2_SSATGT;
-	cap.header.version = 1;
-	cap.tgt = data->gpu_tgt;
+	struct vfio_region_info_cap_nvlink2_ssatgt cap = {
+		.header.id = VFIO_REGION_INFO_CAP_NVLINK2_SSATGT,
+		.header.version = 1,
+		.tgt = data->gpu_tgt
+	};
 
 	return vfio_info_add_capability(caps, &cap.header, sizeof(cap));
 }
@@ -365,17 +362,17 @@ static int vfio_pci_npu2_add_capability(struct vfio_pci_device *vdev,
 		struct vfio_pci_region *region, struct vfio_info_cap *caps)
 {
 	struct vfio_pci_npu2_data *data = region->data;
-	struct vfio_region_info_cap_nvlink2_ssatgt captgt = { 0 };
-	struct vfio_region_info_cap_nvlink2_lnkspd capspd = { 0 };
+	struct vfio_region_info_cap_nvlink2_ssatgt captgt = {
+		.header.id = VFIO_REGION_INFO_CAP_NVLINK2_SSATGT,
+		.header.version = 1,
+		.tgt = data->gpu_tgt
+	};
+	struct vfio_region_info_cap_nvlink2_lnkspd capspd = {
+		.header.id = VFIO_REGION_INFO_CAP_NVLINK2_LNKSPD,
+		.header.version = 1,
+		.link_speed = data->link_speed
+	};
 	int ret;
-
-	captgt.header.id = VFIO_REGION_INFO_CAP_NVLINK2_SSATGT;
-	captgt.header.version = 1;
-	captgt.tgt = data->gpu_tgt;
-
-	capspd.header.id = VFIO_REGION_INFO_CAP_NVLINK2_LNKSPD;
-	capspd.header.version = 1;
-	capspd.link_speed = data->link_speed;
 
 	ret = vfio_info_add_capability(caps, &captgt.header, sizeof(captgt));
 	if (ret)
@@ -425,8 +422,14 @@ int vfio_pci_ibm_npu2_init(struct vfio_pci_device *vdev)
 
 	if (of_property_read_u64_index(hose->dn, "ibm,mmio-atsd", nvlink_index,
 			&mmio_atsd)) {
-		dev_warn(&vdev->pdev->dev, "No available ATSD found\n");
-		mmio_atsd = 0;
+		if (of_property_read_u64_index(hose->dn, "ibm,mmio-atsd", 0,
+				&mmio_atsd)) {
+			dev_warn(&vdev->pdev->dev, "No available ATSD found\n");
+			mmio_atsd = 0;
+		} else {
+			dev_warn(&vdev->pdev->dev,
+				 "Using fallback ibm,mmio-atsd[0] for ATSD.\n");
+		}
 	}
 
 	if (of_property_read_u64(npu_node, "ibm,device-tgt-addr", &tgt)) {
@@ -476,6 +479,8 @@ int vfio_pci_ibm_npu2_init(struct vfio_pci_device *vdev)
 	return 0;
 
 free_exit:
+	if (data->base)
+		memunmap(data->base);
 	kfree(data);
 
 	return ret;

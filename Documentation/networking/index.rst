@@ -8,32 +8,123 @@ Contents:
 
    netdev-FAQ
    af_xdp
+   bareudp
    batman-adv
    can
    can_ucan_protocol
-   dpaa2/index
-   e100
-   e1000
-   e1000e
-   fm10k
-   igb
-   igbvf
-   ixgb
-   ixgbe
-   ixgbevf
-   i40e
-   iavf
-   ice
+   device_drivers/index
+   dsa/index
+   devlink/index
+   caif/index
+   ethtool-netlink
+   ieee802154
+   j1939
    kapi
    z8530book
    msg_zerocopy
    failover
+   net_dim
    net_failover
+   page_pool
+   phy
+   sfp-phylink
    alias
    bridge
    snmp_counter
+   checksum-offloads
+   segmentation-offloads
+   scaling
+   tls
+   tls-offload
+   nfc
+   6lowpan
+   6pack
+   altera_tse
+   arcnet-hardware
+   arcnet
+   atm
+   ax25
+   baycom
+   bonding
+   cdc_mbim
+   cops
+   cxacru
+   dccp
+   dctcp
+   decnet
+   defza
+   dns_resolver
+   driver
+   eql
+   fib_trie
+   filter
+   fore200e
+   framerelay
+   generic-hdlc
+   generic_netlink
+   gen_stats
+   gtp
+   hinic
+   ila
+   ipddp
+   ip_dynaddr
+   iphase
+   ipsec
+   ip-sysctl
+   ipv6
+   ipvlan
+   ipvs-sysctl
+   kcm
+   l2tp
+   lapb-module
+   ltpc
+   mac80211-injection
+   mpls-sysctl
+   multiqueue
+   netconsole
+   netdev-features
+   netdevices
+   netfilter-sysctl
+   netif-msg
+   nf_conntrack-sysctl
+   nf_flowtable
+   openvswitch
+   operstates
+   packet_mmap
+   phonet
+   pktgen
+   plip
+   ppp_generic
+   proc_net_tcp
+   radiotap-headers
+   ray_cs
+   rds
+   regulatory
+   rxrpc
+   sctp
+   secid
+   seg6-sysctl
+   skfp
+   strparser
+   switchdev
+   tc-actions-env-rules
+   tcp-thin
+   team
+   timestamping
+   tproxy
+   tuntap
+   udplite
+   vrf
+   vxlan
+   x25-iface
+   x25
+   xfrm_device
+   xfrm_proc
+   xfrm_sync
+   xfrm_sysctl
+   z8530drv
 
-.. only::  subproject
+.. only::  subproject and html
 
    Indices
    =======

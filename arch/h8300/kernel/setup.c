@@ -13,6 +13,7 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/io.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
 #include <linux/console.h>
@@ -30,7 +31,6 @@
 
 #include <asm/setup.h>
 #include <asm/irq.h>
-#include <asm/pgtable.h>
 #include <asm/sections.h>
 #include <asm/page.h>
 

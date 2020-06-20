@@ -1,11 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (C) 1995-1996  Gary Thomas (gdt@linuxppc.org)
  *  Copyright 2007-2010 Freescale Semiconductor, Inc.
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
  *
  *  Modified by Cort Dougan (cort@cs.nmt.edu)
  *  and Paul Mackerras (paulus@samba.org)
@@ -43,7 +39,6 @@
 #include <linux/kmsg_dump.h>
 
 #include <asm/emulated_ops.h>
-#include <asm/pgtable.h>
 #include <linux/uaccess.h>
 #include <asm/debugfs.h>
 #include <asm/io.h>
@@ -71,6 +66,7 @@
 #include <sysdev/fsl_pci.h>
 #include <asm/kprobes.h>
 #include <asm/stacktrace.h>
+#include <asm/nmi.h>
 
 #if defined(CONFIG_DEBUGGER) || defined(CONFIG_KEXEC_CORE)
 int (*__debugger)(struct pt_regs *regs) __read_mostly;
@@ -178,7 +174,7 @@ extern void panic_flush_kmsg_end(void)
 	kmsg_dump(KMSG_DUMP_PANIC);
 	bust_spinlocks(0);
 	debug_locks_off();
-	console_flush_on_panic();
+	console_flush_on_panic(CONSOLE_FLUSH_PENDING);
 }
 
 static unsigned long oops_begin(struct pt_regs *regs)
@@ -253,28 +249,28 @@ static void oops_end(unsigned long flags, struct pt_regs *regs,
 }
 NOKPROBE_SYMBOL(oops_end);
 
+static char *get_mmu_str(void)
+{
+	if (early_radix_enabled())
+		return " MMU=Radix";
+	if (early_mmu_has_feature(MMU_FTR_HPTE_TABLE))
+		return " MMU=Hash";
+	return "";
+}
+
 static int __die(const char *str, struct pt_regs *regs, long err)
 {
 	printk("Oops: %s, sig: %ld [#%d]\n", str, err, ++die_counter);
 
-	if (IS_ENABLED(CONFIG_CPU_LITTLE_ENDIAN))
-		printk("LE ");
-	else
-		printk("BE ");
-
-	if (IS_ENABLED(CONFIG_PREEMPT))
-		pr_cont("PREEMPT ");
-
-	if (IS_ENABLED(CONFIG_SMP))
-		pr_cont("SMP NR_CPUS=%d ", NR_CPUS);
-
-	if (debug_pagealloc_enabled())
-		pr_cont("DEBUG_PAGEALLOC ");
-
-	if (IS_ENABLED(CONFIG_NUMA))
-		pr_cont("NUMA ");
-
-	pr_cont("%s\n", ppc_md.name ? ppc_md.name : "");
+	printk("%s PAGE_SIZE=%luK%s%s%s%s%s%s %s\n",
+	       IS_ENABLED(CONFIG_CPU_LITTLE_ENDIAN) ? "LE" : "BE",
+	       PAGE_SIZE / 1024, get_mmu_str(),
+	       IS_ENABLED(CONFIG_PREEMPT) ? " PREEMPT" : "",
+	       IS_ENABLED(CONFIG_SMP) ? " SMP" : "",
+	       IS_ENABLED(CONFIG_SMP) ? (" NR_CPUS=" __stringify(NR_CPUS)) : "",
+	       debug_pagealloc_enabled() ? " DEBUG_PAGEALLOC" : "",
+	       IS_ENABLED(CONFIG_NUMA) ? " NUMA" : "",
+	       ppc_md.name ? ppc_md.name : "");
 
 	if (notify_die(DIE_OOPS, str, regs, err, 255, SIGSEGV) == NOTIFY_STOP)
 		return 1;
@@ -307,7 +303,7 @@ NOKPROBE_SYMBOL(die);
 
 void user_single_step_report(struct pt_regs *regs)
 {
-	force_sig_fault(SIGTRAP, TRAP_TRACE, (void __user *)regs->nip, current);
+	force_sig_fault(SIGTRAP, TRAP_TRACE, (void __user *)regs->nip);
 }
 
 static void show_signal_msg(int signr, struct pt_regs *regs, int code,
@@ -373,18 +369,100 @@ void _exception(int signr, struct pt_regs *regs, int code, unsigned long addr)
 	if (!exception_common(signr, regs, code, addr))
 		return;
 
-	force_sig_fault(signr, code, (void __user *)addr, current);
+	force_sig_fault(signr, code, (void __user *)addr);
+}
+
+/*
+ * The interrupt architecture has a quirk in that the HV interrupts excluding
+ * the NMIs (0x100 and 0x200) do not clear MSR[RI] at entry. The first thing
+ * that an interrupt handler must do is save off a GPR into a scratch register,
+ * and all interrupts on POWERNV (HV=1) use the HSPRG1 register as scratch.
+ * Therefore an NMI can clobber an HV interrupt's live HSPRG1 without noticing
+ * that it is non-reentrant, which leads to random data corruption.
+ *
+ * The solution is for NMI interrupts in HV mode to check if they originated
+ * from these critical HV interrupt regions. If so, then mark them not
+ * recoverable.
+ *
+ * An alternative would be for HV NMIs to use SPRG for scratch to avoid the
+ * HSPRG1 clobber, however this would cause guest SPRG to be clobbered. Linux
+ * guests should always have MSR[RI]=0 when its scratch SPRG is in use, so
+ * that would work. However any other guest OS that may have the SPRG live
+ * and MSR[RI]=1 could encounter silent corruption.
+ *
+ * Builds that do not support KVM could take this second option to increase
+ * the recoverability of NMIs.
+ */
+void hv_nmi_check_nonrecoverable(struct pt_regs *regs)
+{
+#ifdef CONFIG_PPC_POWERNV
+	unsigned long kbase = (unsigned long)_stext;
+	unsigned long nip = regs->nip;
+
+	if (!(regs->msr & MSR_RI))
+		return;
+	if (!(regs->msr & MSR_HV))
+		return;
+	if (regs->msr & MSR_PR)
+		return;
+
+	/*
+	 * Now test if the interrupt has hit a range that may be using
+	 * HSPRG1 without having RI=0 (i.e., an HSRR interrupt). The
+	 * problem ranges all run un-relocated. Test real and virt modes
+	 * at the same time by droping the high bit of the nip (virt mode
+	 * entry points still have the +0x4000 offset).
+	 */
+	nip &= ~0xc000000000000000ULL;
+	if ((nip >= 0x500 && nip < 0x600) || (nip >= 0x4500 && nip < 0x4600))
+		goto nonrecoverable;
+	if ((nip >= 0x980 && nip < 0xa00) || (nip >= 0x4980 && nip < 0x4a00))
+		goto nonrecoverable;
+	if ((nip >= 0xe00 && nip < 0xec0) || (nip >= 0x4e00 && nip < 0x4ec0))
+		goto nonrecoverable;
+	if ((nip >= 0xf80 && nip < 0xfa0) || (nip >= 0x4f80 && nip < 0x4fa0))
+		goto nonrecoverable;
+
+	/* Trampoline code runs un-relocated so subtract kbase. */
+	if (nip >= (unsigned long)(start_real_trampolines - kbase) &&
+			nip < (unsigned long)(end_real_trampolines - kbase))
+		goto nonrecoverable;
+	if (nip >= (unsigned long)(start_virt_trampolines - kbase) &&
+			nip < (unsigned long)(end_virt_trampolines - kbase))
+		goto nonrecoverable;
+	return;
+
+nonrecoverable:
+	regs->msr &= ~MSR_RI;
+#endif
 }
 
 void system_reset_exception(struct pt_regs *regs)
 {
+	unsigned long hsrr0, hsrr1;
+	bool saved_hsrrs = false;
+	u8 ftrace_enabled = this_cpu_get_ftrace_enabled();
+
+	this_cpu_set_ftrace_enabled(0);
+
+	nmi_enter();
+
 	/*
-	 * Avoid crashes in case of nested NMI exceptions. Recoverability
-	 * is determined by RI and in_nmi
+	 * System reset can interrupt code where HSRRs are live and MSR[RI]=1.
+	 * The system reset interrupt itself may clobber HSRRs (e.g., to call
+	 * OPAL), so save them here and restore them before returning.
+	 *
+	 * Machine checks don't need to save HSRRs, as the real mode handler
+	 * is careful to avoid them, and the regular handler is not delivered
+	 * as an NMI.
 	 */
-	bool nested = in_nmi();
-	if (!nested)
-		nmi_enter();
+	if (cpu_has_feature(CPU_FTR_HVMODE)) {
+		hsrr0 = mfspr(SPRN_HSRR0);
+		hsrr1 = mfspr(SPRN_HSRR1);
+		saved_hsrrs = true;
+	}
+
+	hv_nmi_check_nonrecoverable(regs);
 
 	__this_cpu_inc(irq_stat.sreset_irqs);
 
@@ -397,6 +475,7 @@ void system_reset_exception(struct pt_regs *regs)
 	if (debugger(regs))
 		goto out;
 
+	kmsg_dump(KMSG_DUMP_OOPS);
 	/*
 	 * A system reset is a request to dump, so we always send
 	 * it through the crashdump code (if fadump or kdump are
@@ -427,14 +506,20 @@ out:
 #ifdef CONFIG_PPC_BOOK3S_64
 	BUG_ON(get_paca()->in_nmi == 0);
 	if (get_paca()->in_nmi > 1)
-		nmi_panic(regs, "Unrecoverable nested System Reset");
+		die("Unrecoverable nested System Reset", regs, SIGABRT);
 #endif
 	/* Must die if the interrupt is not recoverable */
 	if (!(regs->msr & MSR_RI))
-		nmi_panic(regs, "Unrecoverable System Reset");
+		die("Unrecoverable System Reset", regs, SIGABRT);
 
-	if (!nested)
-		nmi_exit();
+	if (saved_hsrrs) {
+		mtspr(SPRN_HSRR0, hsrr0);
+		mtspr(SPRN_HSRR1, hsrr1);
+	}
+
+	nmi_exit();
+
+	this_cpu_set_ftrace_enabled(ftrace_enabled);
 
 	/* What should we do here? We could issue a shutdown or hard reset. */
 }
@@ -495,6 +580,8 @@ static inline int check_io_access(struct pt_regs *regs)
 #define REASON_ILLEGAL		(ESR_PIL | ESR_PUO)
 #define REASON_PRIVILEGED	ESR_PPR
 #define REASON_TRAP		ESR_PTR
+#define REASON_PREFIXED		0
+#define REASON_BOUNDARY		0
 
 /* single-step stuff */
 #define single_stepping(regs)	(current->thread.debug.dbcr0 & DBCR0_IC)
@@ -509,11 +596,15 @@ static inline int check_io_access(struct pt_regs *regs)
 #define REASON_ILLEGAL		SRR1_PROGILL
 #define REASON_PRIVILEGED	SRR1_PROGPRIV
 #define REASON_TRAP		SRR1_PROGTRAP
+#define REASON_PREFIXED		SRR1_PREFIXED
+#define REASON_BOUNDARY		SRR1_BOUNDARY
 
 #define single_stepping(regs)	((regs)->msr & MSR_SE)
 #define clear_single_step(regs)	((regs)->msr &= ~MSR_SE)
 #define clear_br_trace(regs)	((regs)->msr &= ~MSR_BE)
 #endif
+
+#define inst_length(reason)	(((reason) & REASON_PREFIXED) ? 8 : 4)
 
 #if defined(CONFIG_E500)
 int machine_check_e500mc(struct pt_regs *regs)
@@ -735,9 +826,20 @@ int machine_check_generic(struct pt_regs *regs)
 void machine_check_exception(struct pt_regs *regs)
 {
 	int recover = 0;
-	bool nested = in_nmi();
-	if (!nested)
-		nmi_enter();
+
+	/*
+	 * BOOK3S_64 does not call this handler as a non-maskable interrupt
+	 * (it uses its own early real-mode handler to handle the MCE proper
+	 * and then raises irq_work to call this handler when interrupts are
+	 * enabled).
+	 *
+	 * This is silly. The BOOK3S_64 should just call a different function
+	 * rather than expecting semantics to magically change. Something
+	 * like 'non_nmi_machine_check_exception()', perhaps?
+	 */
+	const bool nmi = !IS_ENABLED(CONFIG_PPC_BOOK3S_64);
+
+	if (nmi) nmi_enter();
 
 	__this_cpu_inc(irq_stat.mce_exceptions);
 
@@ -763,20 +865,18 @@ void machine_check_exception(struct pt_regs *regs)
 	if (check_io_access(regs))
 		goto bail;
 
-	/* Must die if the interrupt is not recoverable */
-	if (!(regs->msr & MSR_RI))
-		nmi_panic(regs, "Unrecoverable Machine check");
-
-	if (!nested)
-		nmi_exit();
+	if (nmi) nmi_exit();
 
 	die("Machine check", regs, SIGBUS);
+
+	/* Must die if the interrupt is not recoverable */
+	if (!(regs->msr & MSR_RI))
+		die("Unrecoverable Machine check", regs, SIGBUS);
 
 	return;
 
 bail:
-	if (!nested)
-		nmi_exit();
+	if (nmi) nmi_exit();
 }
 
 void SMIException(struct pt_regs *regs)
@@ -1505,10 +1605,19 @@ void alignment_exception(struct pt_regs *regs)
 {
 	enum ctx_state prev_state = exception_enter();
 	int sig, code, fixed = 0;
+	unsigned long  reason;
 
 	/* We restore the interrupt state now */
 	if (!arch_irq_disabled_regs(regs))
 		local_irq_enable();
+
+	reason = get_reason(regs);
+
+	if (reason & REASON_BOUNDARY) {
+		sig = SIGBUS;
+		code = BUS_ADRALN;
+		goto bad;
+	}
 
 	if (tm_abort_check(regs, TM_CAUSE_ALIGNMENT | TM_CAUSE_PERSISTENT))
 		goto bail;
@@ -1518,7 +1627,8 @@ void alignment_exception(struct pt_regs *regs)
 		fixed = fix_alignment(regs);
 
 	if (fixed == 1) {
-		regs->nip += 4;	/* skip over emulated instruction */
+		/* skip over emulated instruction */
+		regs->nip += inst_length(reason);
 		emulate_single_step(regs);
 		goto bail;
 	}
@@ -1531,6 +1641,7 @@ void alignment_exception(struct pt_regs *regs)
 		sig = SIGBUS;
 		code = BUS_ADRALN;
 	}
+bad:
 	if (user_mode(regs))
 		_exception(sig, regs, code, regs->dar);
 	else
@@ -1542,11 +1653,20 @@ bail:
 
 void StackOverflow(struct pt_regs *regs)
 {
-	printk(KERN_CRIT "Kernel stack overflow in process %p, r1=%lx\n",
-	       current, regs->gpr[1]);
+	pr_crit("Kernel stack overflow in process %s[%d], r1=%lx\n",
+		current->comm, task_pid_nr(current), regs->gpr[1]);
 	debugger(regs);
 	show_regs(regs);
 	panic("kernel stack overflow");
+}
+
+void stack_overflow_exception(struct pt_regs *regs)
+{
+	enum ctx_state prev_state = exception_enter();
+
+	die("Kernel stack overflow", regs, SIGSEGV);
+
+	exception_exit(prev_state);
 }
 
 void kernel_fp_unavailable_exception(struct pt_regs *regs)
@@ -1623,6 +1743,7 @@ void facility_unavailable_exception(struct pt_regs *regs)
 		[FSCR_TAR_LG] = "TAR",
 		[FSCR_MSGP_LG] = "MSGP",
 		[FSCR_SCV_LG] = "SCV",
+		[FSCR_PREFIX_LG] = "PREFIX",
 	};
 	char *facility = "unknown";
 	u64 value;
@@ -2004,6 +2125,10 @@ void SPEFloatingPointException(struct pt_regs *regs)
 	int code = FPE_FLTUNK;
 	int err;
 
+	/* We restore the interrupt state now */
+	if (!arch_irq_disabled_regs(regs))
+		local_irq_enable();
+
 	flush_spe_to_thread(current);
 
 	spefscr = current->thread.spefscr;
@@ -2048,6 +2173,10 @@ void SPEFloatingPointRoundException(struct pt_regs *regs)
 {
 	extern int speround_handler(struct pt_regs *regs);
 	int err;
+
+	/* We restore the interrupt state now */
+	if (!arch_irq_disabled_regs(regs))
+		local_irq_enable();
 
 	preempt_disable();
 	if (regs->msr & MSR_SPE)
@@ -2173,35 +2302,20 @@ void ppc_warn_emulated_print(const char *type)
 
 static int __init ppc_warn_emulated_init(void)
 {
-	struct dentry *dir, *d;
+	struct dentry *dir;
 	unsigned int i;
 	struct ppc_emulated_entry *entries = (void *)&ppc_emulated;
 
-	if (!powerpc_debugfs_root)
-		return -ENODEV;
-
 	dir = debugfs_create_dir("emulated_instructions",
 				 powerpc_debugfs_root);
-	if (!dir)
-		return -ENOMEM;
 
-	d = debugfs_create_u32("do_warn", 0644, dir,
-			       &ppc_warn_emulated);
-	if (!d)
-		goto fail;
+	debugfs_create_u32("do_warn", 0644, dir, &ppc_warn_emulated);
 
-	for (i = 0; i < sizeof(ppc_emulated)/sizeof(*entries); i++) {
-		d = debugfs_create_u32(entries[i].name, 0644, dir,
-				       (u32 *)&entries[i].val.counter);
-		if (!d)
-			goto fail;
-	}
+	for (i = 0; i < sizeof(ppc_emulated)/sizeof(*entries); i++)
+		debugfs_create_u32(entries[i].name, 0644, dir,
+				   (u32 *)&entries[i].val.counter);
 
 	return 0;
-
-fail:
-	debugfs_remove_recursive(dir);
-	return -ENOMEM;
 }
 
 device_initcall(ppc_warn_emulated_init);

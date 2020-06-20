@@ -12,7 +12,7 @@
  * Fix bug in inverse translation. Stanislav Voronyi <stas@cnti.uanet.kharkov.ua>, Dec 1998
  *
  * In order to prevent the following circular lock dependency:
- *   &mm->mmap_sem --> cpu_hotplug.lock --> console_lock --> &mm->mmap_sem
+ *   &mm->mmap_lock --> cpu_hotplug.lock --> console_lock --> &mm->mmap_lock
  *
  * We cannot allow page fault to happen while holding the console_lock.
  * Therefore, all the userspace copy operations have to be done outside
@@ -542,7 +542,7 @@ int con_set_unimap(struct vc_data *vc, ushort ct, struct unipair __user *list)
 	if (!ct)
 		return 0;
 
-	unilist = memdup_user(list, ct * sizeof(struct unipair));
+	unilist = vmemdup_user(list, ct * sizeof(struct unipair));
 	if (IS_ERR(unilist))
 		return PTR_ERR(unilist);
 
@@ -641,7 +641,7 @@ int con_set_unimap(struct vc_data *vc, ushort ct, struct unipair __user *list)
 
 out_unlock:
 	console_unlock();
-	kfree(unilist);
+	kvfree(unilist);
 	return err;
 }
 
@@ -743,7 +743,7 @@ int con_get_unimap(struct vc_data *vc, ushort ct, ushort __user *uct, struct uni
 	struct uni_pagedir *p;
 	struct unipair *unilist;
 
-	unilist = kmalloc_array(ct, sizeof(struct unipair), GFP_KERNEL);
+	unilist = kvmalloc_array(ct, sizeof(struct unipair), GFP_KERNEL);
 	if (!unilist)
 		return -ENOMEM;
 
@@ -775,7 +775,7 @@ int con_get_unimap(struct vc_data *vc, ushort ct, ushort __user *uct, struct uni
 	if (copy_to_user(list, unilist, min(ect, ct) * sizeof(struct unipair)))
 		ret = -EFAULT;
 	put_user(ect, uct);
-	kfree(unilist);
+	kvfree(unilist);
 	return ret ? ret : (ect <= ct) ? 0 : -ENOMEM;
 }
 

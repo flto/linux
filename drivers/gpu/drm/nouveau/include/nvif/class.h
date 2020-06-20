@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: MIT */
 #ifndef __NVIF_CLASS_H__
 #define __NVIF_CLASS_H__
 
@@ -54,6 +54,9 @@
 
 #define VOLTA_USERMODE_A                                             0x0000c361
 
+#define MAXWELL_FAULT_BUFFER_A                        /* clb069.h */ 0x0000b069
+#define VOLTA_FAULT_BUFFER_A                          /* clb069.h */ 0x0000c369
+
 #define NV03_CHANNEL_DMA                              /* cl506b.h */ 0x0000006b
 #define NV10_CHANNEL_DMA                              /* cl506b.h */ 0x0000006e
 #define NV17_CHANNEL_DMA                              /* cl506b.h */ 0x0000176e
@@ -84,7 +87,9 @@
 #define GP100_DISP                                    /* cl5070.h */ 0x00009770
 #define GP102_DISP                                    /* cl5070.h */ 0x00009870
 #define GV100_DISP                                    /* cl5070.h */ 0x0000c370
-#define TU104_DISP                                    /* cl5070.h */ 0x0000c570
+#define TU102_DISP                                    /* cl5070.h */ 0x0000c570
+
+#define GV100_DISP_CAPS                                              0x0000c373
 
 #define NV31_MPEG                                                    0x00003174
 #define G82_MPEG                                                     0x00008274
@@ -97,7 +102,7 @@
 #define GF110_DISP_CURSOR                             /* cl507a.h */ 0x0000907a
 #define GK104_DISP_CURSOR                             /* cl507a.h */ 0x0000917a
 #define GV100_DISP_CURSOR                             /* cl507a.h */ 0x0000c37a
-#define TU104_DISP_CURSOR                             /* cl507a.h */ 0x0000c57a
+#define TU102_DISP_CURSOR                             /* cl507a.h */ 0x0000c57a
 
 #define NV50_DISP_OVERLAY                             /* cl507b.h */ 0x0000507b
 #define G82_DISP_OVERLAY                              /* cl507b.h */ 0x0000827b
@@ -106,7 +111,7 @@
 #define GK104_DISP_OVERLAY                            /* cl507b.h */ 0x0000917b
 
 #define GV100_DISP_WINDOW_IMM_CHANNEL_DMA             /* clc37b.h */ 0x0000c37b
-#define TU104_DISP_WINDOW_IMM_CHANNEL_DMA             /* clc37b.h */ 0x0000c57b
+#define TU102_DISP_WINDOW_IMM_CHANNEL_DMA             /* clc37b.h */ 0x0000c57b
 
 #define NV50_DISP_BASE_CHANNEL_DMA                    /* cl507c.h */ 0x0000507c
 #define G82_DISP_BASE_CHANNEL_DMA                     /* cl507c.h */ 0x0000827c
@@ -129,7 +134,7 @@
 #define GP100_DISP_CORE_CHANNEL_DMA                   /* cl507d.h */ 0x0000977d
 #define GP102_DISP_CORE_CHANNEL_DMA                   /* cl507d.h */ 0x0000987d
 #define GV100_DISP_CORE_CHANNEL_DMA                   /* cl507d.h */ 0x0000c37d
-#define TU104_DISP_CORE_CHANNEL_DMA                   /* cl507d.h */ 0x0000c57d
+#define TU102_DISP_CORE_CHANNEL_DMA                   /* cl507d.h */ 0x0000c57d
 
 #define NV50_DISP_OVERLAY_CHANNEL_DMA                 /* cl507e.h */ 0x0000507e
 #define G82_DISP_OVERLAY_CHANNEL_DMA                  /* cl507e.h */ 0x0000827e
@@ -139,7 +144,7 @@
 #define GK104_DISP_OVERLAY_CONTROL_DMA                /* cl507e.h */ 0x0000917e
 
 #define GV100_DISP_WINDOW_CHANNEL_DMA                 /* clc37e.h */ 0x0000c37e
-#define TU104_DISP_WINDOW_CHANNEL_DMA                 /* clc37e.h */ 0x0000c57e
+#define TU102_DISP_WINDOW_CHANNEL_DMA                 /* clc37e.h */ 0x0000c57e
 
 #define NV50_TESLA                                                   0x00005097
 #define G82_TESLA                                                    0x00008297
@@ -162,6 +167,8 @@
 #define PASCAL_B                                      /* cl9097.h */ 0x0000c197
 
 #define VOLTA_A                                       /* cl9097.h */ 0x0000c397
+
+#define TURING_A                                      /* cl9097.h */ 0x0000c597
 
 #define NV74_BSP                                                     0x000074b0
 
@@ -204,6 +211,7 @@
 #define PASCAL_COMPUTE_A                                             0x0000c0c0
 #define PASCAL_COMPUTE_B                                             0x0000c1c0
 #define VOLTA_COMPUTE_A                                              0x0000c3c0
+#define TURING_COMPUTE_A                                             0x0000c5c0
 
 #define NV74_CIPHER                                                  0x000074c1
 #endif

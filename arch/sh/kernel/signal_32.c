@@ -28,7 +28,6 @@
 #include <linux/tracehook.h>
 #include <asm/ucontext.h>
 #include <linux/uaccess.h>
-#include <asm/pgtable.h>
 #include <asm/cacheflush.h>
 #include <asm/syscalls.h>
 #include <asm/fpu.h>
@@ -176,7 +175,7 @@ asmlinkage int sys_sigreturn(void)
 	return r0;
 
 badframe:
-	force_sig(SIGSEGV, current);
+	force_sig(SIGSEGV);
 	return 0;
 }
 
@@ -207,7 +206,7 @@ asmlinkage int sys_rt_sigreturn(void)
 	return r0;
 
 badframe:
-	force_sig(SIGSEGV, current);
+	force_sig(SIGSEGV);
 	return 0;
 }
 

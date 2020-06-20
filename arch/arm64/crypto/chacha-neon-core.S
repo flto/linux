@@ -36,7 +36,7 @@
  *
  * Clobbers: w3, x10, v4, v12
  */
-chacha_permute:
+SYM_FUNC_START_LOCAL(chacha_permute)
 
 	adr_l		x10, ROT8
 	ld1		{v12.4s}, [x10]
@@ -104,9 +104,9 @@ chacha_permute:
 	b.ne		.Ldoubleround
 
 	ret
-ENDPROC(chacha_permute)
+SYM_FUNC_END(chacha_permute)
 
-ENTRY(chacha_block_xor_neon)
+SYM_FUNC_START(chacha_block_xor_neon)
 	// x0: Input state matrix, s
 	// x1: 1 data block output, o
 	// x2: 1 data block input, i
@@ -143,9 +143,9 @@ ENTRY(chacha_block_xor_neon)
 
 	ldp		x29, x30, [sp], #16
 	ret
-ENDPROC(chacha_block_xor_neon)
+SYM_FUNC_END(chacha_block_xor_neon)
 
-ENTRY(hchacha_block_neon)
+SYM_FUNC_START(hchacha_block_neon)
 	// x0: Input state matrix, s
 	// x1: output (8 32-bit words)
 	// w2: nrounds
@@ -158,12 +158,12 @@ ENTRY(hchacha_block_neon)
 	mov		w3, w2
 	bl		chacha_permute
 
-	st1		{v0.16b}, [x1], #16
-	st1		{v3.16b}, [x1]
+	st1		{v0.4s}, [x1], #16
+	st1		{v3.4s}, [x1]
 
 	ldp		x29, x30, [sp], #16
 	ret
-ENDPROC(hchacha_block_neon)
+SYM_FUNC_END(hchacha_block_neon)
 
 	a0		.req	w12
 	a1		.req	w13
@@ -183,7 +183,7 @@ ENDPROC(hchacha_block_neon)
 	a15		.req	w28
 
 	.align		6
-ENTRY(chacha_4block_xor_neon)
+SYM_FUNC_START(chacha_4block_xor_neon)
 	frame_push	10
 
 	// x0: Input state matrix, s
@@ -532,6 +532,10 @@ ENTRY(chacha_4block_xor_neon)
 	add		v3.4s, v3.4s, v19.4s
 	  add		a2, a2, w8
 	  add		a3, a3, w9
+CPU_BE(	  rev		a0, a0		)
+CPU_BE(	  rev		a1, a1		)
+CPU_BE(	  rev		a2, a2		)
+CPU_BE(	  rev		a3, a3		)
 
 	ld4r		{v24.4s-v27.4s}, [x0], #16
 	ld4r		{v28.4s-v31.4s}, [x0]
@@ -552,6 +556,10 @@ ENTRY(chacha_4block_xor_neon)
 	add		v7.4s, v7.4s, v23.4s
 	  add		a6, a6, w8
 	  add		a7, a7, w9
+CPU_BE(	  rev		a4, a4		)
+CPU_BE(	  rev		a5, a5		)
+CPU_BE(	  rev		a6, a6		)
+CPU_BE(	  rev		a7, a7		)
 
 	// x8[0-3] += s2[0]
 	// x9[0-3] += s2[1]
@@ -569,6 +577,10 @@ ENTRY(chacha_4block_xor_neon)
 	add		v11.4s, v11.4s, v27.4s
 	  add		a10, a10, w8
 	  add		a11, a11, w9
+CPU_BE(	  rev		a8, a8		)
+CPU_BE(	  rev		a9, a9		)
+CPU_BE(	  rev		a10, a10	)
+CPU_BE(	  rev		a11, a11	)
 
 	// x12[0-3] += s3[0]
 	// x13[0-3] += s3[1]
@@ -586,6 +598,10 @@ ENTRY(chacha_4block_xor_neon)
 	add		v15.4s, v15.4s, v31.4s
 	  add		a14, a14, w8
 	  add		a15, a15, w9
+CPU_BE(	  rev		a12, a12	)
+CPU_BE(	  rev		a13, a13	)
+CPU_BE(	  rev		a14, a14	)
+CPU_BE(	  rev		a15, a15	)
 
 	// interleave 32-bit words in state n, n+1
 	  ldp		w6, w7, [x2], #64
@@ -829,7 +845,7 @@ ENTRY(chacha_4block_xor_neon)
 	eor		v31.16b, v31.16b, v3.16b
 	st1		{v28.16b-v31.16b}, [x1]
 	b		.Lout
-ENDPROC(chacha_4block_xor_neon)
+SYM_FUNC_END(chacha_4block_xor_neon)
 
 	.section	".rodata", "a", %progbits
 	.align		L1_CACHE_SHIFT

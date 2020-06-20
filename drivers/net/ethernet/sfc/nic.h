@@ -1,20 +1,17 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /****************************************************************************
  * Driver for Solarflare network controllers and boards
  * Copyright 2005-2006 Fen Systems Ltd.
  * Copyright 2006-2013 Solarflare Communications Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation, incorporated herein by reference.
  */
 
 #ifndef EFX_NIC_H
 #define EFX_NIC_H
 
 #include <linux/net_tstamp.h>
-#include <linux/i2c-algo-bit.h>
 #include "net_driver.h"
 #include "efx.h"
+#include "efx_common.h"
 #include "mcdi.h"
 
 enum {
@@ -363,10 +360,6 @@ enum {
  * @warm_boot_count: Last seen MC warm boot count
  * @vi_base: Absolute index of first VI in this function
  * @n_allocated_vis: Number of VIs allocated to this function
- * @must_realloc_vis: Flag: VIs have yet to be reallocated after MC reboot
- * @must_restore_rss_contexts: Flag: RSS contexts have yet to be restored after
- *	MC reboot
- * @must_restore_filters: Flag: filters have yet to be restored after MC reboot
  * @n_piobufs: Number of PIO buffers allocated to this function
  * @wc_membase: Base address of write-combining mapping of the memory BAR
  * @pio_write_base: Base address for writing PIO buffers
@@ -375,7 +368,6 @@ enum {
  * @piobuf_size: size of a single PIO buffer
  * @must_restore_piobufs: Flag: PIO buffers have yet to be restored after MC
  *	reboot
- * @rx_rss_context_exclusive: Whether our RSS context is exclusive or shared
  * @stats: Hardware statistics
  * @workaround_35388: Flag: firmware supports workaround for bug 35388
  * @workaround_26807: Flag: firmware supports workaround for bug 26807
@@ -388,7 +380,6 @@ enum {
  * %MC_CMD_GET_CAPABILITIES response)
  * @rx_dpcpu_fw_id: Firmware ID of the RxDPCPU
  * @tx_dpcpu_fw_id: Firmware ID of the TxDPCPU
- * @vport_id: The function's vport ID, only relevant for PFs
  * @must_probe_vswitching: Flag: vswitching has yet to be setup after MC reboot
  * @pf_index: The number for this PF, or the parent PF if this is a VF
 #ifdef CONFIG_SFC_SRIOV
@@ -407,16 +398,12 @@ struct efx_ef10_nic_data {
 	u16 warm_boot_count;
 	unsigned int vi_base;
 	unsigned int n_allocated_vis;
-	bool must_realloc_vis;
-	bool must_restore_rss_contexts;
-	bool must_restore_filters;
 	unsigned int n_piobufs;
 	void __iomem *wc_membase, *pio_write_base;
 	unsigned int pio_write_vi_base;
 	unsigned int piobuf_handle[EF10_TX_PIOBUF_COUNT];
 	u16 piobuf_size;
 	bool must_restore_piobufs;
-	bool rx_rss_context_exclusive;
 	u64 stats[EF10_STAT_COUNT];
 	bool workaround_35388;
 	bool workaround_26807;
@@ -426,7 +413,6 @@ struct efx_ef10_nic_data {
 	u32 datapath_caps2;
 	unsigned int rx_dpcpu_fw_id;
 	unsigned int tx_dpcpu_fw_id;
-	unsigned int vport_id;
 	bool must_probe_vswitching;
 	unsigned int pf_index;
 	u8 port_id[ETH_ALEN];
@@ -509,6 +495,9 @@ static inline void efx_nic_push_buffers(struct efx_tx_queue *tx_queue)
 	tx_queue->efx->type->tx_write(tx_queue);
 }
 
+int efx_enqueue_skb_tso(struct efx_tx_queue *tx_queue, struct sk_buff *skb,
+			bool *data_mapped);
+
 /* RX data path */
 static inline int efx_nic_probe_rx(struct efx_rx_queue *rx_queue)
 {
@@ -557,6 +546,7 @@ static inline void efx_nic_eventq_read_ack(struct efx_channel *channel)
 {
 	channel->efx->type->ev_read_ack(channel);
 }
+
 void efx_nic_event_test_start(struct efx_channel *channel);
 
 /* Falcon/Siena queue operations */
@@ -674,6 +664,7 @@ struct efx_farch_register_test {
 	unsigned address;
 	efx_oword_t mask;
 };
+
 int efx_farch_test_registers(struct efx_nic *efx,
 			     const struct efx_farch_register_test *regs,
 			     size_t n_regs);

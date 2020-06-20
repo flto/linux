@@ -3,11 +3,11 @@
 
 #include <linux/linkage.h>
 #include <linux/init.h>
+#include <linux/pgtable.h>
 #include <asm/ptrace.h>
 #include <asm/asm-offsets.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
-#include <asm/sizes.h>
+#include <linux/sizes.h>
 #include <asm/thread_info.h>
 
 #ifdef CONFIG_CPU_BIG_ENDIAN

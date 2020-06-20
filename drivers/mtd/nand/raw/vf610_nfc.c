@@ -364,7 +364,7 @@ static int vf610_nfc_cmd(struct nand_chip *chip,
 {
 	const struct nand_op_instr *instr;
 	struct vf610_nfc *nfc = chip_to_nfc(chip);
-	int op_id = -1, trfr_sz = 0, offset;
+	int op_id = -1, trfr_sz = 0, offset = 0;
 	u32 col = 0, row = 0, cmd1 = 0, cmd2 = 0, code = 0;
 	bool force8bit = false;
 
@@ -502,7 +502,9 @@ static int vf610_nfc_exec_op(struct nand_chip *chip,
 			     const struct nand_operation *op,
 			     bool check_only)
 {
-	vf610_nfc_select_target(chip, op->cs);
+	if (!check_only)
+		vf610_nfc_select_target(chip, op->cs);
+
 	return nand_op_parser_exec_op(chip, &vf610_nfc_op_parser, op,
 				      check_only);
 }
@@ -850,6 +852,9 @@ static int vf610_nfc_probe(struct platform_device *pdev)
 	}
 
 	of_id = of_match_device(vf610_nfc_dt_ids, &pdev->dev);
+	if (!of_id)
+		return -ENODEV;
+
 	nfc->variant = (enum vf610_nfc_variant)of_id->data;
 
 	for_each_available_child_of_node(nfc->dev->of_node, child) {
@@ -859,6 +864,7 @@ static int vf610_nfc_probe(struct platform_device *pdev)
 				dev_err(nfc->dev,
 					"Only one NAND chip supported!\n");
 				err = -EINVAL;
+				of_node_put(child);
 				goto err_disable_clk;
 			}
 
@@ -911,8 +917,12 @@ err_disable_clk:
 static int vf610_nfc_remove(struct platform_device *pdev)
 {
 	struct vf610_nfc *nfc = platform_get_drvdata(pdev);
+	struct nand_chip *chip = &nfc->chip;
+	int ret;
 
-	nand_release(&nfc->chip);
+	ret = mtd_device_unregister(nand_to_mtd(chip));
+	WARN_ON(ret);
+	nand_cleanup(chip);
 	clk_disable_unprepare(nfc->clk);
 	return 0;
 }

@@ -818,7 +818,7 @@ static void myrs_log_event(struct myrs_hba *cs, struct myrs_event *ev)
 	unsigned char ev_type, *ev_msg;
 	struct Scsi_Host *shost = cs->host;
 	struct scsi_device *sdev;
-	struct scsi_sense_hdr sshdr;
+	struct scsi_sense_hdr sshdr = {0};
 	unsigned char sense_info[4];
 	unsigned char cmd_specific[4];
 
@@ -2311,7 +2311,7 @@ static struct myrs_hba *myrs_detect(struct pci_dev *pdev,
 	/* Map the Controller Register Window. */
 	if (mmio_size < PAGE_SIZE)
 		mmio_size = PAGE_SIZE;
-	cs->mmio_base = ioremap_nocache(cs->pci_addr & PAGE_MASK, mmio_size);
+	cs->mmio_base = ioremap(cs->pci_addr & PAGE_MASK, mmio_size);
 	if (cs->mmio_base == NULL) {
 		dev_err(&pdev->dev,
 			"Unable to map Controller Register Window\n");

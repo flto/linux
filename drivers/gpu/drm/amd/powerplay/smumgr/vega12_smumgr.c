@@ -42,6 +42,7 @@ static int vega12_copy_table_from_smc(struct pp_hwmgr *hwmgr,
 {
 	struct vega12_smumgr *priv =
 			(struct vega12_smumgr *)(hwmgr->smu_backend);
+	struct amdgpu_device *adev = hwmgr->adev;
 
 	PP_ASSERT_WITH_CODE(table_id < TABLE_COUNT,
 			"Invalid SMU Table ID!", return -EINVAL);
@@ -49,20 +50,26 @@ static int vega12_copy_table_from_smc(struct pp_hwmgr *hwmgr,
 			"Invalid SMU Table version!", return -EINVAL);
 	PP_ASSERT_WITH_CODE(priv->smu_tables.entry[table_id].size != 0,
 			"Invalid SMU Table Length!", return -EINVAL);
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
 			PPSMC_MSG_SetDriverDramAddrHigh,
-			upper_32_bits(priv->smu_tables.entry[table_id].mc_addr)) == 0,
+			upper_32_bits(priv->smu_tables.entry[table_id].mc_addr),
+			NULL) == 0,
 			"[CopyTableFromSMC] Attempt to Set Dram Addr High Failed!", return -EINVAL);
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
 			PPSMC_MSG_SetDriverDramAddrLow,
-			lower_32_bits(priv->smu_tables.entry[table_id].mc_addr)) == 0,
+			lower_32_bits(priv->smu_tables.entry[table_id].mc_addr),
+			NULL) == 0,
 			"[CopyTableFromSMC] Attempt to Set Dram Addr Low Failed!",
 			return -EINVAL);
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
 			PPSMC_MSG_TransferTableSmu2Dram,
-			table_id) == 0,
+			table_id,
+			NULL) == 0,
 			"[CopyTableFromSMC] Attempt to Transfer Table From SMU Failed!",
 			return -EINVAL);
+
+	/* flush hdp cache */
+	amdgpu_asic_flush_hdp(adev, NULL);
 
 	memcpy(table, priv->smu_tables.entry[table_id].table,
 			priv->smu_tables.entry[table_id].size);
@@ -80,6 +87,7 @@ static int vega12_copy_table_to_smc(struct pp_hwmgr *hwmgr,
 {
 	struct vega12_smumgr *priv =
 			(struct vega12_smumgr *)(hwmgr->smu_backend);
+	struct amdgpu_device *adev = hwmgr->adev;
 
 	PP_ASSERT_WITH_CODE(table_id < TABLE_COUNT,
 			"Invalid SMU Table ID!", return -EINVAL);
@@ -91,19 +99,24 @@ static int vega12_copy_table_to_smc(struct pp_hwmgr *hwmgr,
 	memcpy(priv->smu_tables.entry[table_id].table, table,
 			priv->smu_tables.entry[table_id].size);
 
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
+	amdgpu_asic_flush_hdp(adev, NULL);
+
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
 			PPSMC_MSG_SetDriverDramAddrHigh,
-			upper_32_bits(priv->smu_tables.entry[table_id].mc_addr)) == 0,
+			upper_32_bits(priv->smu_tables.entry[table_id].mc_addr),
+			NULL) == 0,
 			"[CopyTableToSMC] Attempt to Set Dram Addr High Failed!",
 			return -EINVAL;);
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
 			PPSMC_MSG_SetDriverDramAddrLow,
-			lower_32_bits(priv->smu_tables.entry[table_id].mc_addr)) == 0,
+			lower_32_bits(priv->smu_tables.entry[table_id].mc_addr),
+			NULL) == 0,
 			"[CopyTableToSMC] Attempt to Set Dram Addr Low Failed!",
 			return -EINVAL);
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
 			PPSMC_MSG_TransferTableDram2Smu,
-			table_id) == 0,
+			table_id,
+			NULL) == 0,
 			"[CopyTableToSMC] Attempt to Transfer Table To SMU Failed!",
 			return -EINVAL);
 
@@ -119,22 +132,22 @@ int vega12_enable_smc_features(struct pp_hwmgr *hwmgr,
 	smu_features_high = (uint32_t)((feature_mask & SMU_FEATURES_HIGH_MASK) >> SMU_FEATURES_HIGH_SHIFT);
 
 	if (enable) {
-		PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
-				PPSMC_MSG_EnableSmuFeaturesLow, smu_features_low) == 0,
-				"[EnableDisableSMCFeatures] Attemp to enable SMU features Low failed!",
+		PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
+				PPSMC_MSG_EnableSmuFeaturesLow, smu_features_low, NULL) == 0,
+				"[EnableDisableSMCFeatures] Attempt to enable SMU features Low failed!",
 				return -EINVAL);
-		PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
-				PPSMC_MSG_EnableSmuFeaturesHigh, smu_features_high) == 0,
-				"[EnableDisableSMCFeatures] Attemp to enable SMU features High failed!",
+		PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
+				PPSMC_MSG_EnableSmuFeaturesHigh, smu_features_high, NULL) == 0,
+				"[EnableDisableSMCFeatures] Attempt to enable SMU features High failed!",
 				return -EINVAL);
 	} else {
-		PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
-				PPSMC_MSG_DisableSmuFeaturesLow, smu_features_low) == 0,
-				"[EnableDisableSMCFeatures] Attemp to disable SMU features Low failed!",
+		PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
+				PPSMC_MSG_DisableSmuFeaturesLow, smu_features_low, NULL) == 0,
+				"[EnableDisableSMCFeatures] Attempt to disable SMU features Low failed!",
 				return -EINVAL);
-		PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc_with_parameter(hwmgr,
-				PPSMC_MSG_DisableSmuFeaturesHigh, smu_features_high) == 0,
-				"[EnableDisableSMCFeatures] Attemp to disable SMU features High failed!",
+		PP_ASSERT_WITH_CODE(smum_send_msg_to_smc_with_parameter(hwmgr,
+				PPSMC_MSG_DisableSmuFeaturesHigh, smu_features_high, NULL) == 0,
+				"[EnableDisableSMCFeatures] Attempt to disable SMU features High failed!",
 				return -EINVAL);
 	}
 
@@ -149,17 +162,17 @@ int vega12_get_enabled_smc_features(struct pp_hwmgr *hwmgr,
 	if (features_enabled == NULL)
 		return -EINVAL;
 
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc(hwmgr,
-			PPSMC_MSG_GetEnabledSmuFeaturesLow) == 0,
-			"[GetEnabledSMCFeatures] Attemp to get SMU features Low failed!",
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc(hwmgr,
+			PPSMC_MSG_GetEnabledSmuFeaturesLow,
+			&smc_features_low) == 0,
+			"[GetEnabledSMCFeatures] Attempt to get SMU features Low failed!",
 			return -EINVAL);
-	smc_features_low = smu9_get_argument(hwmgr);
 
-	PP_ASSERT_WITH_CODE(smu9_send_msg_to_smc(hwmgr,
-			PPSMC_MSG_GetEnabledSmuFeaturesHigh) == 0,
-			"[GetEnabledSMCFeatures] Attemp to get SMU features High failed!",
+	PP_ASSERT_WITH_CODE(smum_send_msg_to_smc(hwmgr,
+			PPSMC_MSG_GetEnabledSmuFeaturesHigh,
+			&smc_features_high) == 0,
+			"[GetEnabledSMCFeatures] Attempt to get SMU features High failed!",
 			return -EINVAL);
-	smc_features_high = smu9_get_argument(hwmgr);
 
 	*features_enabled = ((((uint64_t)smc_features_low << SMU_FEATURES_LOW_SHIFT) & SMU_FEATURES_LOW_MASK) |
 			(((uint64_t)smc_features_high << SMU_FEATURES_HIGH_SHIFT) & SMU_FEATURES_HIGH_MASK));
@@ -185,12 +198,14 @@ static int vega12_set_tools_address(struct pp_hwmgr *hwmgr)
 			(struct vega12_smumgr *)(hwmgr->smu_backend);
 
 	if (priv->smu_tables.entry[TABLE_PMSTATUSLOG].mc_addr) {
-		if (!smu9_send_msg_to_smc_with_parameter(hwmgr,
+		if (!smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_SetToolsDramAddrHigh,
-				upper_32_bits(priv->smu_tables.entry[TABLE_PMSTATUSLOG].mc_addr)))
-			smu9_send_msg_to_smc_with_parameter(hwmgr,
+				upper_32_bits(priv->smu_tables.entry[TABLE_PMSTATUSLOG].mc_addr),
+				NULL))
+			smum_send_msg_to_smc_with_parameter(hwmgr,
 					PPSMC_MSG_SetToolsDramAddrLow,
-					lower_32_bits(priv->smu_tables.entry[TABLE_PMSTATUSLOG].mc_addr));
+					lower_32_bits(priv->smu_tables.entry[TABLE_PMSTATUSLOG].mc_addr),
+					NULL);
 	}
 	return 0;
 }
@@ -287,8 +302,26 @@ static int vega12_smu_init(struct pp_hwmgr *hwmgr)
 	priv->smu_tables.entry[TABLE_OVERDRIVE].version = 0x01;
 	priv->smu_tables.entry[TABLE_OVERDRIVE].size = sizeof(OverDriveTable_t);
 
+	/* allocate space for SMU_METRICS table */
+	ret = amdgpu_bo_create_kernel((struct amdgpu_device *)hwmgr->adev,
+				      sizeof(SmuMetrics_t),
+				      PAGE_SIZE,
+				      AMDGPU_GEM_DOMAIN_VRAM,
+				      &priv->smu_tables.entry[TABLE_SMU_METRICS].handle,
+				      &priv->smu_tables.entry[TABLE_SMU_METRICS].mc_addr,
+				      &priv->smu_tables.entry[TABLE_SMU_METRICS].table);
+	if (ret)
+		goto err4;
+
+	priv->smu_tables.entry[TABLE_SMU_METRICS].version = 0x01;
+	priv->smu_tables.entry[TABLE_SMU_METRICS].size = sizeof(SmuMetrics_t);
+
 	return 0;
 
+err4:
+	amdgpu_bo_free_kernel(&priv->smu_tables.entry[TABLE_OVERDRIVE].handle,
+				&priv->smu_tables.entry[TABLE_OVERDRIVE].mc_addr,
+				&priv->smu_tables.entry[TABLE_OVERDRIVE].table);
 err3:
 	amdgpu_bo_free_kernel(&priv->smu_tables.entry[TABLE_AVFS_FUSE_OVERRIDE].handle,
 				&priv->smu_tables.entry[TABLE_AVFS_FUSE_OVERRIDE].mc_addr,
@@ -334,6 +367,9 @@ static int vega12_smu_fini(struct pp_hwmgr *hwmgr)
 		amdgpu_bo_free_kernel(&priv->smu_tables.entry[TABLE_OVERDRIVE].handle,
 				      &priv->smu_tables.entry[TABLE_OVERDRIVE].mc_addr,
 				      &priv->smu_tables.entry[TABLE_OVERDRIVE].table);
+		amdgpu_bo_free_kernel(&priv->smu_tables.entry[TABLE_SMU_METRICS].handle,
+				      &priv->smu_tables.entry[TABLE_SMU_METRICS].mc_addr,
+				      &priv->smu_tables.entry[TABLE_SMU_METRICS].table);
 		kfree(hwmgr->smu_backend);
 		hwmgr->smu_backend = NULL;
 	}
@@ -365,6 +401,7 @@ static int vega12_smc_table_manager(struct pp_hwmgr *hwmgr, uint8_t *table,
 }
 
 const struct pp_smumgr_func vega12_smu_funcs = {
+	.name = "vega12_smu",
 	.smu_init = &vega12_smu_init,
 	.smu_fini = &vega12_smu_fini,
 	.start_smu = &vega12_start_smu,

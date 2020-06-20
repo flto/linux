@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/types.h>
 #include <linux/skbuff.h>
 #include <linux/socket.h>
@@ -22,8 +23,8 @@
 #if IS_ENABLED(CONFIG_IPV6)
 #include <net/ipv6.h>
 #endif
-#include <net/addrconf.h>
-#include <net/nexthop.h>
+#include <net/ipv6_stubs.h>
+#include <net/rtnh.h>
 #include "internal.h"
 
 /* max memory we will use for mpls_route */
@@ -36,8 +37,6 @@
 
 #define MPLS_NEIGH_TABLE_UNSPEC (NEIGH_LINK_TABLE + 1)
 
-static int zero = 0;
-static int one = 1;
 static int label_limit = (1 << 20) - 1;
 static int ttl_max = 255;
 
@@ -618,16 +617,15 @@ static struct net_device *inet6_fib_lookup_dev(struct net *net,
 	struct net_device *dev;
 	struct dst_entry *dst;
 	struct flowi6 fl6;
-	int err;
 
 	if (!ipv6_stub)
 		return ERR_PTR(-EAFNOSUPPORT);
 
 	memset(&fl6, 0, sizeof(fl6));
 	memcpy(&fl6.daddr, addr, sizeof(struct in6_addr));
-	err = ipv6_stub->ipv6_dst_lookup(net, NULL, &dst, &fl6);
-	if (err)
-		return ERR_PTR(err);
+	dst = ipv6_stub->ipv6_dst_lookup_flow(net, NULL, &fl6, NULL);
+	if (IS_ERR(dst))
+		return ERR_CAST(dst);
 
 	dev = dst->dev;
 	dev_hold(dev);
@@ -1209,21 +1207,59 @@ static const struct nla_policy devconf_mpls_policy[NETCONFA_MAX + 1] = {
 	[NETCONFA_IFINDEX]	= { .len = sizeof(int) },
 };
 
+static int mpls_netconf_valid_get_req(struct sk_buff *skb,
+				      const struct nlmsghdr *nlh,
+				      struct nlattr **tb,
+				      struct netlink_ext_ack *extack)
+{
+	int i, err;
+
+	if (nlh->nlmsg_len < nlmsg_msg_size(sizeof(struct netconfmsg))) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Invalid header for netconf get request");
+		return -EINVAL;
+	}
+
+	if (!netlink_strict_get_check(skb))
+		return nlmsg_parse_deprecated(nlh, sizeof(struct netconfmsg),
+					      tb, NETCONFA_MAX,
+					      devconf_mpls_policy, extack);
+
+	err = nlmsg_parse_deprecated_strict(nlh, sizeof(struct netconfmsg),
+					    tb, NETCONFA_MAX,
+					    devconf_mpls_policy, extack);
+	if (err)
+		return err;
+
+	for (i = 0; i <= NETCONFA_MAX; i++) {
+		if (!tb[i])
+			continue;
+
+		switch (i) {
+		case NETCONFA_IFINDEX:
+			break;
+		default:
+			NL_SET_ERR_MSG_MOD(extack, "Unsupported attribute in netconf get request");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 static int mpls_netconf_get_devconf(struct sk_buff *in_skb,
 				    struct nlmsghdr *nlh,
 				    struct netlink_ext_ack *extack)
 {
 	struct net *net = sock_net(in_skb->sk);
 	struct nlattr *tb[NETCONFA_MAX + 1];
-	struct netconfmsg *ncm;
 	struct net_device *dev;
 	struct mpls_dev *mdev;
 	struct sk_buff *skb;
 	int ifindex;
 	int err;
 
-	err = nlmsg_parse(nlh, sizeof(*ncm), tb, NETCONFA_MAX,
-			  devconf_mpls_policy, extack);
+	err = mpls_netconf_valid_get_req(in_skb, nlh, tb, extack);
 	if (err < 0)
 		goto errout;
 
@@ -1326,8 +1362,7 @@ done:
 	(&((struct mpls_dev *)0)->field)
 
 static int mpls_conf_proc(struct ctl_table *ctl, int write,
-			  void __user *buffer,
-			  size_t *lenp, loff_t *ppos)
+			  void *buffer, size_t *lenp, loff_t *ppos)
 {
 	int oval = *(int *)ctl->data;
 	int ret = proc_dointvec(ctl, write, buffer, lenp, ppos);
@@ -1558,7 +1593,8 @@ static int mpls_dev_notify(struct notifier_block *this, unsigned long event,
 		    dev->type == ARPHRD_IPGRE ||
 		    dev->type == ARPHRD_IP6GRE ||
 		    dev->type == ARPHRD_SIT ||
-		    dev->type == ARPHRD_TUNNEL) {
+		    dev->type == ARPHRD_TUNNEL ||
+		    dev->type == ARPHRD_TUNNEL6) {
 			mdev = mpls_add_dev(dev);
 			if (IS_ERR(mdev))
 				return notifier_from_errno(PTR_ERR(mdev));
@@ -1752,8 +1788,8 @@ static int rtm_to_route_config(struct sk_buff *skb,
 	int index;
 	int err;
 
-	err = nlmsg_parse(nlh, sizeof(*rtm), tb, RTA_MAX, rtm_mpls_policy,
-			  extack);
+	err = nlmsg_parse_deprecated(nlh, sizeof(*rtm), tb, RTA_MAX,
+				     rtm_mpls_policy, extack);
 	if (err < 0)
 		goto errout;
 
@@ -1838,6 +1874,9 @@ static int rtm_to_route_config(struct sk_buff *skb,
 				goto errout;
 			break;
 		}
+		case RTA_GATEWAY:
+			NL_SET_ERR_MSG(extack, "MPLS does not support RTA_GATEWAY attribute");
+			goto errout;
 		case RTA_VIA:
 		{
 			if (nla_get_via(nla, &cfg->rc_via_alen,
@@ -1978,7 +2017,7 @@ static int mpls_dump_route(struct sk_buff *skb, u32 portid, u32 seq, int event,
 		u8 linkdown = 0;
 		u8 dead = 0;
 
-		mp = nla_nest_start(skb, RTA_MULTIPATH);
+		mp = nla_nest_start_noflag(skb, RTA_MULTIPATH);
 		if (!mp)
 			goto nla_put_failure;
 
@@ -2067,8 +2106,8 @@ static int mpls_valid_fib_dump_req(struct net *net, const struct nlmsghdr *nlh,
 		cb->answer_flags = NLM_F_DUMP_FILTERED;
 	}
 
-	err = nlmsg_parse_strict(nlh, sizeof(*rtm), tb, RTA_MAX,
-				 rtm_mpls_policy, extack);
+	err = nlmsg_parse_deprecated_strict(nlh, sizeof(*rtm), tb, RTA_MAX,
+					    rtm_mpls_policy, extack);
 	if (err < 0)
 		return err;
 
@@ -2236,6 +2275,64 @@ errout:
 		rtnl_set_sk_err(net, RTNLGRP_MPLS_ROUTE, err);
 }
 
+static int mpls_valid_getroute_req(struct sk_buff *skb,
+				   const struct nlmsghdr *nlh,
+				   struct nlattr **tb,
+				   struct netlink_ext_ack *extack)
+{
+	struct rtmsg *rtm;
+	int i, err;
+
+	if (nlh->nlmsg_len < nlmsg_msg_size(sizeof(*rtm))) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Invalid header for get route request");
+		return -EINVAL;
+	}
+
+	if (!netlink_strict_get_check(skb))
+		return nlmsg_parse_deprecated(nlh, sizeof(*rtm), tb, RTA_MAX,
+					      rtm_mpls_policy, extack);
+
+	rtm = nlmsg_data(nlh);
+	if ((rtm->rtm_dst_len && rtm->rtm_dst_len != 20) ||
+	    rtm->rtm_src_len || rtm->rtm_tos || rtm->rtm_table ||
+	    rtm->rtm_protocol || rtm->rtm_scope || rtm->rtm_type) {
+		NL_SET_ERR_MSG_MOD(extack, "Invalid values in header for get route request");
+		return -EINVAL;
+	}
+	if (rtm->rtm_flags & ~RTM_F_FIB_MATCH) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Invalid flags for get route request");
+		return -EINVAL;
+	}
+
+	err = nlmsg_parse_deprecated_strict(nlh, sizeof(*rtm), tb, RTA_MAX,
+					    rtm_mpls_policy, extack);
+	if (err)
+		return err;
+
+	if ((tb[RTA_DST] || tb[RTA_NEWDST]) && !rtm->rtm_dst_len) {
+		NL_SET_ERR_MSG_MOD(extack, "rtm_dst_len must be 20 for MPLS");
+		return -EINVAL;
+	}
+
+	for (i = 0; i <= RTA_MAX; i++) {
+		if (!tb[i])
+			continue;
+
+		switch (i) {
+		case RTA_DST:
+		case RTA_NEWDST:
+			break;
+		default:
+			NL_SET_ERR_MSG_MOD(extack, "Unsupported attribute in get route request");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 static int mpls_getroute(struct sk_buff *in_skb, struct nlmsghdr *in_nlh,
 			 struct netlink_ext_ack *extack)
 {
@@ -2255,8 +2352,7 @@ static int mpls_getroute(struct sk_buff *in_skb, struct nlmsghdr *in_nlh,
 	u8 n_labels;
 	int err;
 
-	err = nlmsg_parse(in_nlh, sizeof(*rtm), tb, RTA_MAX,
-			  rtm_mpls_policy, extack);
+	err = mpls_valid_getroute_req(in_skb, in_nlh, tb, extack);
 	if (err < 0)
 		goto errout;
 
@@ -2498,7 +2594,7 @@ nolabels:
 }
 
 static int mpls_platform_labels(struct ctl_table *table, int write,
-				void __user *buffer, size_t *lenp, loff_t *ppos)
+				void *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct net *net = table->data;
 	int platform_labels = net->mpls.platform_labels;
@@ -2508,7 +2604,7 @@ static int mpls_platform_labels(struct ctl_table *table, int write,
 		.data		= &platform_labels,
 		.maxlen		= sizeof(int),
 		.mode		= table->mode,
-		.extra1		= &zero,
+		.extra1		= SYSCTL_ZERO,
 		.extra2		= &label_limit,
 	};
 
@@ -2537,8 +2633,8 @@ static const struct ctl_table mpls_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "default_ttl",
@@ -2546,7 +2642,7 @@ static const struct ctl_table mpls_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &one,
+		.extra1		= SYSCTL_ONE,
 		.extra2		= &ttl_max,
 	},
 	{ }

@@ -10,6 +10,7 @@
 #include <linux/slab.h>
 #include <linux/gpio/consumer.h>
 #include <linux/gpio/driver.h>
+#include <linux/export.h>
 
 #include "gpiolib.h"
 
@@ -36,8 +37,11 @@ void devprop_gpiochip_set_names(struct gpio_chip *chip,
 	if (count < 0)
 		return;
 
-	if (count > gdev->ngpio)
+	if (count > gdev->ngpio) {
+		dev_warn(&gdev->dev, "gpio-line-names is length %d but should be at most length %d",
+			 count, gdev->ngpio);
 		count = gdev->ngpio;
+	}
 
 	names = kcalloc(count, sizeof(*names), GFP_KERNEL);
 	if (!names)
@@ -56,3 +60,4 @@ void devprop_gpiochip_set_names(struct gpio_chip *chip,
 
 	kfree(names);
 }
+EXPORT_SYMBOL_GPL(devprop_gpiochip_set_names);

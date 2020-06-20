@@ -28,10 +28,16 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <drm/drmP.h>
+#include <linux/slab.h>
+
+#include <drm/drm_auth.h>
+#include <drm/drm_drv.h>
+#include <drm/drm_file.h>
+#include <drm/drm_lease.h>
+#include <drm/drm_print.h>
+
 #include "drm_internal.h"
 #include "drm_legacy.h"
-#include <drm/drm_lease.h>
 
 /**
  * DOC: master and authentication
@@ -103,14 +109,11 @@ struct drm_master *drm_master_create(struct drm_device *dev)
 		return NULL;
 
 	kref_init(&master->refcount);
-	spin_lock_init(&master->lock.spinlock);
-	init_waitqueue_head(&master->lock.lock_queue);
+	drm_master_legacy_init(master);
 	idr_init(&master->magic_map);
 	master->dev = dev;
 
 	/* initialize the tree of output resource lessees */
-	master->lessor = NULL;
-	master->lessee_id = 0;
 	INIT_LIST_HEAD(&master->lessees);
 	INIT_LIST_HEAD(&master->lessee_list);
 	idr_init(&master->leases);
@@ -132,6 +135,7 @@ static int drm_set_master(struct drm_device *dev, struct drm_file *fpriv,
 		}
 	}
 
+	fpriv->was_master = (ret == 0);
 	return ret;
 }
 
@@ -150,11 +154,6 @@ static int drm_new_set_master(struct drm_device *dev, struct drm_file *fpriv)
 		return -ENOMEM;
 	}
 
-	if (dev->driver->master_create) {
-		ret = dev->driver->master_create(dev, fpriv->master);
-		if (ret)
-			goto out_err;
-	}
 	fpriv->is_master = 1;
 	fpriv->authenticated = 1;
 
@@ -176,17 +175,77 @@ out_err:
 	return ret;
 }
 
+/*
+ * In the olden days the SET/DROP_MASTER ioctls used to return EACCES when
+ * CAP_SYS_ADMIN was not set. This was used to prevent rogue applications
+ * from becoming master and/or failing to release it.
+ *
+ * At the same time, the first client (for a given VT) is _always_ master.
+ * Thus in order for the ioctls to succeed, one had to _explicitly_ run the
+ * application as root or flip the setuid bit.
+ *
+ * If the CAP_SYS_ADMIN was missing, no other client could become master...
+ * EVER :-( Leading to a) the graphics session dying badly or b) a completely
+ * locked session.
+ *
+ *
+ * As some point systemd-logind was introduced to orchestrate and delegate
+ * master as applicable. It does so by opening the fd and passing it to users
+ * while in itself logind a) does the set/drop master per users' request and
+ * b)  * implicitly drops master on VT switch.
+ *
+ * Even though logind looks like the future, there are a few issues:
+ *  - some platforms don't have equivalent (Android, CrOS, some BSDs) so
+ * root is required _solely_ for SET/DROP MASTER.
+ *  - applications may not be updated to use it,
+ *  - any client which fails to drop master* can DoS the application using
+ * logind, to a varying degree.
+ *
+ * * Either due missing CAP_SYS_ADMIN or simply not calling DROP_MASTER.
+ *
+ *
+ * Here we implement the next best thing:
+ *  - ensure the logind style of fd passing works unchanged, and
+ *  - allow a client to drop/set master, iff it is/was master at a given point
+ * in time.
+ *
+ * Note: DROP_MASTER cannot be free for all, as an arbitrator user could:
+ *  - DoS/crash the arbitrator - details would be implementation specific
+ *  - open the node, become master implicitly and cause issues
+ *
+ * As a result this fixes the following when using root-less build w/o logind
+ * - startx
+ * - weston
+ * - various compositors based on wlroots
+ */
+static int
+drm_master_check_perm(struct drm_device *dev, struct drm_file *file_priv)
+{
+	if (file_priv->pid == task_pid(current) && file_priv->was_master)
+		return 0;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EACCES;
+
+	return 0;
+}
+
 int drm_setmaster_ioctl(struct drm_device *dev, void *data,
 			struct drm_file *file_priv)
 {
 	int ret = 0;
 
 	mutex_lock(&dev->master_mutex);
+
+	ret = drm_master_check_perm(dev, file_priv);
+	if (ret)
+		goto out_unlock;
+
 	if (drm_is_current_master(file_priv))
 		goto out_unlock;
 
 	if (dev->master) {
-		ret = -EINVAL;
+		ret = -EBUSY;
 		goto out_unlock;
 	}
 
@@ -226,6 +285,12 @@ int drm_dropmaster_ioctl(struct drm_device *dev, void *data,
 	int ret = -EINVAL;
 
 	mutex_lock(&dev->master_mutex);
+
+	ret = drm_master_check_perm(dev, file_priv);
+	if (ret)
+		goto out_unlock;
+
+	ret = -EINVAL;
 	if (!drm_is_current_master(file_priv))
 		goto out_unlock;
 
@@ -274,21 +339,7 @@ void drm_master_release(struct drm_file *file_priv)
 	if (!drm_is_current_master(file_priv))
 		goto out;
 
-	if (drm_core_check_feature(dev, DRIVER_LEGACY)) {
-		/*
-		 * Since the master is disappearing, so is the
-		 * possibility to lock.
-		 */
-		mutex_lock(&dev->struct_mutex);
-		if (master->lock.hw_lock) {
-			if (dev->sigdata.lock == master->lock.hw_lock)
-				dev->sigdata.lock = NULL;
-			master->lock.hw_lock = NULL;
-			master->lock.file_priv = NULL;
-			wake_up_interruptible_all(&master->lock.lock_queue);
-		}
-		mutex_unlock(&dev->struct_mutex);
-	}
+	drm_legacy_lock_master_cleanup(dev, master);
 
 	if (dev->master == file_priv->master)
 		drm_drop_master(dev, file_priv);
@@ -343,9 +394,6 @@ static void drm_master_destroy(struct kref *kref)
 	if (drm_core_check_feature(dev, DRIVER_MODESET))
 		drm_lease_destroy(master);
 
-	if (dev->driver->master_destroy)
-		dev->driver->master_destroy(dev, master);
-
 	drm_legacy_master_rmmaps(dev, master);
 
 	idr_destroy(&master->magic_map);
@@ -368,3 +416,23 @@ void drm_master_put(struct drm_master **master)
 	*master = NULL;
 }
 EXPORT_SYMBOL(drm_master_put);
+
+/* Used by drm_client and drm_fb_helper */
+bool drm_master_internal_acquire(struct drm_device *dev)
+{
+	mutex_lock(&dev->master_mutex);
+	if (dev->master) {
+		mutex_unlock(&dev->master_mutex);
+		return false;
+	}
+
+	return true;
+}
+EXPORT_SYMBOL(drm_master_internal_acquire);
+
+/* Used by drm_client and drm_fb_helper */
+void drm_master_internal_release(struct drm_device *dev)
+{
+	mutex_unlock(&dev->master_mutex);
+}
+EXPORT_SYMBOL(drm_master_internal_release);

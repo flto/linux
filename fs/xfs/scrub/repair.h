@@ -15,7 +15,7 @@ static inline int xrep_notsupported(struct xfs_scrub *sc)
 
 /* Repair helpers */
 
-int xrep_attempt(struct xfs_inode *ip, struct xfs_scrub *sc, bool *fixed);
+int xrep_attempt(struct xfs_inode *ip, struct xfs_scrub *sc);
 void xrep_failure(struct xfs_mount *mp);
 int xrep_roll_ag_trans(struct xfs_scrub *sc);
 bool xrep_ag_has_space(struct xfs_perag *pag, xfs_extlen_t nr_blocks,
@@ -28,11 +28,11 @@ int xrep_init_btblock(struct xfs_scrub *sc, xfs_fsblock_t fsb,
 		struct xfs_buf **bpp, xfs_btnum_t btnum,
 		const struct xfs_buf_ops *ops);
 
-struct xfs_bitmap;
+struct xbitmap;
 
 int xrep_fix_freelist(struct xfs_scrub *sc, bool can_shrink);
-int xrep_invalidate_blocks(struct xfs_scrub *sc, struct xfs_bitmap *btlist);
-int xrep_reap_extents(struct xfs_scrub *sc, struct xfs_bitmap *exlist,
+int xrep_invalidate_blocks(struct xfs_scrub *sc, struct xbitmap *btlist);
+int xrep_reap_extents(struct xfs_scrub *sc, struct xbitmap *exlist,
 		const struct xfs_owner_info *oinfo, enum xfs_ag_resv_type type);
 
 struct xrep_find_ag_btree {
@@ -41,9 +41,6 @@ struct xrep_find_ag_btree {
 
 	/* in: buffer ops */
 	const struct xfs_buf_ops	*buf_ops;
-
-	/* in: magic number of the btree */
-	uint32_t			magic;
 
 	/* out: the highest btree block found and the tree height */
 	xfs_agblock_t			root;
@@ -67,8 +64,7 @@ int xrep_agi(struct xfs_scrub *sc);
 
 static inline int xrep_attempt(
 	struct xfs_inode	*ip,
-	struct xfs_scrub	*sc,
-	bool			*fixed)
+	struct xfs_scrub	*sc)
 {
 	return -EOPNOTSUPP;
 }
@@ -79,7 +75,6 @@ static inline xfs_extlen_t
 xrep_calc_ag_resblks(
 	struct xfs_scrub	*sc)
 {
-	ASSERT(!(sc->sm->sm_flags & XFS_SCRUB_IFLAG_REPAIR));
 	return 0;
 }
 

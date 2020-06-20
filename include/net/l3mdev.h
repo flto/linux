@@ -1,12 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * include/net/l3mdev.h - L3 master device API
  * Copyright (c) 2015 Cumulus Networks
  * Copyright (c) 2015 David Ahern <dsa@cumulusnetworks.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 #ifndef _NET_L3MDEV_H_
 #define _NET_L3MDEV_H_
@@ -153,7 +149,8 @@ struct sk_buff *l3mdev_l3_rcv(struct sk_buff *skb, u16 proto)
 
 	if (netif_is_l3_slave(skb->dev))
 		master = netdev_master_upper_dev_get_rcu(skb->dev);
-	else if (netif_is_l3_master(skb->dev))
+	else if (netif_is_l3_master(skb->dev) ||
+		 netif_has_l3_rx_handler(skb->dev))
 		master = skb->dev;
 
 	if (master && master->l3mdev_ops->l3mdev_l3_rcv)

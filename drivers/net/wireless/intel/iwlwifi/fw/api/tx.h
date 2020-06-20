@@ -7,7 +7,7 @@
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2019 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -29,7 +29,7 @@
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2019 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -323,7 +323,7 @@ struct iwl_tx_cmd_gen2 {
 } __packed; /* TX_CMD_API_S_VER_7 */
 
 /**
- * struct iwl_tx_cmd_gen3 - TX command struct to FW for 22560 devices
+ * struct iwl_tx_cmd_gen3 - TX command struct to FW for AX210+ devices
  * ( TX_CMD = 0x1c )
  * @len: in bytes of the payload, see below for details
  * @flags: combination of &enum iwl_tx_cmd_flags
@@ -813,6 +813,7 @@ enum iwl_mac_beacon_flags {
 	IWL_MAC_BEACON_ANT_A	= BIT(9),
 	IWL_MAC_BEACON_ANT_B	= BIT(10),
 	IWL_MAC_BEACON_ANT_C	= BIT(11),
+	IWL_MAC_BEACON_FILS	= BIT(12),
 };
 
 /**
@@ -820,6 +821,7 @@ enum iwl_mac_beacon_flags {
  * @byte_cnt: byte count of the beacon frame.
  * @flags: least significant byte for rate code. The most significant byte
  *	is &enum iwl_mac_beacon_flags.
+ * @short_ssid: Short SSID
  * @reserved: reserved
  * @template_id: currently equal to the mac context id of the coresponding mac.
  * @tim_idx: the offset of the tim IE in the beacon
@@ -831,14 +833,15 @@ enum iwl_mac_beacon_flags {
 struct iwl_mac_beacon_cmd {
 	__le16 byte_cnt;
 	__le16 flags;
-	__le64 reserved;
+	__le32 short_ssid;
+	__le32 reserved;
 	__le32 template_id;
 	__le32 tim_idx;
 	__le32 tim_size;
 	__le32 ecsa_offset;
 	__le32 csa_offset;
 	struct ieee80211_hdr frame[0];
-} __packed; /* BEACON_TEMPLATE_CMD_API_S_VER_9 */
+} __packed; /* BEACON_TEMPLATE_CMD_API_S_VER_10 */
 
 struct iwl_beacon_notif {
 	struct iwl_mvm_tx_resp beacon_notify_hdr;
@@ -847,18 +850,32 @@ struct iwl_beacon_notif {
 } __packed;
 
 /**
- * struct iwl_extended_beacon_notif - notifies about beacon transmission
+ * struct iwl_extended_beacon_notif_v5 - notifies about beacon transmission
  * @beacon_notify_hdr: tx response command associated with the beacon
  * @tsf: last beacon tsf
  * @ibss_mgr_status: whether IBSS is manager
  * @gp2: last beacon time in gp2
  */
-struct iwl_extended_beacon_notif {
+struct iwl_extended_beacon_notif_v5 {
 	struct iwl_mvm_tx_resp beacon_notify_hdr;
 	__le64 tsf;
 	__le32 ibss_mgr_status;
 	__le32 gp2;
 } __packed; /* BEACON_NTFY_API_S_VER_5 */
+
+/**
+ * struct iwl_extended_beacon_notif - notifies about beacon transmission
+ * @status: the status of the Tx response of the beacon
+ * @tsf: last beacon tsf
+ * @ibss_mgr_status: whether IBSS is manager
+ * @gp2: last beacon time in gp2
+ */
+struct iwl_extended_beacon_notif {
+	__le32 status;
+	__le64 tsf;
+	__le32 ibss_mgr_status;
+	__le32 gp2;
+} __packed; /* BEACON_NTFY_API_S_VER_6_ */
 
 /**
  * enum iwl_dump_control - dump (flush) control flags

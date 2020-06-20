@@ -1137,16 +1137,15 @@ out_unlock1:
 	return err;
 }
 
-long ksys_shmctl(int shmid, int cmd, struct shmid_ds __user *buf)
+static long ksys_shmctl(int shmid, int cmd, struct shmid_ds __user *buf, int version)
 {
-	int err, version;
+	int err;
 	struct ipc_namespace *ns;
 	struct shmid64_ds sem64;
 
 	if (cmd < 0 || shmid < 0)
 		return -EINVAL;
 
-	version = ipc_parse_version(&cmd);
 	ns = current->nsproxy->ipc_ns;
 
 	switch (cmd) {
@@ -1194,8 +1193,22 @@ long ksys_shmctl(int shmid, int cmd, struct shmid_ds __user *buf)
 
 SYSCALL_DEFINE3(shmctl, int, shmid, int, cmd, struct shmid_ds __user *, buf)
 {
-	return ksys_shmctl(shmid, cmd, buf);
+	return ksys_shmctl(shmid, cmd, buf, IPC_64);
 }
+
+#ifdef CONFIG_ARCH_WANT_IPC_PARSE_VERSION
+long ksys_old_shmctl(int shmid, int cmd, struct shmid_ds __user *buf)
+{
+	int version = ipc_parse_version(&cmd);
+
+	return ksys_shmctl(shmid, cmd, buf, version);
+}
+
+SYSCALL_DEFINE3(old_shmctl, int, shmid, int, cmd, struct shmid_ds __user *, buf)
+{
+	return ksys_old_shmctl(shmid, cmd, buf);
+}
+#endif
 
 #ifdef CONFIG_COMPAT
 
@@ -1319,11 +1332,10 @@ static int copy_compat_shmid_from_user(struct shmid64_ds *out, void __user *buf,
 	}
 }
 
-long compat_ksys_shmctl(int shmid, int cmd, void __user *uptr)
+static long compat_ksys_shmctl(int shmid, int cmd, void __user *uptr, int version)
 {
 	struct ipc_namespace *ns;
 	struct shmid64_ds sem64;
-	int version = compat_ipc_parse_version(&cmd);
 	int err;
 
 	ns = current->nsproxy->ipc_ns;
@@ -1378,8 +1390,22 @@ long compat_ksys_shmctl(int shmid, int cmd, void __user *uptr)
 
 COMPAT_SYSCALL_DEFINE3(shmctl, int, shmid, int, cmd, void __user *, uptr)
 {
-	return compat_ksys_shmctl(shmid, cmd, uptr);
+	return compat_ksys_shmctl(shmid, cmd, uptr, IPC_64);
 }
+
+#ifdef CONFIG_ARCH_WANT_COMPAT_IPC_PARSE_VERSION
+long compat_ksys_old_shmctl(int shmid, int cmd, void __user *uptr)
+{
+	int version = compat_ipc_parse_version(&cmd);
+
+	return compat_ksys_shmctl(shmid, cmd, uptr, version);
+}
+
+COMPAT_SYSCALL_DEFINE3(old_shmctl, int, shmid, int, cmd, void __user *, uptr)
+{
+	return compat_ksys_old_shmctl(shmid, cmd, uptr);
+}
+#endif
 #endif
 
 /*
@@ -1518,7 +1544,7 @@ long do_shmat(int shmid, char __user *shmaddr, int shmflg,
 	if (err)
 		goto out_fput;
 
-	if (down_write_killable(&current->mm->mmap_sem)) {
+	if (mmap_write_lock_killable(current->mm)) {
 		err = -EINTR;
 		goto out_fput;
 	}
@@ -1538,7 +1564,7 @@ long do_shmat(int shmid, char __user *shmaddr, int shmflg,
 	if (IS_ERR_VALUE(addr))
 		err = (long)addr;
 invalid:
-	up_write(&current->mm->mmap_sem);
+	mmap_write_unlock(current->mm);
 	if (populate)
 		mm_populate(addr, populate);
 
@@ -1612,7 +1638,7 @@ long ksys_shmdt(char __user *shmaddr)
 	if (addr & ~PAGE_MASK)
 		return retval;
 
-	if (down_write_killable(&mm->mmap_sem))
+	if (mmap_write_lock_killable(mm))
 		return -EINTR;
 
 	/*
@@ -1700,7 +1726,7 @@ long ksys_shmdt(char __user *shmaddr)
 
 #endif
 
-	up_write(&mm->mmap_sem);
+	mmap_write_unlock(mm);
 	return retval;
 }
 

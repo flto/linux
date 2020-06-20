@@ -1,12 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/base/power/runtime.c - Helper functions for device runtime PM
  *
  * Copyright (c) 2009 Rafael J. Wysocki <rjw@sisk.pl>, Novell Inc.
  * Copyright (C) 2010 Alan Stern <stern@rowland.harvard.edu>
- *
- * This file is released under the GPLv2.
  */
-
 #include <linux/sched/mm.h>
 #include <linux/ktime.h>
 #include <linux/hrtimer.h>
@@ -64,22 +62,32 @@ static int rpm_suspend(struct device *dev, int rpmflags);
  * runtime_status field is updated, to account the time in the old state
  * correctly.
  */
-void update_pm_runtime_accounting(struct device *dev)
+static void update_pm_runtime_accounting(struct device *dev)
 {
-	unsigned long now = jiffies;
-	unsigned long delta;
-
-	delta = now - dev->power.accounting_timestamp;
-
-	dev->power.accounting_timestamp = now;
+	u64 now, last, delta;
 
 	if (dev->power.disable_depth > 0)
 		return;
 
+	last = dev->power.accounting_timestamp;
+
+	now = ktime_get_mono_fast_ns();
+	dev->power.accounting_timestamp = now;
+
+	/*
+	 * Because ktime_get_mono_fast_ns() is not monotonic during
+	 * timekeeping updates, ensure that 'now' is after the last saved
+	 * timesptamp.
+	 */
+	if (now < last)
+		return;
+
+	delta = now - last;
+
 	if (dev->power.runtime_status == RPM_SUSPENDED)
-		dev->power.suspended_jiffies += delta;
+		dev->power.suspended_time += delta;
 	else
-		dev->power.active_jiffies += delta;
+		dev->power.active_time += delta;
 }
 
 static void __update_runtime_status(struct device *dev, enum rpm_status status)
@@ -88,6 +96,32 @@ static void __update_runtime_status(struct device *dev, enum rpm_status status)
 	dev->power.runtime_status = status;
 }
 
+static u64 rpm_get_accounted_time(struct device *dev, bool suspended)
+{
+	u64 time;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->power.lock, flags);
+
+	update_pm_runtime_accounting(dev);
+	time = suspended ? dev->power.suspended_time : dev->power.active_time;
+
+	spin_unlock_irqrestore(&dev->power.lock, flags);
+
+	return time;
+}
+
+u64 pm_runtime_active_time(struct device *dev)
+{
+	return rpm_get_accounted_time(dev, false);
+}
+
+u64 pm_runtime_suspended_time(struct device *dev)
+{
+	return rpm_get_accounted_time(dev, true);
+}
+EXPORT_SYMBOL_GPL(pm_runtime_suspended_time);
+
 /**
  * pm_runtime_deactivate_timer - Deactivate given device's suspend timer.
  * @dev: Device to handle.
@@ -95,7 +129,7 @@ static void __update_runtime_status(struct device *dev, enum rpm_status status)
 static void pm_runtime_deactivate_timer(struct device *dev)
 {
 	if (dev->power.timer_expires > 0) {
-		hrtimer_cancel(&dev->power.suspend_timer);
+		hrtimer_try_to_cancel(&dev->power.suspend_timer);
 		dev->power.timer_expires = 0;
 	}
 }
@@ -129,24 +163,21 @@ static void pm_runtime_cancel_pending(struct device *dev)
 u64 pm_runtime_autosuspend_expiration(struct device *dev)
 {
 	int autosuspend_delay;
-	u64 last_busy, expires = 0;
-	u64 now = ktime_to_ns(ktime_get());
+	u64 expires;
 
 	if (!dev->power.use_autosuspend)
-		goto out;
+		return 0;
 
 	autosuspend_delay = READ_ONCE(dev->power.autosuspend_delay);
 	if (autosuspend_delay < 0)
-		goto out;
+		return 0;
 
-	last_busy = READ_ONCE(dev->power.last_busy);
+	expires  = READ_ONCE(dev->power.last_busy);
+	expires += (u64)autosuspend_delay * NSEC_PER_MSEC;
+	if (expires > ktime_get_mono_fast_ns())
+		return expires;	/* Expires in the future */
 
-	expires = last_busy + (u64)autosuspend_delay * NSEC_PER_MSEC;
-	if (expires <= now)
-		expires = 0;	/* Already expired. */
-
- out:
-	return expires;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(pm_runtime_autosuspend_expiration);
 
@@ -244,7 +275,7 @@ static int rpm_check_suspend_allowed(struct device *dev)
 	    || (dev->power.request_pending
 			&& dev->power.request == RPM_REQ_RESUME))
 		retval = -EAGAIN;
-	else if (__dev_pm_qos_read_value(dev) == 0)
+	else if (__dev_pm_qos_resume_latency(dev) == 0)
 		retval = -EPERM;
 	else if (dev->power.runtime_status == RPM_SUSPENDED)
 		retval = 1;
@@ -256,14 +287,12 @@ static int rpm_get_suppliers(struct device *dev)
 {
 	struct device_link *link;
 
-	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node) {
+	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node,
+				device_links_read_lock_held()) {
 		int retval;
 
-		if (!(link->flags & DL_FLAG_PM_RUNTIME))
-			continue;
-
-		if (READ_ONCE(link->status) == DL_STATE_SUPPLIER_UNBIND ||
-		    link->rpm_active)
+		if (!(link->flags & DL_FLAG_PM_RUNTIME) ||
+		    READ_ONCE(link->status) == DL_STATE_SUPPLIER_UNBIND)
 			continue;
 
 		retval = pm_runtime_get_sync(link->supplier);
@@ -272,7 +301,7 @@ static int rpm_get_suppliers(struct device *dev)
 			pm_runtime_put_noidle(link->supplier);
 			return retval;
 		}
-		link->rpm_active = true;
+		refcount_inc(&link->rpm_active);
 	}
 	return 0;
 }
@@ -281,12 +310,14 @@ static void rpm_put_suppliers(struct device *dev)
 {
 	struct device_link *link;
 
-	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node)
-		if (link->rpm_active &&
-		    READ_ONCE(link->status) != DL_STATE_SUPPLIER_UNBIND) {
+	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node,
+				device_links_read_lock_held()) {
+		if (READ_ONCE(link->status) == DL_STATE_SUPPLIER_UNBIND)
+			continue;
+
+		while (refcount_dec_not_one(&link->rpm_active))
 			pm_runtime_put(link->supplier);
-			link->rpm_active = false;
-		}
+	}
 }
 
 /**
@@ -492,13 +523,11 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 
  repeat:
 	retval = rpm_check_suspend_allowed(dev);
-
 	if (retval < 0)
-		;	/* Conditions are wrong. */
+		goto out;	/* Conditions are wrong. */
 
 	/* Synchronous suspends are not allowed in the RPM_RESUMING state. */
-	else if (dev->power.runtime_status == RPM_RESUMING &&
-	    !(rpmflags & RPM_ASYNC))
+	if (dev->power.runtime_status == RPM_RESUMING && !(rpmflags & RPM_ASYNC))
 		retval = -EAGAIN;
 	if (retval)
 		goto out;
@@ -909,7 +938,7 @@ static enum hrtimer_restart  pm_suspend_timer_fn(struct hrtimer *timer)
 	 * If 'expires' is after the current time, we've been called
 	 * too early.
 	 */
-	if (expires > 0 && expires < ktime_to_ns(ktime_get())) {
+	if (expires > 0 && expires < ktime_get_mono_fast_ns()) {
 		dev->power.timer_expires = 0;
 		rpm_suspend(dev, dev->power.timer_autosuspends ?
 		    (RPM_ASYNC | RPM_AUTO) : RPM_ASYNC);
@@ -928,7 +957,7 @@ static enum hrtimer_restart  pm_suspend_timer_fn(struct hrtimer *timer)
 int pm_schedule_suspend(struct device *dev, unsigned int delay)
 {
 	unsigned long flags;
-	ktime_t expires;
+	u64 expires;
 	int retval;
 
 	spin_lock_irqsave(&dev->power.lock, flags);
@@ -945,8 +974,8 @@ int pm_schedule_suspend(struct device *dev, unsigned int delay)
 	/* Other scheduled or pending requests need to be canceled. */
 	pm_runtime_cancel_pending(dev);
 
-	expires = ktime_add(ktime_get(), ms_to_ktime(delay));
-	dev->power.timer_expires = ktime_to_ns(expires);
+	expires = ktime_get_mono_fast_ns() + (u64)delay * NSEC_PER_MSEC;
+	dev->power.timer_expires = expires;
 	dev->power.timer_autosuspends = 0;
 	hrtimer_start(&dev->power.suspend_timer, expires, HRTIMER_MODE_ABS);
 
@@ -975,8 +1004,10 @@ int __pm_runtime_idle(struct device *dev, int rpmflags)
 	int retval;
 
 	if (rpmflags & RPM_GET_PUT) {
-		if (!atomic_dec_and_test(&dev->power.usage_count))
+		if (!atomic_dec_and_test(&dev->power.usage_count)) {
+			trace_rpm_usage_rcuidle(dev, rpmflags);
 			return 0;
+		}
 	}
 
 	might_sleep_if(!(rpmflags & RPM_ASYNC) && !dev->power.irq_safe);
@@ -1007,8 +1038,10 @@ int __pm_runtime_suspend(struct device *dev, int rpmflags)
 	int retval;
 
 	if (rpmflags & RPM_GET_PUT) {
-		if (!atomic_dec_and_test(&dev->power.usage_count))
+		if (!atomic_dec_and_test(&dev->power.usage_count)) {
+			trace_rpm_usage_rcuidle(dev, rpmflags);
 			return 0;
+		}
 	}
 
 	might_sleep_if(!(rpmflags & RPM_ASYNC) && !dev->power.irq_safe);
@@ -1052,28 +1085,47 @@ int __pm_runtime_resume(struct device *dev, int rpmflags)
 EXPORT_SYMBOL_GPL(__pm_runtime_resume);
 
 /**
- * pm_runtime_get_if_in_use - Conditionally bump up the device's usage counter.
+ * pm_runtime_get_if_active - Conditionally bump up the device's usage counter.
  * @dev: Device to handle.
  *
  * Return -EINVAL if runtime PM is disabled for the device.
  *
- * If that's not the case and if the device's runtime PM status is RPM_ACTIVE
- * and the runtime PM usage counter is nonzero, increment the counter and
- * return 1.  Otherwise return 0 without changing the counter.
+ * Otherwise, if the device's runtime PM status is RPM_ACTIVE and either
+ * ign_usage_count is true or the device's usage_count is non-zero, increment
+ * the counter and return 1. Otherwise return 0 without changing the counter.
+ *
+ * If ign_usage_count is true, the function can be used to prevent suspending
+ * the device when its runtime PM status is RPM_ACTIVE.
+ *
+ * If ign_usage_count is false, the function can be used to prevent suspending
+ * the device when both its runtime PM status is RPM_ACTIVE and its usage_count
+ * is non-zero.
+ *
+ * The caller is resposible for putting the device's usage count when ther
+ * return value is greater than zero.
  */
-int pm_runtime_get_if_in_use(struct device *dev)
+int pm_runtime_get_if_active(struct device *dev, bool ign_usage_count)
 {
 	unsigned long flags;
 	int retval;
 
 	spin_lock_irqsave(&dev->power.lock, flags);
-	retval = dev->power.disable_depth > 0 ? -EINVAL :
-		dev->power.runtime_status == RPM_ACTIVE
-			&& atomic_inc_not_zero(&dev->power.usage_count);
+	if (dev->power.disable_depth > 0) {
+		retval = -EINVAL;
+	} else if (dev->power.runtime_status != RPM_ACTIVE) {
+		retval = 0;
+	} else if (ign_usage_count) {
+		retval = 1;
+		atomic_inc(&dev->power.usage_count);
+	} else {
+		retval = atomic_inc_not_zero(&dev->power.usage_count);
+	}
+	trace_rpm_usage_rcuidle(dev, 0);
 	spin_unlock_irqrestore(&dev->power.lock, flags);
+
 	return retval;
 }
-EXPORT_SYMBOL_GPL(pm_runtime_get_if_in_use);
+EXPORT_SYMBOL_GPL(pm_runtime_get_if_active);
 
 /**
  * __pm_runtime_set_status - Set runtime PM status of a device.
@@ -1091,23 +1143,56 @@ EXPORT_SYMBOL_GPL(pm_runtime_get_if_in_use);
  * and the device parent's counter of unsuspended children is modified to
  * reflect the new status.  If the new status is RPM_SUSPENDED, an idle
  * notification request for the parent is submitted.
+ *
+ * If @dev has any suppliers (as reflected by device links to them), and @status
+ * is RPM_ACTIVE, they will be activated upfront and if the activation of one
+ * of them fails, the status of @dev will be changed to RPM_SUSPENDED (instead
+ * of the @status value) and the suppliers will be deacticated on exit.  The
+ * error returned by the failing supplier activation will be returned in that
+ * case.
  */
 int __pm_runtime_set_status(struct device *dev, unsigned int status)
 {
 	struct device *parent = dev->parent;
-	unsigned long flags;
 	bool notify_parent = false;
 	int error = 0;
 
 	if (status != RPM_ACTIVE && status != RPM_SUSPENDED)
 		return -EINVAL;
 
-	spin_lock_irqsave(&dev->power.lock, flags);
+	spin_lock_irq(&dev->power.lock);
 
-	if (!dev->power.runtime_error && !dev->power.disable_depth) {
+	/*
+	 * Prevent PM-runtime from being enabled for the device or return an
+	 * error if it is enabled already and working.
+	 */
+	if (dev->power.runtime_error || dev->power.disable_depth)
+		dev->power.disable_depth++;
+	else
 		error = -EAGAIN;
-		goto out;
+
+	spin_unlock_irq(&dev->power.lock);
+
+	if (error)
+		return error;
+
+	/*
+	 * If the new status is RPM_ACTIVE, the suppliers can be activated
+	 * upfront regardless of the current status, because next time
+	 * rpm_put_suppliers() runs, the rpm_active refcounts of the links
+	 * involved will be dropped down to one anyway.
+	 */
+	if (status == RPM_ACTIVE) {
+		int idx = device_links_read_lock();
+
+		error = rpm_get_suppliers(dev);
+		if (error)
+			status = RPM_SUSPENDED;
+
+		device_links_read_unlock(idx);
 	}
+
+	spin_lock_irq(&dev->power.lock);
 
 	if (dev->power.runtime_status == status || !parent)
 		goto out_set;
@@ -1136,18 +1221,32 @@ int __pm_runtime_set_status(struct device *dev, unsigned int status)
 
 		spin_unlock(&parent->power.lock);
 
-		if (error)
+		if (error) {
+			status = RPM_SUSPENDED;
 			goto out;
+		}
 	}
 
  out_set:
 	__update_runtime_status(dev, status);
-	dev->power.runtime_error = 0;
+	if (!error)
+		dev->power.runtime_error = 0;
+
  out:
-	spin_unlock_irqrestore(&dev->power.lock, flags);
+	spin_unlock_irq(&dev->power.lock);
 
 	if (notify_parent)
 		pm_request_idle(parent);
+
+	if (status == RPM_SUSPENDED) {
+		int idx = device_links_read_lock();
+
+		rpm_put_suppliers(dev);
+
+		device_links_read_unlock(idx);
+	}
+
+	pm_runtime_enable(dev);
 
 	return error;
 }
@@ -1276,6 +1375,9 @@ void __pm_runtime_disable(struct device *dev, bool check_resume)
 		pm_runtime_put_noidle(dev);
 	}
 
+	/* Update time accounting before disabling PM-runtime. */
+	update_pm_runtime_accounting(dev);
+
 	if (!dev->power.disable_depth++)
 		__pm_runtime_barrier(dev);
 
@@ -1294,10 +1396,15 @@ void pm_runtime_enable(struct device *dev)
 
 	spin_lock_irqsave(&dev->power.lock, flags);
 
-	if (dev->power.disable_depth > 0)
+	if (dev->power.disable_depth > 0) {
 		dev->power.disable_depth--;
-	else
+
+		/* About to enable runtime pm, set accounting_timestamp to now */
+		if (!dev->power.disable_depth)
+			dev->power.accounting_timestamp = ktime_get_mono_fast_ns();
+	} else {
 		dev_warn(dev, "Unbalanced %s!\n", __func__);
+	}
 
 	WARN(!dev->power.disable_depth &&
 	     dev->power.runtime_status == RPM_SUSPENDED &&
@@ -1348,6 +1455,8 @@ void pm_runtime_allow(struct device *dev)
 	dev->power.runtime_auto = true;
 	if (atomic_dec_and_test(&dev->power.usage_count))
 		rpm_idle(dev, RPM_AUTO | RPM_ASYNC);
+	else
+		trace_rpm_usage_rcuidle(dev, RPM_AUTO | RPM_ASYNC);
 
  out:
 	spin_unlock_irq(&dev->power.lock);
@@ -1415,6 +1524,8 @@ static void update_autosuspend(struct device *dev, int old_delay, int old_use)
 		if (!old_use || old_delay >= 0) {
 			atomic_inc(&dev->power.usage_count);
 			rpm_resume(dev, 0);
+		} else {
+			trace_rpm_usage_rcuidle(dev, 0);
 		}
 	}
 
@@ -1494,7 +1605,6 @@ void pm_runtime_init(struct device *dev)
 	dev->power.request_pending = false;
 	dev->power.request = RPM_REQ_NONE;
 	dev->power.deferred_resume = false;
-	dev->power.accounting_timestamp = jiffies;
 	INIT_WORK(&dev->power.work, pm_runtime_work);
 
 	dev->power.timer_expires = 0;
@@ -1539,9 +1649,9 @@ void pm_runtime_remove(struct device *dev)
  *
  * Check links from this device to any consumers and if any of them have active
  * runtime PM references to the device, drop the usage counter of the device
- * (once per link).
+ * (as many times as needed).
  *
- * Links with the DL_FLAG_STATELESS flag set are ignored.
+ * Links with the DL_FLAG_MANAGED flag unset are ignored.
  *
  * Since the device is guaranteed to be runtime-active at the point this is
  * called, nothing else needs to be done here.
@@ -1557,14 +1667,13 @@ void pm_runtime_clean_up_links(struct device *dev)
 
 	idx = device_links_read_lock();
 
-	list_for_each_entry_rcu(link, &dev->links.consumers, s_node) {
-		if (link->flags & DL_FLAG_STATELESS)
+	list_for_each_entry_rcu(link, &dev->links.consumers, s_node,
+				device_links_read_lock_held()) {
+		if (!(link->flags & DL_FLAG_MANAGED))
 			continue;
 
-		if (link->rpm_active) {
+		while (refcount_dec_not_one(&link->rpm_active))
 			pm_runtime_put_noidle(dev);
-			link->rpm_active = false;
-		}
 	}
 
 	device_links_read_unlock(idx);
@@ -1581,9 +1690,13 @@ void pm_runtime_get_suppliers(struct device *dev)
 
 	idx = device_links_read_lock();
 
-	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node)
-		if (link->flags & DL_FLAG_PM_RUNTIME)
+	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node,
+				device_links_read_lock_held())
+		if (link->flags & DL_FLAG_PM_RUNTIME) {
+			link->supplier_preactivated = true;
+			refcount_inc(&link->rpm_active);
 			pm_runtime_get_sync(link->supplier);
+		}
 
 	device_links_read_unlock(idx);
 }
@@ -1599,9 +1712,13 @@ void pm_runtime_put_suppliers(struct device *dev)
 
 	idx = device_links_read_lock();
 
-	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node)
-		if (link->flags & DL_FLAG_PM_RUNTIME)
-			pm_runtime_put(link->supplier);
+	list_for_each_entry_rcu(link, &dev->links.suppliers, c_node,
+				device_links_read_lock_held())
+		if (link->supplier_preactivated) {
+			link->supplier_preactivated = false;
+			if (refcount_dec_not_one(&link->rpm_active))
+				pm_runtime_put(link->supplier);
+		}
 
 	device_links_read_unlock(idx);
 }
@@ -1615,8 +1732,6 @@ void pm_runtime_new_link(struct device *dev)
 
 void pm_runtime_drop_link(struct device *dev)
 {
-	rpm_put_suppliers(dev);
-
 	spin_lock_irq(&dev->power.lock);
 	WARN_ON(dev->power.links_count == 0);
 	dev->power.links_count--;

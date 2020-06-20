@@ -189,7 +189,7 @@ static int  cops_nodeid (struct net_device *dev, int nodeid);
 
 static irqreturn_t cops_interrupt (int irq, void *dev_id);
 static void cops_poll(struct timer_list *t);
-static void cops_timeout(struct net_device *dev);
+static void cops_timeout(struct net_device *dev, unsigned int txqueue);
 static void cops_rx (struct net_device *dev);
 static netdev_tx_t  cops_send_packet (struct sk_buff *skb,
 					    struct net_device *dev);
@@ -301,7 +301,7 @@ static int __init cops_probe1(struct net_device *dev, int ioaddr)
 			dev->irq = cops_irq(ioaddr, board);
 			if (dev->irq)
 				break;
-			/* No IRQ found on this port, fallthrough */
+			/* fall through - Once no IRQ found on this port. */
 		case 1:
 			retval = -EINVAL;
 			goto err_out;
@@ -844,7 +844,7 @@ static void cops_rx(struct net_device *dev)
         netif_rx(skb);
 }
 
-static void cops_timeout(struct net_device *dev)
+static void cops_timeout(struct net_device *dev, unsigned int txqueue)
 {
         struct cops_local *lp = netdev_priv(dev);
         int ioaddr = dev->base_addr;

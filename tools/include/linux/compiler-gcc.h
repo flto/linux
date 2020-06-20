@@ -6,9 +6,11 @@
 /*
  * Common definitions for all gcc versions go here.
  */
+#ifndef GCC_VERSION
 #define GCC_VERSION (__GNUC__ * 10000		\
 		     + __GNUC_MINOR__ * 100	\
 		     + __GNUC_PATCHLEVEL__)
+#endif
 
 #if GCC_VERSION >= 70000 && !defined(__CHECKER__)
 # define __fallthrough __attribute__ ((fallthrough))
@@ -25,6 +27,18 @@
 #define  __pure		__attribute__((pure))
 #endif
 #define  noinline	__attribute__((noinline))
+#ifdef __has_attribute
+#if __has_attribute(disable_tail_calls)
+#define __no_tail_call	__attribute__((disable_tail_calls))
+#endif
+#endif
+#ifndef __no_tail_call
+#if GCC_VERSION > 40201
+#define __no_tail_call	__attribute__((optimize("no-optimize-sibling-calls")))
+#else
+#define __no_tail_call
+#endif
+#endif
 #ifndef __packed
 #define __packed	__attribute__((packed))
 #endif

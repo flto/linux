@@ -25,12 +25,16 @@
  *
  **************************************************************************/
 
-#include "vmwgfx_kms.h"
-#include <drm/drm_plane_helper.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
-#include <drm/drm_rect.h>
 #include <drm/drm_damage_helper.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_plane_helper.h>
+#include <drm/drm_rect.h>
+#include <drm/drm_sysfs.h>
+#include <drm/drm_vblank.h>
+
+#include "vmwgfx_kms.h"
 
 /* Might need a hrtimer here? */
 #define VMWGFX_PRESENT_RATE ((HZ / 60 > 0) ? HZ / 60 : 1)
@@ -64,11 +68,9 @@ static int vmw_cursor_update_image(struct vmw_private *dev_priv,
 	if (!image)
 		return -EINVAL;
 
-	cmd = vmw_fifo_reserve(dev_priv, cmd_size);
-	if (unlikely(cmd == NULL)) {
-		DRM_ERROR("Fifo reserve failed.\n");
+	cmd = VMW_FIFO_RESERVE(dev_priv, cmd_size);
+	if (unlikely(cmd == NULL))
 		return -ENOMEM;
-	}
 
 	memset(cmd, 0, sizeof(*cmd));
 
@@ -903,14 +905,14 @@ static int vmw_kms_new_framebuffer_surface(struct vmw_private *dev_priv,
 	 */
 
 	/* Surface must be marked as a scanout. */
-	if (unlikely(!surface->scanout))
+	if (unlikely(!surface->metadata.scanout))
 		return -EINVAL;
 
-	if (unlikely(surface->mip_levels[0] != 1 ||
-		     surface->num_sizes != 1 ||
-		     surface->base_size.width < mode_cmd->width ||
-		     surface->base_size.height < mode_cmd->height ||
-		     surface->base_size.depth != 1)) {
+	if (unlikely(surface->metadata.mip_levels[0] != 1 ||
+		     surface->metadata.num_sizes != 1 ||
+		     surface->metadata.base_size.width < mode_cmd->width ||
+		     surface->metadata.base_size.height < mode_cmd->height ||
+		     surface->metadata.base_size.depth != 1)) {
 		DRM_ERROR("Incompatible surface dimensions "
 			  "for requested mode.\n");
 		return -EINVAL;
@@ -939,7 +941,7 @@ static int vmw_kms_new_framebuffer_surface(struct vmw_private *dev_priv,
 	 * For DX, surface format validation is done when surface->scanout
 	 * is set.
 	 */
-	if (!dev_priv->has_dx && format != surface->format) {
+	if (!has_sm4_context(dev_priv) && format != surface->metadata.format) {
 		DRM_ERROR("Invalid surface format for requested mode.\n");
 		return -EINVAL;
 	}
@@ -1142,8 +1144,8 @@ static int vmw_create_bo_proxy(struct drm_device *dev,
 			       struct vmw_buffer_object *bo_mob,
 			       struct vmw_surface **srf_out)
 {
+	struct vmw_surface_metadata metadata = {0};
 	uint32_t format;
-	struct drm_vmw_size content_base_size = {0};
 	struct vmw_resource *res;
 	unsigned int bytes_pp;
 	struct drm_format_name_buf format_name;
@@ -1173,22 +1175,15 @@ static int vmw_create_bo_proxy(struct drm_device *dev,
 		return -EINVAL;
 	}
 
-	content_base_size.width  = mode_cmd->pitches[0] / bytes_pp;
-	content_base_size.height = mode_cmd->height;
-	content_base_size.depth  = 1;
+	metadata.format = format;
+	metadata.mip_levels[0] = 1;
+	metadata.num_sizes = 1;
+	metadata.base_size.width = mode_cmd->pitches[0] / bytes_pp;
+	metadata.base_size.height =  mode_cmd->height;
+	metadata.base_size.depth = 1;
+	metadata.scanout = true;
 
-	ret = vmw_surface_gb_priv_define(dev,
-					 0, /* kernel visible only */
-					 0, /* flags */
-					 format,
-					 true, /* can be a scanout buffer */
-					 1, /* num of mip levels */
-					 0,
-					 0,
-					 content_base_size,
-					 SVGA3D_MS_PATTERN_NONE,
-					 SVGA3D_MS_QUALITY_NONE,
-					 srf_out);
+	ret = vmw_gb_surface_define(vmw_priv(dev), 0, &metadata, srf_out);
 	if (ret) {
 		DRM_ERROR("Failed to allocate proxy content buffer\n");
 		return ret;
@@ -1202,7 +1197,7 @@ static int vmw_create_bo_proxy(struct drm_device *dev,
 	vmw_bo_unreference(&res->backup);
 	res->backup = vmw_bo_reference(bo_mob);
 	res->backup_offset = 0;
-	vmw_resource_unreserve(res, false, NULL, 0);
+	vmw_resource_unreserve(res, false, false, false, NULL, 0);
 	mutex_unlock(&res->dev_priv->cmdbuf_mutex);
 
 	return 0;
@@ -1464,7 +1459,7 @@ static int vmw_kms_check_display_memory(struct drm_device *dev,
 		if (dev_priv->active_display_unit == vmw_du_screen_target &&
 		    (drm_rect_width(&rects[i]) > dev_priv->stdu_max_width ||
 		     drm_rect_height(&rects[i]) > dev_priv->stdu_max_height)) {
-			DRM_ERROR("Screen size not supported.\n");
+			VMW_DEBUG_KMS("Screen size not supported.\n");
 			return -EINVAL;
 		}
 
@@ -1488,7 +1483,7 @@ static int vmw_kms_check_display_memory(struct drm_device *dev,
 	 * limit on primary bounding box
 	 */
 	if (pixel_mem > dev_priv->prim_bb_mem) {
-		DRM_ERROR("Combined output size too large.\n");
+		VMW_DEBUG_KMS("Combined output size too large.\n");
 		return -EINVAL;
 	}
 
@@ -1498,7 +1493,7 @@ static int vmw_kms_check_display_memory(struct drm_device *dev,
 		bb_mem = (u64) bounding_box.x2 * bounding_box.y2 * 4;
 
 		if (bb_mem > dev_priv->prim_bb_mem) {
-			DRM_ERROR("Topology is beyond supported limits.\n");
+			VMW_DEBUG_KMS("Topology is beyond supported limits.\n");
 			return -EINVAL;
 		}
 	}
@@ -1646,7 +1641,8 @@ static int vmw_kms_check_topology(struct drm_device *dev,
 		struct drm_connector_state *conn_state;
 		struct vmw_connector_state *vmw_conn_state;
 
-		if (!du->pref_active) {
+		if (!du->pref_active && new_crtc_state->enable) {
+			VMW_DEBUG_KMS("Enabling a disabled display unit\n");
 			ret = -EINVAL;
 			goto clean;
 		}
@@ -1703,17 +1699,11 @@ vmw_kms_atomic_check_modeset(struct drm_device *dev,
 		return ret;
 
 	ret = vmw_kms_check_implicit(dev, state);
-	if (ret)
+	if (ret) {
+		VMW_DEBUG_KMS("Invalid implicit state\n");
 		return ret;
+	}
 
-	if (!state->allow_modeset)
-		return ret;
-
-	/*
-	 * Legacy path do not set allow_modeset properly like
-	 * @drm_atomic_helper_update_plane, This will result in unnecessary call
-	 * to vmw_kms_check_topology. So extra set of check.
-	 */
 	for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
 		if (drm_atomic_crtc_needs_modeset(crtc_state))
 			need_modeset = true;
@@ -1900,87 +1890,6 @@ int vmw_kms_write_svga(struct vmw_private *vmw_priv,
 	return 0;
 }
 
-int vmw_kms_save_vga(struct vmw_private *vmw_priv)
-{
-	struct vmw_vga_topology_state *save;
-	uint32_t i;
-
-	vmw_priv->vga_width = vmw_read(vmw_priv, SVGA_REG_WIDTH);
-	vmw_priv->vga_height = vmw_read(vmw_priv, SVGA_REG_HEIGHT);
-	vmw_priv->vga_bpp = vmw_read(vmw_priv, SVGA_REG_BITS_PER_PIXEL);
-	if (vmw_priv->capabilities & SVGA_CAP_PITCHLOCK)
-		vmw_priv->vga_pitchlock =
-		  vmw_read(vmw_priv, SVGA_REG_PITCHLOCK);
-	else if (vmw_fifo_have_pitchlock(vmw_priv))
-		vmw_priv->vga_pitchlock = vmw_mmio_read(vmw_priv->mmio_virt +
-							SVGA_FIFO_PITCHLOCK);
-
-	if (!(vmw_priv->capabilities & SVGA_CAP_DISPLAY_TOPOLOGY))
-		return 0;
-
-	vmw_priv->num_displays = vmw_read(vmw_priv,
-					  SVGA_REG_NUM_GUEST_DISPLAYS);
-
-	if (vmw_priv->num_displays == 0)
-		vmw_priv->num_displays = 1;
-
-	for (i = 0; i < vmw_priv->num_displays; ++i) {
-		save = &vmw_priv->vga_save[i];
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_ID, i);
-		save->primary = vmw_read(vmw_priv, SVGA_REG_DISPLAY_IS_PRIMARY);
-		save->pos_x = vmw_read(vmw_priv, SVGA_REG_DISPLAY_POSITION_X);
-		save->pos_y = vmw_read(vmw_priv, SVGA_REG_DISPLAY_POSITION_Y);
-		save->width = vmw_read(vmw_priv, SVGA_REG_DISPLAY_WIDTH);
-		save->height = vmw_read(vmw_priv, SVGA_REG_DISPLAY_HEIGHT);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_ID, SVGA_ID_INVALID);
-		if (i == 0 && vmw_priv->num_displays == 1 &&
-		    save->width == 0 && save->height == 0) {
-
-			/*
-			 * It should be fairly safe to assume that these
-			 * values are uninitialized.
-			 */
-
-			save->width = vmw_priv->vga_width - save->pos_x;
-			save->height = vmw_priv->vga_height - save->pos_y;
-		}
-	}
-
-	return 0;
-}
-
-int vmw_kms_restore_vga(struct vmw_private *vmw_priv)
-{
-	struct vmw_vga_topology_state *save;
-	uint32_t i;
-
-	vmw_write(vmw_priv, SVGA_REG_WIDTH, vmw_priv->vga_width);
-	vmw_write(vmw_priv, SVGA_REG_HEIGHT, vmw_priv->vga_height);
-	vmw_write(vmw_priv, SVGA_REG_BITS_PER_PIXEL, vmw_priv->vga_bpp);
-	if (vmw_priv->capabilities & SVGA_CAP_PITCHLOCK)
-		vmw_write(vmw_priv, SVGA_REG_PITCHLOCK,
-			  vmw_priv->vga_pitchlock);
-	else if (vmw_fifo_have_pitchlock(vmw_priv))
-		vmw_mmio_write(vmw_priv->vga_pitchlock,
-			       vmw_priv->mmio_virt + SVGA_FIFO_PITCHLOCK);
-
-	if (!(vmw_priv->capabilities & SVGA_CAP_DISPLAY_TOPOLOGY))
-		return 0;
-
-	for (i = 0; i < vmw_priv->num_displays; ++i) {
-		save = &vmw_priv->vga_save[i];
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_ID, i);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_IS_PRIMARY, save->primary);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_POSITION_X, save->pos_x);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_POSITION_Y, save->pos_y);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_WIDTH, save->width);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_HEIGHT, save->height);
-		vmw_write(vmw_priv, SVGA_REG_DISPLAY_ID, SVGA_ID_INVALID);
-	}
-
-	return 0;
-}
-
 bool vmw_kms_validate_mode_vram(struct vmw_private *dev_priv,
 				uint32_t pitch,
 				uint32_t height)
@@ -1994,7 +1903,7 @@ bool vmw_kms_validate_mode_vram(struct vmw_private *dev_priv,
 /**
  * Function called by DRM code called with vbl_lock held.
  */
-u32 vmw_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
+u32 vmw_get_vblank_counter(struct drm_crtc *crtc)
 {
 	return 0;
 }
@@ -2002,7 +1911,7 @@ u32 vmw_get_vblank_counter(struct drm_device *dev, unsigned int pipe)
 /**
  * Function called by DRM code called with vbl_lock held.
  */
-int vmw_enable_vblank(struct drm_device *dev, unsigned int pipe)
+int vmw_enable_vblank(struct drm_crtc *crtc)
 {
 	return -EINVAL;
 }
@@ -2010,7 +1919,7 @@ int vmw_enable_vblank(struct drm_device *dev, unsigned int pipe)
 /**
  * Function called by DRM code called with vbl_lock held.
  */
-void vmw_disable_vblank(struct drm_device *dev, unsigned int pipe)
+void vmw_disable_vblank(struct drm_crtc *crtc)
 {
 }
 
@@ -2349,6 +2258,9 @@ int vmw_kms_update_layout_ioctl(struct drm_device *dev, void *data,
 
 	if (!arg->num_outputs) {
 		struct drm_rect def_rect = {0, 0, 800, 600};
+		VMW_DEBUG_KMS("Default layout x1 = %d y1 = %d x2 = %d y2 = %d\n",
+			      def_rect.x1, def_rect.y1,
+			      def_rect.x2, def_rect.y2);
 		vmw_du_update_layout(dev_priv, 1, &def_rect);
 		return 0;
 	}
@@ -2369,6 +2281,7 @@ int vmw_kms_update_layout_ioctl(struct drm_device *dev, void *data,
 
 	drm_rects = (struct drm_rect *)rects;
 
+	VMW_DEBUG_KMS("Layout count = %u\n", arg->num_outputs);
 	for (i = 0; i < arg->num_outputs; i++) {
 		struct drm_vmw_rect curr_rect;
 
@@ -2385,6 +2298,10 @@ int vmw_kms_update_layout_ioctl(struct drm_device *dev, void *data,
 		drm_rects[i].x2 = curr_rect.x + curr_rect.w;
 		drm_rects[i].y2 = curr_rect.y + curr_rect.h;
 
+		VMW_DEBUG_KMS("  x1 = %d y1 = %d x2 = %d y2 = %d\n",
+			      drm_rects[i].x1, drm_rects[i].y1,
+			      drm_rects[i].x2, drm_rects[i].y2);
+
 		/*
 		 * Currently this check is limiting the topology within
 		 * mode_config->max (which actually is max texture size
@@ -2395,7 +2312,9 @@ int vmw_kms_update_layout_ioctl(struct drm_device *dev, void *data,
 		if (drm_rects[i].x1 < 0 ||  drm_rects[i].y1 < 0 ||
 		    drm_rects[i].x2 > mode_config->max_width ||
 		    drm_rects[i].y2 > mode_config->max_height) {
-			DRM_ERROR("Invalid GUI layout.\n");
+			VMW_DEBUG_KMS("Invalid layout %d %d %d %d\n",
+				      drm_rects[i].x1, drm_rects[i].y1,
+				      drm_rects[i].x2, drm_rects[i].y2);
 			ret = -EINVAL;
 			goto out_free;
 		}
@@ -2468,13 +2387,11 @@ int vmw_kms_helper_dirty(struct vmw_private *dev_priv,
 
 		dirty->unit = unit;
 		if (dirty->fifo_reserve_size > 0) {
-			dirty->cmd = vmw_fifo_reserve(dev_priv,
+			dirty->cmd = VMW_FIFO_RESERVE(dev_priv,
 						      dirty->fifo_reserve_size);
-			if (!dirty->cmd) {
-				DRM_ERROR("Couldn't reserve fifo space "
-					  "for dirty blits.\n");
+			if (!dirty->cmd)
 				return -ENOMEM;
-			}
+
 			memset(dirty->cmd, 0, dirty->fifo_reserve_size);
 		}
 		dirty->num_hits = 0;
@@ -2554,8 +2471,8 @@ void vmw_kms_helper_validation_finish(struct vmw_private *dev_priv,
 				      user_fence_rep)
 {
 	struct vmw_fence_obj *fence = NULL;
-	uint32_t handle;
-	int ret;
+	uint32_t handle = 0;
+	int ret = 0;
 
 	if (file_priv || user_fence_rep || vmw_validation_has_bos(ctx) ||
 	    out_fence)
@@ -2592,7 +2509,7 @@ int vmw_kms_update_proxy(struct vmw_resource *res,
 			 int increment)
 {
 	struct vmw_private *dev_priv = res->dev_priv;
-	struct drm_vmw_size *size = &vmw_res_to_srf(res)->base_size;
+	struct drm_vmw_size *size = &vmw_res_to_srf(res)->metadata.base_size;
 	struct {
 		SVGA3dCmdHeader header;
 		SVGA3dCmdUpdateGBImage body;
@@ -2604,12 +2521,9 @@ int vmw_kms_update_proxy(struct vmw_resource *res,
 	if (!clips)
 		return 0;
 
-	cmd = vmw_fifo_reserve(dev_priv, sizeof(*cmd) * num_clips);
-	if (!cmd) {
-		DRM_ERROR("Couldn't reserve fifo space for proxy surface "
-			  "update.\n");
+	cmd = VMW_FIFO_RESERVE(dev_priv, sizeof(*cmd) * num_clips);
+	if (!cmd)
 		return -ENOMEM;
-	}
 
 	for (i = 0; i < num_clips; ++i, clips += increment, ++cmd) {
 		box = &cmd->body.box;
@@ -2827,7 +2741,8 @@ int vmw_du_helper_plane_update(struct vmw_du_update_plane *update)
 			container_of(update->vfb, typeof(*vfbs), base);
 
 		ret = vmw_validation_add_resource(&val_ctx, &vfbs->surface->res,
-						  0, NULL, NULL);
+						  0, VMW_RES_DIRTY_NONE, NULL,
+						  NULL);
 	}
 
 	if (ret)
@@ -2838,7 +2753,7 @@ int vmw_du_helper_plane_update(struct vmw_du_update_plane *update)
 		goto out_unref;
 
 	reserved_size = update->calc_fifo_size(update, num_hits);
-	cmd_start = vmw_fifo_reserve(update->dev_priv, reserved_size);
+	cmd_start = VMW_FIFO_RESERVE(update->dev_priv, reserved_size);
 	if (!cmd_start) {
 		ret = -ENOMEM;
 		goto out_revert;

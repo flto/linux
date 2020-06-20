@@ -27,12 +27,13 @@
  * R10000 and R12000 are used in such systems, the SGI IP28 Indigo² rsp.
  * SGI IP32 aka O2.
  */
-static inline bool cpu_needs_post_dma_flush(struct device *dev)
+static inline bool cpu_needs_post_dma_flush(void)
 {
 	switch (boot_cpu_type()) {
 	case CPU_R10000:
 	case CPU_R12000:
 	case CPU_BMIPS5000:
+	case CPU_LOONGSON2EF:
 		return true;
 	default:
 		/*
@@ -44,41 +45,14 @@ static inline bool cpu_needs_post_dma_flush(struct device *dev)
 	}
 }
 
-void *arch_dma_alloc(struct device *dev, size_t size,
-		dma_addr_t *dma_handle, gfp_t gfp, unsigned long attrs)
+void arch_dma_prep_coherent(struct page *page, size_t size)
 {
-	void *ret;
-
-	ret = dma_direct_alloc_pages(dev, size, dma_handle, gfp, attrs);
-	if (ret && !(attrs & DMA_ATTR_NON_CONSISTENT)) {
-		dma_cache_wback_inv((unsigned long) ret, size);
-		ret = (void *)UNCAC_ADDR(ret);
-	}
-
-	return ret;
+	dma_cache_wback_inv((unsigned long)page_address(page), size);
 }
 
-void arch_dma_free(struct device *dev, size_t size, void *cpu_addr,
-		dma_addr_t dma_addr, unsigned long attrs)
+void *arch_dma_set_uncached(void *addr, size_t size)
 {
-	if (!(attrs & DMA_ATTR_NON_CONSISTENT))
-		cpu_addr = (void *)CAC_ADDR((unsigned long)cpu_addr);
-	dma_direct_free_pages(dev, size, cpu_addr, dma_addr, attrs);
-}
-
-long arch_dma_coherent_to_pfn(struct device *dev, void *cpu_addr,
-		dma_addr_t dma_addr)
-{
-	unsigned long addr = CAC_ADDR((unsigned long)cpu_addr);
-	return page_to_pfn(virt_to_page((void *)addr));
-}
-
-pgprot_t arch_dma_mmap_pgprot(struct device *dev, pgprot_t prot,
-		unsigned long attrs)
-{
-	if (attrs & DMA_ATTR_WRITE_COMBINE)
-		return pgprot_writecombine(prot);
-	return pgprot_noncached(prot);
+	return (void *)(__pa(addr) + UNCAC_BASE);
 }
 
 static inline void dma_sync_virt(void *addr, size_t size,
@@ -120,13 +94,8 @@ static inline void dma_sync_phys(phys_addr_t paddr, size_t size,
 		if (PageHighMem(page)) {
 			void *addr;
 
-			if (offset + len > PAGE_SIZE) {
-				if (offset >= PAGE_SIZE) {
-					page += offset >> PAGE_SHIFT;
-					offset &= ~PAGE_MASK;
-				}
+			if (offset + len > PAGE_SIZE)
 				len = PAGE_SIZE - offset;
-			}
 
 			addr = kmap_atomic(page);
 			dma_sync_virt(addr + offset, len, dir);
@@ -139,18 +108,20 @@ static inline void dma_sync_phys(phys_addr_t paddr, size_t size,
 	} while (left);
 }
 
-void arch_sync_dma_for_device(struct device *dev, phys_addr_t paddr,
-		size_t size, enum dma_data_direction dir)
+void arch_sync_dma_for_device(phys_addr_t paddr, size_t size,
+		enum dma_data_direction dir)
 {
 	dma_sync_phys(paddr, size, dir);
 }
 
-void arch_sync_dma_for_cpu(struct device *dev, phys_addr_t paddr,
-		size_t size, enum dma_data_direction dir)
+#ifdef CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU
+void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
+		enum dma_data_direction dir)
 {
-	if (cpu_needs_post_dma_flush(dev))
+	if (cpu_needs_post_dma_flush())
 		dma_sync_phys(paddr, size, dir);
 }
+#endif
 
 void arch_dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 		enum dma_data_direction direction)
@@ -159,3 +130,11 @@ void arch_dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 
 	dma_sync_virt(vaddr, size, direction);
 }
+
+#ifdef CONFIG_DMA_PERDEV_COHERENT
+void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
+		const struct iommu_ops *iommu, bool coherent)
+{
+	dev->dma_coherent = coherent;
+}
+#endif

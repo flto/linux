@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2009, Microsoft Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
- * Place - Suite 330, Boston, MA 02111-1307 USA.
  *
  * Authors:
  *   Haiyang Zhang <haiyangz@microsoft.com>
@@ -385,8 +373,9 @@ enum storvsc_request_type {
  * This is the end of Protocol specific defines.
  */
 
-static int storvsc_ringbuffer_size = (256 * PAGE_SIZE);
+static int storvsc_ringbuffer_size = (128 * 1024);
 static u32 max_outstanding_req_per_channel;
+static int storvsc_change_queue_depth(struct scsi_device *sdev, int queue_depth);
 
 static int storvsc_vcpus_per_sub_channel = 4;
 
@@ -632,6 +621,64 @@ get_in_err:
 
 }
 
+static void storvsc_change_target_cpu(struct vmbus_channel *channel, u32 old,
+				      u32 new)
+{
+	struct storvsc_device *stor_device;
+	struct vmbus_channel *cur_chn;
+	bool old_is_alloced = false;
+	struct hv_device *device;
+	unsigned long flags;
+	int cpu;
+
+	device = channel->primary_channel ?
+			channel->primary_channel->device_obj
+				: channel->device_obj;
+	stor_device = get_out_stor_device(device);
+	if (!stor_device)
+		return;
+
+	/* See storvsc_do_io() -> get_og_chn(). */
+	spin_lock_irqsave(&device->channel->lock, flags);
+
+	/*
+	 * Determines if the storvsc device has other channels assigned to
+	 * the "old" CPU to update the alloced_cpus mask and the stor_chns
+	 * array.
+	 */
+	if (device->channel != channel && device->channel->target_cpu == old) {
+		cur_chn = device->channel;
+		old_is_alloced = true;
+		goto old_is_alloced;
+	}
+	list_for_each_entry(cur_chn, &device->channel->sc_list, sc_list) {
+		if (cur_chn == channel)
+			continue;
+		if (cur_chn->target_cpu == old) {
+			old_is_alloced = true;
+			goto old_is_alloced;
+		}
+	}
+
+old_is_alloced:
+	if (old_is_alloced)
+		WRITE_ONCE(stor_device->stor_chns[old], cur_chn);
+	else
+		cpumask_clear_cpu(old, &stor_device->alloced_cpus);
+
+	/* "Flush" the stor_chns array. */
+	for_each_possible_cpu(cpu) {
+		if (stor_device->stor_chns[cpu] && !cpumask_test_cpu(
+					cpu, &stor_device->alloced_cpus))
+			WRITE_ONCE(stor_device->stor_chns[cpu], NULL);
+	}
+
+	WRITE_ONCE(stor_device->stor_chns[new], channel);
+	cpumask_set_cpu(new, &stor_device->alloced_cpus);
+
+	spin_unlock_irqrestore(&device->channel->lock, flags);
+}
+
 static void handle_sc_creation(struct vmbus_channel *new_sc)
 {
 	struct hv_device *device = new_sc->primary_channel->device_obj;
@@ -659,6 +706,8 @@ static void handle_sc_creation(struct vmbus_channel *new_sc)
 		return;
 	}
 
+	new_sc->change_target_cpu_callback = storvsc_change_target_cpu;
+
 	/* Add the sub-channel to the array of available channels. */
 	stor_device->stor_chns[new_sc->target_cpu] = new_sc;
 	cpumask_set_cpu(new_sc->target_cpu, &stor_device->alloced_cpus);
@@ -668,13 +717,22 @@ static void  handle_multichannel_storage(struct hv_device *device, int max_chns)
 {
 	struct device *dev = &device->device;
 	struct storvsc_device *stor_device;
-	int num_cpus = num_online_cpus();
 	int num_sc;
 	struct storvsc_cmd_request *request;
 	struct vstor_packet *vstor_packet;
 	int ret, t;
 
-	num_sc = ((max_chns > num_cpus) ? num_cpus : max_chns);
+	/*
+	 * If the number of CPUs is artificially restricted, such as
+	 * with maxcpus=1 on the kernel boot line, Hyper-V could offer
+	 * sub-channels >= the number of CPUs. These sub-channels
+	 * should not be created. The primary channel is already created
+	 * and assigned to one CPU, so check against # CPUs - 1.
+	 */
+	num_sc = min((int)(num_online_cpus() - 1), max_chns);
+	if (!num_sc)
+		return;
+
 	stor_device = get_out_stor_device(device);
 	if (!stor_device)
 		return;
@@ -877,6 +935,8 @@ static int storvsc_channel_init(struct hv_device *device, bool is_fc)
 					 GFP_KERNEL);
 	if (stor_device->stor_chns == NULL)
 		return -ENOMEM;
+
+	device->channel->change_target_cpu_callback = storvsc_change_target_cpu;
 
 	stor_device->stor_chns[device->channel->target_cpu] = device->channel;
 	cpumask_set_cpu(device->channel->target_cpu,
@@ -1250,8 +1310,10 @@ static struct vmbus_channel *get_og_chn(struct storvsc_device *stor_device,
 	const struct cpumask *node_mask;
 	int num_channels, tgt_cpu;
 
-	if (stor_device->num_sc == 0)
+	if (stor_device->num_sc == 0) {
+		stor_device->stor_chns[q_num] = stor_device->device->channel;
 		return stor_device->device->channel;
+	}
 
 	/*
 	 * Our channel array is sparsley populated and we
@@ -1260,7 +1322,6 @@ static struct vmbus_channel *get_og_chn(struct storvsc_device *stor_device,
 	 * The strategy is simple:
 	 * I. Ensure NUMA locality
 	 * II. Distribute evenly (best effort)
-	 * III. Mapping is persistent.
 	 */
 
 	node_mask = cpumask_of_node(cpu_to_node(q_num));
@@ -1270,8 +1331,10 @@ static struct vmbus_channel *get_og_chn(struct storvsc_device *stor_device,
 		if (cpumask_test_cpu(tgt_cpu, node_mask))
 			num_channels++;
 	}
-	if (num_channels == 0)
+	if (num_channels == 0) {
+		stor_device->stor_chns[q_num] = stor_device->device->channel;
 		return stor_device->device->channel;
+	}
 
 	hash_qnum = q_num;
 	while (hash_qnum >= num_channels)
@@ -1297,6 +1360,7 @@ static int storvsc_do_io(struct hv_device *device,
 	struct storvsc_device *stor_device;
 	struct vstor_packet *vstor_packet;
 	struct vmbus_channel *outgoing_channel, *channel;
+	unsigned long flags;
 	int ret = 0;
 	const struct cpumask *node_mask;
 	int tgt_cpu;
@@ -1310,10 +1374,11 @@ static int storvsc_do_io(struct hv_device *device,
 
 	request->device  = device;
 	/*
-	 * Select an an appropriate channel to send the request out.
+	 * Select an appropriate channel to send the request out.
 	 */
-	if (stor_device->stor_chns[q_num] != NULL) {
-		outgoing_channel = stor_device->stor_chns[q_num];
+	/* See storvsc_change_target_cpu(). */
+	outgoing_channel = READ_ONCE(stor_device->stor_chns[q_num]);
+	if (outgoing_channel != NULL) {
 		if (outgoing_channel->target_cpu == q_num) {
 			/*
 			 * Ideally, we want to pick a different channel if
@@ -1326,7 +1391,10 @@ static int storvsc_do_io(struct hv_device *device,
 					continue;
 				if (tgt_cpu == q_num)
 					continue;
-				channel = stor_device->stor_chns[tgt_cpu];
+				channel = READ_ONCE(
+					stor_device->stor_chns[tgt_cpu]);
+				if (channel == NULL)
+					continue;
 				if (hv_get_avail_to_write_percent(
 							&channel->outbound)
 						> ring_avail_percent_lowater) {
@@ -1352,7 +1420,10 @@ static int storvsc_do_io(struct hv_device *device,
 			for_each_cpu(tgt_cpu, &stor_device->alloced_cpus) {
 				if (cpumask_test_cpu(tgt_cpu, node_mask))
 					continue;
-				channel = stor_device->stor_chns[tgt_cpu];
+				channel = READ_ONCE(
+					stor_device->stor_chns[tgt_cpu]);
+				if (channel == NULL)
+					continue;
 				if (hv_get_avail_to_write_percent(
 							&channel->outbound)
 						> ring_avail_percent_lowater) {
@@ -1362,7 +1433,14 @@ static int storvsc_do_io(struct hv_device *device,
 			}
 		}
 	} else {
+		spin_lock_irqsave(&device->channel->lock, flags);
+		outgoing_channel = stor_device->stor_chns[q_num];
+		if (outgoing_channel != NULL) {
+			spin_unlock_irqrestore(&device->channel->lock, flags);
+			goto found_channel;
+		}
 		outgoing_channel = get_og_chn(stor_device, q_num);
+		spin_unlock_irqrestore(&device->channel->lock, flags);
 	}
 
 found_channel:
@@ -1424,9 +1502,6 @@ static int storvsc_device_alloc(struct scsi_device *sdevice)
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
-
-	/* Ensure there are no gaps in presented sgls */
-	blk_queue_virt_boundary(sdevice->request_queue, PAGE_SIZE - 1);
 
 	sdevice->no_write_same = 1;
 
@@ -1700,8 +1775,11 @@ static struct scsi_host_template scsi_driver = {
 	.this_id =		-1,
 	/* Make sure we dont get a sg segment crosses a page boundary */
 	.dma_boundary =		PAGE_SIZE-1,
+	/* Ensure there are no gaps in presented sgls */
+	.virt_boundary_mask =	PAGE_SIZE-1,
 	.no_write_same =	1,
 	.track_queue_depth =	1,
+	.change_queue_depth =	storvsc_change_queue_depth,
 };
 
 enum {
@@ -1728,6 +1806,13 @@ static const struct hv_vmbus_device_id id_table[] = {
 };
 
 MODULE_DEVICE_TABLE(vmbus, id_table);
+
+static const struct { guid_t guid; } fc_guid = { HV_SYNTHFC_GUID };
+
+static bool hv_dev_is_fc(struct hv_device *hv_dev)
+{
+	return guid_equal(&fc_guid.guid, &hv_dev->dev_type);
+}
 
 static int storvsc_probe(struct hv_device *device,
 			const struct hv_vmbus_device_id *dev_id)
@@ -1837,10 +1922,11 @@ static int storvsc_probe(struct hv_device *device,
 	 */
 	host->sg_tablesize = (stor_device->max_transfer_bytes >> PAGE_SHIFT);
 	/*
+	 * For non-IDE disks, the host supports multiple channels.
 	 * Set the number of HW queues we are supporting.
 	 */
-	if (stor_device->num_sc != 0)
-		host->nr_hw_queues = stor_device->num_sc + 1;
+	if (!dev_is_ide)
+		host->nr_hw_queues = num_present_cpus();
 
 	/*
 	 * Set the error handler work queue.
@@ -1908,6 +1994,15 @@ err_out0:
 	return ret;
 }
 
+/* Change a scsi target's queue depth */
+static int storvsc_change_queue_depth(struct scsi_device *sdev, int queue_depth)
+{
+	if (queue_depth > scsi_driver.can_queue)
+		queue_depth = scsi_driver.can_queue;
+
+	return scsi_change_queue_depth(sdev, queue_depth);
+}
+
 static int storvsc_remove(struct hv_device *dev)
 {
 	struct storvsc_device *stor_device = hv_get_drvdata(dev);
@@ -1928,11 +2023,42 @@ static int storvsc_remove(struct hv_device *dev)
 	return 0;
 }
 
+static int storvsc_suspend(struct hv_device *hv_dev)
+{
+	struct storvsc_device *stor_device = hv_get_drvdata(hv_dev);
+	struct Scsi_Host *host = stor_device->host;
+	struct hv_host_device *host_dev = shost_priv(host);
+
+	storvsc_wait_to_drain(stor_device);
+
+	drain_workqueue(host_dev->handle_error_wq);
+
+	vmbus_close(hv_dev->channel);
+
+	kfree(stor_device->stor_chns);
+	stor_device->stor_chns = NULL;
+
+	cpumask_clear(&stor_device->alloced_cpus);
+
+	return 0;
+}
+
+static int storvsc_resume(struct hv_device *hv_dev)
+{
+	int ret;
+
+	ret = storvsc_connect_to_vsp(hv_dev, storvsc_ringbuffer_size,
+				     hv_dev_is_fc(hv_dev));
+	return ret;
+}
+
 static struct hv_driver storvsc_drv = {
 	.name = KBUILD_MODNAME,
 	.id_table = id_table,
 	.probe = storvsc_probe,
 	.remove = storvsc_remove,
+	.suspend = storvsc_suspend,
+	.resume = storvsc_resume,
 	.driver = {
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},

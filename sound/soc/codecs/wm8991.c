@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * wm8991.c  --  WM8991 ALSA Soc Audio driver
  *
  * Copyright 2007-2010 Wolfson Microelectronics PLC.
  * Author: Graeme Gregory
  *         Graeme.Gregory@wolfsonmicro.com
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
  */
 
 #include <linux/module.h>
@@ -479,14 +475,6 @@ static SOC_ENUM_SINGLE_DECL(wm8991_ainrmux_enum,
 
 static const struct snd_kcontrol_new wm8991_dapm_ainrmux_controls =
 	SOC_DAPM_ENUM("Route", wm8991_ainrmux_enum);
-
-/* RXVOICE */
-static const struct snd_kcontrol_new wm8991_dapm_rxvoice_controls[] = {
-	SOC_DAPM_SINGLE_TLV("LIN4RXN", WM8991_INPUT_MIXER5, WM8991_LR4BVOL_SHIFT,
-		WM8991_LR4BVOL_MASK, 0, in_mix_tlv),
-	SOC_DAPM_SINGLE_TLV("RIN4RXP", WM8991_INPUT_MIXER6, WM8991_RL4BVOL_SHIFT,
-		WM8991_RL4BVOL_MASK, 0, in_mix_tlv),
-};
 
 /* LOMIX */
 static const struct snd_kcontrol_new wm8991_dapm_lomix_controls[] = {

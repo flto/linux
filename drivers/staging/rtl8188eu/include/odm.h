@@ -239,7 +239,6 @@ struct odm_rate_adapt {
 
 #define IQK_MAC_REG_NUM		4
 #define IQK_ADDA_REG_NUM	16
-#define IQK_BB_REG_NUM_MAX	10
 #define IQK_BB_REG_NUM		9
 #define HP_THERMAL_NUM		8
 
@@ -1045,7 +1044,6 @@ extern	u8 CCKSwingTable_Ch14[CCK_TABLE_SIZE][8];
 
 void ODM_RF_Saving(struct odm_dm_struct *pDM_Odm, u8 bForceInNormal);
 void ODM_TXPowerTrackingCheck(struct odm_dm_struct *pDM_Odm);
-void odm_DIGbyRSSI_LPS(struct odm_dm_struct *pDM_Odm);
 void ODM_Write_CCK_CCA_Thres(struct odm_dm_struct *pDM_Odm, u8 CurCCK_CCAThres);
 bool ODM_RAStateCheck(struct odm_dm_struct *pDM_Odm, s32 RSSI,
 		      bool bForceUpdate, u8 *pRATRState);

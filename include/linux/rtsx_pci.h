@@ -1,19 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /* Driver for Realtek PCI-Express card reader
  *
  * Copyright(c) 2009-2013 Realtek Semiconductor Corp. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2, or (at your option) any
- * later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author:
  *   Wei WANG <wei_wang@realsil.com.cn>
@@ -1092,11 +1080,7 @@ struct pcr_ops {
 	void		(*stop_cmd)(struct rtsx_pcr *pcr);
 
 	void (*set_aspm)(struct rtsx_pcr *pcr, bool enable);
-	int (*set_ltr_latency)(struct rtsx_pcr *pcr, u32 latency);
-	int (*set_l1off_sub)(struct rtsx_pcr *pcr, u8 val);
 	void (*set_l1off_cfg_sub_d0)(struct rtsx_pcr *pcr, int active);
-	void (*full_on)(struct rtsx_pcr *pcr);
-	void (*power_saving)(struct rtsx_pcr *pcr);
 	void (*enable_ocp)(struct rtsx_pcr *pcr);
 	void (*disable_ocp)(struct rtsx_pcr *pcr);
 	void (*init_ocp)(struct rtsx_pcr *pcr);
@@ -1120,13 +1104,6 @@ enum PDEV_STAT  {PDEV_STAT_IDLE, PDEV_STAT_RUN};
 #define L1_SNOOZE_TEST_EN		BIT(5)
 #define LTR_L1SS_PWR_GATE_CHECK_CARD_EN	BIT(6)
 
-enum dev_aspm_mode {
-	DEV_ASPM_DYNAMIC,
-	DEV_ASPM_BACKDOOR,
-	DEV_ASPM_STATIC,
-	DEV_ASPM_DISABLE,
-};
-
 /*
  * struct rtsx_cr_option  - card reader option
  * @dev_flags: device flags
@@ -1137,7 +1114,6 @@ enum dev_aspm_mode {
  * @ltr_active_latency: ltr mode active latency
  * @ltr_idle_latency: ltr mode idle latency
  * @ltr_l1off_latency: ltr mode l1off latency
- * @dev_aspm_mode: device aspm mode
  * @l1_snooze_delay: l1 snooze delay
  * @ltr_l1off_sspwrgate: ltr l1off sspwrgate
  * @ltr_l1off_snooze_sspwrgate: ltr l1off snooze sspwrgate
@@ -1154,7 +1130,6 @@ struct rtsx_cr_option {
 	u32 ltr_active_latency;
 	u32 ltr_idle_latency;
 	u32 ltr_l1off_latency;
-	enum dev_aspm_mode dev_aspm_mode;
 	u32 l1_snooze_delay;
 	u8 ltr_l1off_sspwrgate;
 	u8 ltr_l1off_snooze_sspwrgate;
@@ -1274,6 +1249,7 @@ struct rtsx_pcr {
 #define PID_5250	0x5250
 #define PID_525A	0x525A
 #define PID_5260	0x5260
+#define PID_5261	0x5261
 
 #define CHK_PCI_PID(pcr, pid)		((pcr)->pci->device == (pid))
 #define PCI_VID(pcr)			((pcr)->pci->vendor)
@@ -1329,18 +1305,6 @@ void rtsx_pci_complete_unfinished_transfer(struct rtsx_pcr *pcr);
 static inline u8 *rtsx_pci_get_cmd_data(struct rtsx_pcr *pcr)
 {
 	return (u8 *)(pcr->host_cmds_ptr);
-}
-
-static inline int rtsx_pci_update_cfg_byte(struct rtsx_pcr *pcr, int addr,
-		u8 mask, u8 append)
-{
-	int err;
-	u8 val;
-
-	err = pci_read_config_byte(pcr->pci, addr, &val);
-	if (err < 0)
-		return err;
-	return pci_write_config_byte(pcr->pci, addr, (val & mask) | append);
 }
 
 static inline void rtsx_pci_write_be32(struct rtsx_pcr *pcr, u16 reg, u32 val)

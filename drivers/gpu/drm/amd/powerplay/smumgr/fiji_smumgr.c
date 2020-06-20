@@ -137,9 +137,7 @@ static int fiji_start_smu_in_protection_mode(struct pp_hwmgr *hwmgr)
 	PHM_WAIT_VFPF_INDIRECT_FIELD(hwmgr, SMC_IND, RCU_UC_EVENTS,
 			INTERRUPTS_ENABLED, 1);
 
-	cgs_write_register(hwmgr->device, mmSMC_MSG_ARG_0, 0x20000);
-	cgs_write_register(hwmgr->device, mmSMC_MESSAGE_0, PPSMC_MSG_Test);
-	PHM_WAIT_FIELD_UNEQUAL(hwmgr, SMC_RESP_0, SMC_RESP, 0);
+	smum_send_msg_to_smc_with_parameter(hwmgr, PPSMC_MSG_Test, 0x20000, NULL);
 
 	/* Wait for done bit to be set */
 	PHM_WAIT_VFPF_INDIRECT_FIELD_UNEQUAL(hwmgr, SMC_IND,
@@ -203,8 +201,9 @@ static int fiji_start_avfs_btc(struct pp_hwmgr *hwmgr)
 	struct smu7_smumgr *smu_data = (struct smu7_smumgr *)(hwmgr->smu_backend);
 
 	if (0 != smu_data->avfs_btc_param) {
-		if (0 != smu7_send_msg_to_smc_with_parameter(hwmgr,
-				PPSMC_MSG_PerformBtc, smu_data->avfs_btc_param)) {
+		if (0 != smum_send_msg_to_smc_with_parameter(hwmgr,
+				PPSMC_MSG_PerformBtc, smu_data->avfs_btc_param,
+				NULL)) {
 			pr_info("[AVFS][Fiji_PerformBtc] PerformBTC SMU msg failed");
 			result = -EINVAL;
 		}
@@ -940,7 +939,7 @@ static int fiji_populate_single_graphic_level(struct pp_hwmgr *hwmgr,
 {
 	int result;
 	/* PP_Clocks minClocks; */
-	uint32_t threshold, mvdd;
+	uint32_t mvdd;
 	struct smu7_hwmgr *data = (struct smu7_hwmgr *)(hwmgr->backend);
 	struct phm_ppt_v1_information *table_info =
 			(struct phm_ppt_v1_information *)(hwmgr->pptable);
@@ -972,8 +971,6 @@ static int fiji_populate_single_graphic_level(struct pp_hwmgr *hwmgr,
 	level->DownHyst = data->current_profile_setting.sclk_down_hyst;
 	level->VoltageDownHyst = 0;
 	level->PowerThrottle = 0;
-
-	threshold = clock * data->fast_watermark_threshold / 100;
 
 	data->display_timing.min_clock_in_sr = hwmgr->display_config->min_core_set_clock_in_sr;
 
@@ -1501,7 +1498,7 @@ static int fiji_populate_memory_timing_parameters(struct pp_hwmgr *hwmgr,
 	uint32_t dram_timing;
 	uint32_t dram_timing2;
 	uint32_t burstTime;
-	ULONG state, trrds, trrdl;
+	ULONG trrds, trrdl;
 	int result;
 
 	result = atomctrl_set_engine_dram_timings_rv770(hwmgr,
@@ -1513,7 +1510,6 @@ static int fiji_populate_memory_timing_parameters(struct pp_hwmgr *hwmgr,
 	dram_timing2 = cgs_read_register(hwmgr->device, mmMC_ARB_DRAM_TIMING2);
 	burstTime = cgs_read_register(hwmgr->device, mmMC_ARB_BURST_TIME);
 
-	state = PHM_GET_FIELD(burstTime, MC_ARB_BURST_TIME, STATE0);
 	trrds = PHM_GET_FIELD(burstTime, MC_ARB_BURST_TIME, TRRDS0);
 	trrdl = PHM_GET_FIELD(burstTime, MC_ARB_BURST_TIME, TRRDL0);
 
@@ -1916,7 +1912,8 @@ static int fiji_setup_dpm_led_config(struct pp_hwmgr *hwmgr)
 	if (mask)
 		smum_send_msg_to_smc_with_parameter(hwmgr,
 						    PPSMC_MSG_LedConfig,
-						    mask);
+						    mask,
+						    NULL);
 	return 0;
 }
 
@@ -2223,14 +2220,16 @@ static int fiji_thermal_setup_fan_table(struct pp_hwmgr *hwmgr)
 		res = smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_SetFanMinPwm,
 				hwmgr->thermal_controller.
-				advanceFanControlParameters.ucMinimumPWMLimit);
+				advanceFanControlParameters.ucMinimumPWMLimit,
+				NULL);
 
 	if (!res && hwmgr->thermal_controller.
 			advanceFanControlParameters.ulMinFanSCLKAcousticLimit)
 		res = smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_SetFanSclkTarget,
 				hwmgr->thermal_controller.
-				advanceFanControlParameters.ulMinFanSCLKAcousticLimit);
+				advanceFanControlParameters.ulMinFanSCLKAcousticLimit,
+				NULL);
 
 	if (res)
 		phm_cap_unset(hwmgr->platform_descriptor.platformCaps,
@@ -2245,7 +2244,7 @@ static int fiji_thermal_avfs_enable(struct pp_hwmgr *hwmgr)
 	if (!hwmgr->avfs_supported)
 		return 0;
 
-	smum_send_msg_to_smc(hwmgr, PPSMC_MSG_EnableAvfs);
+	smum_send_msg_to_smc(hwmgr, PPSMC_MSG_EnableAvfs, NULL);
 
 	return 0;
 }
@@ -2304,6 +2303,8 @@ static uint32_t fiji_get_offsetof(uint32_t type, uint32_t member)
 			return offsetof(SMU73_SoftRegisters, VoltageChangeTimeout);
 		case AverageGraphicsActivity:
 			return offsetof(SMU73_SoftRegisters, AverageGraphicsActivity);
+		case AverageMemoryActivity:
+			return offsetof(SMU73_SoftRegisters, AverageMemoryActivity);
 		case PreVBlankGap:
 			return offsetof(SMU73_SoftRegisters, PreVBlankGap);
 		case VBlankTimeout:
@@ -2391,7 +2392,8 @@ static int fiji_update_uvd_smc_table(struct pp_hwmgr *hwmgr)
 			PHM_PlatformCaps_StablePState))
 		smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_UVDDPM_SetEnabledMask,
-				(uint32_t)(1 << smu_data->smc_state_table.UvdBootLevel));
+				(uint32_t)(1 << smu_data->smc_state_table.UvdBootLevel),
+				NULL);
 	return 0;
 }
 
@@ -2423,7 +2425,8 @@ static int fiji_update_vce_smc_table(struct pp_hwmgr *hwmgr)
 	if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_StablePState))
 		smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_VCEDPM_SetEnabledMask,
-				(uint32_t)1 << smu_data->smc_state_table.VceBootLevel);
+				(uint32_t)1 << smu_data->smc_state_table.VceBootLevel,
+				NULL);
 	return 0;
 }
 
@@ -2570,7 +2573,7 @@ static int fiji_update_dpm_settings(struct pp_hwmgr *hwmgr,
 
 	if (setting->bupdate_sclk) {
 		if (!data->sclk_dpm_key_disabled)
-			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_SCLKDPM_FreezeLevel);
+			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_SCLKDPM_FreezeLevel, NULL);
 		for (i = 0; i < smu_data->smc_state_table.GraphicsDpmLevelCount; i++) {
 			if (levels[i].ActivityLevel !=
 				cpu_to_be16(setting->sclk_activity)) {
@@ -2600,12 +2603,12 @@ static int fiji_update_dpm_settings(struct pp_hwmgr *hwmgr,
 			}
 		}
 		if (!data->sclk_dpm_key_disabled)
-			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_SCLKDPM_UnfreezeLevel);
+			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_SCLKDPM_UnfreezeLevel, NULL);
 	}
 
 	if (setting->bupdate_mclk) {
 		if (!data->mclk_dpm_key_disabled)
-			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_MCLKDPM_FreezeLevel);
+			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_MCLKDPM_FreezeLevel, NULL);
 		for (i = 0; i < smu_data->smc_state_table.MemoryDpmLevelCount; i++) {
 			if (mclk_levels[i].ActivityLevel !=
 				cpu_to_be16(setting->mclk_activity)) {
@@ -2635,12 +2638,13 @@ static int fiji_update_dpm_settings(struct pp_hwmgr *hwmgr,
 			}
 		}
 		if (!data->mclk_dpm_key_disabled)
-			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_MCLKDPM_UnfreezeLevel);
+			smum_send_msg_to_smc(hwmgr, PPSMC_MSG_MCLKDPM_UnfreezeLevel, NULL);
 	}
 	return 0;
 }
 
 const struct pp_smumgr_func fiji_smu_funcs = {
+	.name = "fiji_smu",
 	.smu_init = &fiji_smu_init,
 	.smu_fini = &smu7_smu_fini,
 	.start_smu = &fiji_start_smu,
@@ -2649,6 +2653,7 @@ const struct pp_smumgr_func fiji_smu_funcs = {
 	.request_smu_load_specific_fw = NULL,
 	.send_msg_to_smc = &smu7_send_msg_to_smc,
 	.send_msg_to_smc_with_parameter = &smu7_send_msg_to_smc_with_parameter,
+	.get_argument = smu7_get_argument,
 	.download_pptable_settings = NULL,
 	.upload_pptable_settings = NULL,
 	.update_smc_table = fiji_update_smc_table,

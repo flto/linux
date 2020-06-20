@@ -1,18 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2016 Facebook
  * Copyright (C) 2013-2014 Jens Axboe
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public
- * License v2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <linux/sched.h>
@@ -37,9 +26,7 @@ static inline bool sbitmap_deferred_clear(struct sbitmap *sb, int index)
 	/*
 	 * First get a stable cleared mask, setting the old mask to 0.
 	 */
-	do {
-		mask = sb->map[index].cleared;
-	} while (cmpxchg(&sb->map[index].cleared, mask, 0) != mask);
+	mask = xchg(&sb->map[index].cleared, 0);
 
 	/*
 	 * Now clear the masked bits in our free word
@@ -249,23 +236,6 @@ bool sbitmap_any_bit_set(const struct sbitmap *sb)
 }
 EXPORT_SYMBOL_GPL(sbitmap_any_bit_set);
 
-bool sbitmap_any_bit_clear(const struct sbitmap *sb)
-{
-	unsigned int i;
-
-	for (i = 0; i < sb->map_nr; i++) {
-		const struct sbitmap_word *word = &sb->map[i];
-		unsigned long mask = word->word & ~word->cleared;
-		unsigned long ret;
-
-		ret = find_first_zero_bit(&mask, word->depth);
-		if (ret < word->depth)
-			return true;
-	}
-	return false;
-}
-EXPORT_SYMBOL_GPL(sbitmap_any_bit_clear);
-
 static unsigned int __sbitmap_weight(const struct sbitmap *sb, bool set)
 {
 	unsigned int i, weight = 0;
@@ -435,7 +405,7 @@ static void sbitmap_queue_update_wake_batch(struct sbitmap_queue *sbq,
 		 * to ensure that the batch size is updated before the wait
 		 * counts.
 		 */
-		smp_mb__before_atomic();
+		smp_mb();
 		for (i = 0; i < SBQ_WAIT_QUEUES; i++)
 			atomic_set(&sbq->ws[i].wait_cnt, 1);
 	}
@@ -527,10 +497,8 @@ static struct sbq_wait_state *sbq_wake_ptr(struct sbitmap_queue *sbq)
 		struct sbq_wait_state *ws = &sbq->ws[wake_index];
 
 		if (waitqueue_active(&ws->wait)) {
-			int o = atomic_read(&sbq->wake_index);
-
-			if (wake_index != o)
-				atomic_cmpxchg(&sbq->wake_index, o, wake_index);
+			if (wake_index != atomic_read(&sbq->wake_index))
+				atomic_set(&sbq->wake_index, wake_index);
 			return ws;
 		}
 
@@ -591,6 +559,17 @@ EXPORT_SYMBOL_GPL(sbitmap_queue_wake_up);
 void sbitmap_queue_clear(struct sbitmap_queue *sbq, unsigned int nr,
 			 unsigned int cpu)
 {
+	/*
+	 * Once the clear bit is set, the bit may be allocated out.
+	 *
+	 * Orders READ/WRITE on the asssociated instance(such as request
+	 * of blk_mq) by this bit for avoiding race with re-allocation,
+	 * and its pair is the memory barrier implied in __sbitmap_get_word.
+	 *
+	 * One invariant is that the clear bit has to be zero when the bit
+	 * is in use.
+	 */
+	smp_mb__before_atomic();
 	sbitmap_deferred_clear_bit(&sbq->sb, nr);
 
 	/*
@@ -671,8 +650,8 @@ void sbitmap_add_wait_queue(struct sbitmap_queue *sbq,
 	if (!sbq_wait->sbq) {
 		sbq_wait->sbq = sbq;
 		atomic_inc(&sbq->ws_active);
+		add_wait_queue(&ws->wait, &sbq_wait->wait);
 	}
-	add_wait_queue(&ws->wait, &sbq_wait->wait);
 }
 EXPORT_SYMBOL_GPL(sbitmap_add_wait_queue);
 

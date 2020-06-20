@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/socket.h>
@@ -21,18 +22,7 @@ int udp_sock_create4(struct net *net, struct udp_port_cfg *cfg,
 		goto error;
 
 	if (cfg->bind_ifindex) {
-		struct net_device *dev;
-
-		dev = dev_get_by_index(net, cfg->bind_ifindex);
-		if (!dev) {
-			err = -ENODEV;
-			goto error;
-		}
-
-		err = kernel_setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE,
-					dev->name, strlen(dev->name) + 1);
-		dev_put(dev);
-
+		err = sock_bindtoindex(sock->sk, cfg->bind_ifindex, true);
 		if (err < 0)
 			goto error;
 	}

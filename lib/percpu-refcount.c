@@ -1,4 +1,5 @@
-#define pr_fmt(fmt) "%s: " fmt "\n", __func__
+// SPDX-License-Identifier: GPL-2.0-only
+#define pr_fmt(fmt) "%s: " fmt, __func__
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -49,9 +50,10 @@ static unsigned long __percpu *percpu_count_ptr(struct percpu_ref *ref)
  * @flags: PERCPU_REF_INIT_* flags
  * @gfp: allocation mask to use
  *
- * Initializes @ref.  If @flags is zero, @ref starts in percpu mode with a
- * refcount of 1; analagous to atomic_long_set(ref, 1).  See the
- * definitions of PERCPU_REF_INIT_* flags for flag behaviors.
+ * Initializes @ref.  @ref starts out in percpu mode with a refcount of 1 unless
+ * @flags contains PERCPU_REF_INIT_ATOMIC or PERCPU_REF_INIT_DEAD.  These flags
+ * change the start state to atomic with the latter setting the initial refcount
+ * to 0.  See the definitions of PERCPU_REF_INIT_* flags for flag behaviors.
  *
  * Note that @release must not sleep - it may potentially be called from RCU
  * callback context by percpu_ref_kill().
@@ -69,11 +71,14 @@ int percpu_ref_init(struct percpu_ref *ref, percpu_ref_func_t *release,
 		return -ENOMEM;
 
 	ref->force_atomic = flags & PERCPU_REF_INIT_ATOMIC;
+	ref->allow_reinit = flags & PERCPU_REF_ALLOW_REINIT;
 
-	if (flags & (PERCPU_REF_INIT_ATOMIC | PERCPU_REF_INIT_DEAD))
+	if (flags & (PERCPU_REF_INIT_ATOMIC | PERCPU_REF_INIT_DEAD)) {
 		ref->percpu_count_ptr |= __PERCPU_REF_ATOMIC;
-	else
+		ref->allow_reinit = true;
+	} else {
 		start_count += PERCPU_COUNT_BIAS;
+	}
 
 	if (flags & PERCPU_REF_INIT_DEAD)
 		ref->percpu_count_ptr |= __PERCPU_REF_DEAD;
@@ -119,6 +124,9 @@ static void percpu_ref_call_confirm_rcu(struct rcu_head *rcu)
 	ref->confirm_switch = NULL;
 	wake_up_all(&percpu_ref_switch_waitq);
 
+	if (!ref->allow_reinit)
+		percpu_ref_exit(ref);
+
 	/* drop ref from percpu_ref_switch_to_atomic() */
 	percpu_ref_put(ref);
 }
@@ -133,8 +141,8 @@ static void percpu_ref_switch_to_atomic_rcu(struct rcu_head *rcu)
 	for_each_possible_cpu(cpu)
 		count += *per_cpu_ptr(percpu_count, cpu);
 
-	pr_debug("global %ld percpu %ld",
-		 atomic_long_read(&ref->count), (long)count);
+	pr_debug("global %lu percpu %lu\n",
+		 atomic_long_read(&ref->count), count);
 
 	/*
 	 * It's crucial that we sum the percpu counters _before_ adding the sum
@@ -151,7 +159,7 @@ static void percpu_ref_switch_to_atomic_rcu(struct rcu_head *rcu)
 	atomic_long_add((long)count - PERCPU_COUNT_BIAS, &ref->count);
 
 	WARN_ONCE(atomic_long_read(&ref->count) <= 0,
-		  "percpu ref (%pf) <= 0 (%ld) after switching to atomic",
+		  "percpu ref (%ps) <= 0 (%ld) after switching to atomic",
 		  ref->release, atomic_long_read(&ref->count));
 
 	/* @ref is viewed as dead on all CPUs, send out switch confirmation */
@@ -192,6 +200,9 @@ static void __percpu_ref_switch_to_percpu(struct percpu_ref *ref)
 	BUG_ON(!percpu_count);
 
 	if (!(ref->percpu_count_ptr & __PERCPU_REF_ATOMIC))
+		return;
+
+	if (WARN_ON_ONCE(!ref->allow_reinit))
 		return;
 
 	atomic_long_add(PERCPU_COUNT_BIAS, &ref->count);
@@ -333,7 +344,7 @@ void percpu_ref_kill_and_confirm(struct percpu_ref *ref,
 	spin_lock_irqsave(&percpu_ref_switch_lock, flags);
 
 	WARN_ONCE(ref->percpu_count_ptr & __PERCPU_REF_DEAD,
-		  "%s called more than once on %pf!", __func__, ref->release);
+		  "%s called more than once on %ps!", __func__, ref->release);
 
 	ref->percpu_count_ptr |= __PERCPU_REF_DEAD;
 	__percpu_ref_switch_mode(ref, confirm_kill);

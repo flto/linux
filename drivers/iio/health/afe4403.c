@@ -1,17 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * AFE4403 Heart Rate Monitors and Low-Cost Pulse Oximeters
  *
  * Copyright (C) 2015-2016 Texas Instruments Incorporated - http://www.ti.com/
  *	Andrew F. Davis <afd@ti.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
  */
 
 #include <linux/device.h>
@@ -30,6 +22,8 @@
 #include <linux/iio/trigger.h>
 #include <linux/iio/triggered_buffer.h>
 #include <linux/iio/trigger_consumer.h>
+
+#include <asm/unaligned.h>
 
 #include "afe440x.h"
 
@@ -228,13 +222,11 @@ static int afe4403_read(struct afe4403_data *afe, unsigned int reg, u32 *val)
 	if (ret)
 		return ret;
 
-	ret = spi_write_then_read(afe->spi, &reg, 1, rx, 3);
+	ret = spi_write_then_read(afe->spi, &reg, 1, rx, sizeof(rx));
 	if (ret)
 		return ret;
 
-	*val = (rx[0] << 16) |
-		(rx[1] << 8) |
-		(rx[2]);
+	*val = get_unaligned_be24(&rx[0]);
 
 	/* Disable reading from the device */
 	tx[3] = AFE440X_CONTROL0_WRITE;
@@ -330,13 +322,11 @@ static irqreturn_t afe4403_trigger_handler(int irq, void *private)
 			 indio_dev->masklength) {
 		ret = spi_write_then_read(afe->spi,
 					  &afe4403_channel_values[bit], 1,
-					  rx, 3);
+					  rx, sizeof(rx));
 		if (ret)
 			goto err;
 
-		buffer[i++] = (rx[0] << 16) |
-				(rx[1] << 8) |
-				(rx[2]);
+		buffer[i++] = get_unaligned_be24(&rx[0]);
 	}
 
 	/* Disable reading from the device */

@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * STMicroelectronics hts221 sensor driver
  *
  * Copyright 2016 STMicroelectronics Inc.
  *
  * Lorenzo Bianconi <lorenzo.bianconi@st.com>
- *
- * Licensed under the GPL-2.
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -75,10 +74,9 @@ static irqreturn_t hts221_trigger_handler_thread(int irq, void *private)
 
 int hts221_allocate_trigger(struct hts221_hw *hw)
 {
+	struct st_sensors_platform_data *pdata = dev_get_platdata(hw->dev);
 	struct iio_dev *iio_dev = iio_priv_to_dev(hw);
 	bool irq_active_low = false, open_drain = false;
-	struct device_node *np = hw->dev->of_node;
-	struct st_sensors_platform_data *pdata;
 	unsigned long irq_type;
 	int err;
 
@@ -107,8 +105,7 @@ int hts221_allocate_trigger(struct hts221_hw *hw)
 	if (err < 0)
 		return err;
 
-	pdata = (struct st_sensors_platform_data *)hw->dev->platform_data;
-	if ((np && of_property_read_bool(np, "drive-open-drain")) ||
+	if (device_property_read_bool(hw->dev, "drive-open-drain") ||
 	    (pdata && pdata->open_drain)) {
 		irq_type |= IRQF_SHARED;
 		open_drain = true;

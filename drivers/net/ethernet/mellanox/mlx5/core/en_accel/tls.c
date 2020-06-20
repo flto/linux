@@ -160,31 +160,42 @@ static void mlx5e_tls_del(struct net_device *netdev,
 				direction == TLS_OFFLOAD_CTX_DIR_TX);
 }
 
-static void mlx5e_tls_resync_rx(struct net_device *netdev, struct sock *sk,
-				u32 seq, u64 rcd_sn)
+static int mlx5e_tls_resync(struct net_device *netdev, struct sock *sk,
+			    u32 seq, u8 *rcd_sn_data,
+			    enum tls_offload_ctx_dir direction)
 {
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
 	struct mlx5e_priv *priv = netdev_priv(netdev);
 	struct mlx5e_tls_offload_context_rx *rx_ctx;
+	__be64 rcd_sn = *(__be64 *)rcd_sn_data;
 
+	if (WARN_ON_ONCE(direction != TLS_OFFLOAD_CTX_DIR_RX))
+		return -EINVAL;
 	rx_ctx = mlx5e_get_tls_rx_context(tls_ctx);
 
 	netdev_info(netdev, "resyncing seq %d rcd %lld\n", seq,
 		    be64_to_cpu(rcd_sn));
 	mlx5_accel_tls_resync_rx(priv->mdev, rx_ctx->handle, seq, rcd_sn);
 	atomic64_inc(&priv->tls->sw_stats.rx_tls_resync_reply);
+
+	return 0;
 }
 
 static const struct tlsdev_ops mlx5e_tls_ops = {
 	.tls_dev_add = mlx5e_tls_add,
 	.tls_dev_del = mlx5e_tls_del,
-	.tls_dev_resync_rx = mlx5e_tls_resync_rx,
+	.tls_dev_resync = mlx5e_tls_resync,
 };
 
 void mlx5e_tls_build_netdev(struct mlx5e_priv *priv)
 {
 	struct net_device *netdev = priv->netdev;
 	u32 caps;
+
+	if (mlx5_accel_is_ktls_device(priv->mdev)) {
+		mlx5e_ktls_build_netdev(priv);
+		return;
+	}
 
 	if (!mlx5_accel_is_tls_device(priv->mdev))
 		return;
@@ -228,4 +239,18 @@ void mlx5e_tls_cleanup(struct mlx5e_priv *priv)
 
 	kfree(tls);
 	priv->tls = NULL;
+}
+
+u16 mlx5e_tls_get_stop_room(struct mlx5e_txqsq *sq)
+{
+	struct mlx5_core_dev *mdev = sq->channel->mdev;
+
+	if (!mlx5_accel_is_tls_device(mdev))
+		return 0;
+
+	if (MLX5_CAP_GEN(mdev, tls_tx))
+		return mlx5e_ktls_get_stop_room(sq);
+
+	/* Resync SKB. */
+	return mlx5e_stop_room_for_wqe(MLX5_SEND_WQE_MAX_WQEBBS);
 }

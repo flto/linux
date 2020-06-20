@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* AFS Cache Manager Service
  *
  * Copyright (C) 2002 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 
 #include <linux/module.h>
@@ -34,7 +30,7 @@ static void SRXAFSCB_TellMeAboutYourself(struct work_struct *);
 static int afs_deliver_yfs_cb_callback(struct afs_call *);
 
 #define CM_NAME(name) \
-	const char afs_SRXCB##name##_name[] __tracepoint_string =	\
+	char afs_SRXCB##name##_name[] __tracepoint_string =	\
 		"CB." #name
 
 /*
@@ -122,8 +118,6 @@ bool afs_cm_incoming_call(struct afs_call *call)
 {
 	_enter("{%u, CB.OP %u}", call->service_id, call->operation_ID);
 
-	call->epoch = rxrpc_kernel_get_epoch(call->net->socket, call->rxcall);
-
 	switch (call->operation_ID) {
 	case CBCallBack:
 		call->type = &afs_SRXCBCallBack;
@@ -154,49 +148,6 @@ bool afs_cm_incoming_call(struct afs_call *call)
 }
 
 /*
- * Record a probe to the cache manager from a server.
- */
-static int afs_record_cm_probe(struct afs_call *call, struct afs_server *server)
-{
-	_enter("");
-
-	if (test_bit(AFS_SERVER_FL_HAVE_EPOCH, &server->flags) &&
-	    !test_bit(AFS_SERVER_FL_PROBING, &server->flags)) {
-		if (server->cm_epoch == call->epoch)
-			return 0;
-
-		if (!server->probe.said_rebooted) {
-			pr_notice("kAFS: FS rebooted %pU\n", &server->uuid);
-			server->probe.said_rebooted = true;
-		}
-	}
-
-	spin_lock(&server->probe_lock);
-
-	if (!test_bit(AFS_SERVER_FL_HAVE_EPOCH, &server->flags)) {
-		server->cm_epoch = call->epoch;
-		server->probe.cm_epoch = call->epoch;
-		goto out;
-	}
-
-	if (server->probe.cm_probed &&
-	    call->epoch != server->probe.cm_epoch &&
-	    !server->probe.said_inconsistent) {
-		pr_notice("kAFS: FS endpoints inconsistent %pU\n",
-			  &server->uuid);
-		server->probe.said_inconsistent = true;
-	}
-
-	if (!server->probe.cm_probed || call->epoch == server->cm_epoch)
-		server->probe.cm_epoch = server->cm_epoch;
-
-out:
-	server->probe.cm_probed = true;
-	spin_unlock(&server->probe_lock);
-	return 0;
-}
-
-/*
  * Find the server record by peer address and record a probe to the cache
  * manager from a server.
  */
@@ -213,8 +164,8 @@ static int afs_find_cm_server_by_peer(struct afs_call *call)
 		return 0;
 	}
 
-	call->cm_server = server;
-	return afs_record_cm_probe(call, server);
+	call->server = server;
+	return 0;
 }
 
 /*
@@ -234,8 +185,8 @@ static int afs_find_cm_server_by_uuid(struct afs_call *call,
 		return 0;
 	}
 
-	call->cm_server = server;
-	return afs_record_cm_probe(call, server);
+	call->server = server;
+	return 0;
 }
 
 /*
@@ -245,6 +196,17 @@ static void afs_cm_destructor(struct afs_call *call)
 {
 	kfree(call->buffer);
 	call->buffer = NULL;
+}
+
+/*
+ * Abort a service call from within an action function.
+ */
+static void afs_abort_service_call(struct afs_call *call, u32 abort_code, int error,
+				   const char *why)
+{
+	rxrpc_kernel_abort_call(call->net->socket, call->rxcall,
+				abort_code, error, why);
+	afs_set_call_complete(call, error, 0);
 }
 
 /*
@@ -260,8 +222,13 @@ static void SRXAFSCB_CallBack(struct work_struct *work)
 	 * server holds up change visibility till it receives our reply so as
 	 * to maintain cache coherency.
 	 */
-	if (call->cm_server)
-		afs_break_callbacks(call->cm_server, call->count, call->request);
+	if (call->server) {
+		trace_afs_server(call->server,
+				 atomic_read(&call->server->ref),
+				 atomic_read(&call->server->active),
+				 afs_server_trace_callback);
+		afs_break_callbacks(call->server, call->count, call->request);
+	}
 
 	afs_send_empty_reply(call);
 	afs_put_call(call);
@@ -285,6 +252,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		call->unmarshall++;
 
 		/* extract the FID array and its count in two steps */
+		/* fall through */
 	case 1:
 		_debug("extract FID count");
 		ret = afs_extract_data(call, true);
@@ -294,8 +262,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		call->count = ntohl(call->tmp);
 		_debug("FID count: %u", call->count);
 		if (call->count > AFSCBMAX)
-			return afs_protocol_error(call, -EBADMSG,
-						  afs_eproto_cb_fid_count);
+			return afs_protocol_error(call, afs_eproto_cb_fid_count);
 
 		call->buffer = kmalloc(array3_size(call->count, 3, 4),
 				       GFP_KERNEL);
@@ -304,6 +271,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		afs_extract_to_buf(call, call->count * 3 * 4);
 		call->unmarshall++;
 
+		/* Fall through */
 	case 2:
 		_debug("extract FID array");
 		ret = afs_extract_data(call, true);
@@ -329,6 +297,7 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		call->unmarshall++;
 
 		/* extract the callback array and its count in two steps */
+		/* fall through */
 	case 3:
 		_debug("extract CB count");
 		ret = afs_extract_data(call, true);
@@ -338,15 +307,15 @@ static int afs_deliver_cb_callback(struct afs_call *call)
 		call->count2 = ntohl(call->tmp);
 		_debug("CB count: %u", call->count2);
 		if (call->count2 != call->count && call->count2 != 0)
-			return afs_protocol_error(call, -EBADMSG,
-						  afs_eproto_cb_count);
-		call->_iter = &call->iter;
-		iov_iter_discard(&call->iter, READ, call->count2 * 3 * 4);
+			return afs_protocol_error(call, afs_eproto_cb_count);
+		call->iter = &call->def_iter;
+		iov_iter_discard(&call->def_iter, READ, call->count2 * 3 * 4);
 		call->unmarshall++;
 
+		/* Fall through */
 	case 4:
 		_debug("extract discard %zu/%u",
-		       iov_iter_count(&call->iter), call->count2 * 3 * 4);
+		       iov_iter_count(call->iter), call->count2 * 3 * 4);
 
 		ret = afs_extract_data(call, false);
 		if (ret < 0)
@@ -372,10 +341,10 @@ static void SRXAFSCB_InitCallBackState(struct work_struct *work)
 {
 	struct afs_call *call = container_of(work, struct afs_call, work);
 
-	_enter("{%p}", call->cm_server);
+	_enter("{%p}", call->server);
 
-	if (call->cm_server)
-		afs_init_callback_state(call->cm_server);
+	if (call->server)
+		afs_init_callback_state(call->server);
 	afs_send_empty_reply(call);
 	afs_put_call(call);
 	_leave("");
@@ -422,6 +391,7 @@ static int afs_deliver_cb_init_call_back_state3(struct afs_call *call)
 		afs_extract_to_buf(call, 11 * sizeof(__be32));
 		call->unmarshall++;
 
+		/* Fall through */
 	case 1:
 		_debug("extract UUID");
 		ret = afs_extract_data(call, false);
@@ -494,25 +464,21 @@ static int afs_deliver_cb_probe(struct afs_call *call)
 }
 
 /*
- * allow the fileserver to quickly find out if the fileserver has been rebooted
+ * Allow the fileserver to quickly find out if the cache manager has been
+ * rebooted.
  */
 static void SRXAFSCB_ProbeUuid(struct work_struct *work)
 {
 	struct afs_call *call = container_of(work, struct afs_call, work);
 	struct afs_uuid *r = call->request;
 
-	struct {
-		__be32	match;
-	} reply;
-
 	_enter("");
 
 	if (memcmp(r, &call->net->uuid, sizeof(call->net->uuid)) == 0)
-		reply.match = htonl(0);
+		afs_send_empty_reply(call);
 	else
-		reply.match = htonl(1);
+		afs_abort_service_call(call, 1, 1, "K-1");
 
-	afs_send_simple_reply(call, &reply, sizeof(reply));
 	afs_put_call(call);
 	_leave("");
 }
@@ -537,6 +503,7 @@ static int afs_deliver_cb_probe_uuid(struct afs_call *call)
 		afs_extract_to_buf(call, 11 * sizeof(__be32));
 		call->unmarshall++;
 
+		/* Fall through */
 	case 1:
 		_debug("extract UUID");
 		ret = afs_extract_data(call, false);
@@ -570,7 +537,7 @@ static int afs_deliver_cb_probe_uuid(struct afs_call *call)
 
 	if (!afs_check_call_state(call, AFS_CALL_SV_REPLYING))
 		return afs_io_error(call, afs_io_error_cm_reply);
-	return afs_find_cm_server_by_uuid(call, call->request);
+	return afs_find_cm_server_by_peer(call);
 }
 
 /*
@@ -578,9 +545,8 @@ static int afs_deliver_cb_probe_uuid(struct afs_call *call)
  */
 static void SRXAFSCB_TellMeAboutYourself(struct work_struct *work)
 {
-	struct afs_interface *ifs;
 	struct afs_call *call = container_of(work, struct afs_call, work);
-	int loop, nifs;
+	int loop;
 
 	struct {
 		struct /* InterfaceAddr */ {
@@ -598,19 +564,7 @@ static void SRXAFSCB_TellMeAboutYourself(struct work_struct *work)
 
 	_enter("");
 
-	nifs = 0;
-	ifs = kcalloc(32, sizeof(*ifs), GFP_KERNEL);
-	if (ifs) {
-		nifs = afs_get_ipv4_interfaces(call->net, ifs, 32, false);
-		if (nifs < 0) {
-			kfree(ifs);
-			ifs = NULL;
-			nifs = 0;
-		}
-	}
-
 	memset(&reply, 0, sizeof(reply));
-	reply.ia.nifs = htonl(nifs);
 
 	reply.ia.uuid[0] = call->net->uuid.time_low;
 	reply.ia.uuid[1] = htonl(ntohs(call->net->uuid.time_mid));
@@ -619,15 +573,6 @@ static void SRXAFSCB_TellMeAboutYourself(struct work_struct *work)
 	reply.ia.uuid[4] = htonl((s8) call->net->uuid.clock_seq_low);
 	for (loop = 0; loop < 6; loop++)
 		reply.ia.uuid[loop + 5] = htonl((s8) call->net->uuid.node[loop]);
-
-	if (ifs) {
-		for (loop = 0; loop < nifs; loop++) {
-			reply.ia.ifaddr[loop] = ifs[loop].address.s_addr;
-			reply.ia.netmask[loop] = ifs[loop].netmask.s_addr;
-			reply.ia.mtu[loop] = htonl(ifs[loop].mtu);
-		}
-		kfree(ifs);
-	}
 
 	reply.cap.capcount = htonl(1);
 	reply.cap.caps[0] = htonl(AFS_CAP_ERROR_TRANSLATION);
@@ -673,6 +618,7 @@ static int afs_deliver_yfs_cb_callback(struct afs_call *call)
 		call->unmarshall++;
 
 		/* extract the FID array and its count in two steps */
+		/* Fall through */
 	case 1:
 		_debug("extract FID count");
 		ret = afs_extract_data(call, true);
@@ -682,8 +628,7 @@ static int afs_deliver_yfs_cb_callback(struct afs_call *call)
 		call->count = ntohl(call->tmp);
 		_debug("FID count: %u", call->count);
 		if (call->count > YFSCBMAX)
-			return afs_protocol_error(call, -EBADMSG,
-						  afs_eproto_cb_fid_count);
+			return afs_protocol_error(call, afs_eproto_cb_fid_count);
 
 		size = array_size(call->count, sizeof(struct yfs_xdr_YFSFid));
 		call->buffer = kmalloc(size, GFP_KERNEL);
@@ -692,6 +637,7 @@ static int afs_deliver_yfs_cb_callback(struct afs_call *call)
 		afs_extract_to_buf(call, size);
 		call->unmarshall++;
 
+		/* Fall through */
 	case 2:
 		_debug("extract FID array");
 		ret = afs_extract_data(call, false);

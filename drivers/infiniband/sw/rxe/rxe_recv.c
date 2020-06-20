@@ -266,14 +266,12 @@ err1:
 	return -EINVAL;
 }
 
-static inline void rxe_rcv_pkt(struct rxe_dev *rxe,
-			       struct rxe_pkt_info *pkt,
-			       struct sk_buff *skb)
+static inline void rxe_rcv_pkt(struct rxe_pkt_info *pkt, struct sk_buff *skb)
 {
 	if (pkt->mask & RXE_REQ_MASK)
-		rxe_resp_queue_pkt(rxe, pkt->qp, skb);
+		rxe_resp_queue_pkt(pkt->qp, skb);
 	else
-		rxe_comp_queue_pkt(rxe, pkt->qp, skb);
+		rxe_comp_queue_pkt(pkt->qp, skb);
 }
 
 static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
@@ -319,7 +317,7 @@ static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
 
 		pkt->qp = qp;
 		rxe_add_ref(qp);
-		rxe_rcv_pkt(rxe, pkt, skb);
+		rxe_rcv_pkt(pkt, skb);
 	}
 
 	spin_unlock_bh(&mcg->mcg_lock);
@@ -391,7 +389,7 @@ void rxe_rcv(struct sk_buff *skb)
 
 	calc_icrc = rxe_icrc_hdr(pkt, skb);
 	calc_icrc = rxe_crc32(rxe, calc_icrc, (u8 *)payload_addr(pkt),
-			      payload_size(pkt));
+			      payload_size(pkt) + bth_pad(pkt));
 	calc_icrc = (__force u32)cpu_to_be32(~calc_icrc);
 	if (unlikely(calc_icrc != pack_icrc)) {
 		if (skb->protocol == htons(ETH_P_IPV6))
@@ -411,7 +409,7 @@ void rxe_rcv(struct sk_buff *skb)
 	if (unlikely(bth_qpn(pkt) == IB_MULTICAST_QPN))
 		rxe_rcv_mcast_pkt(rxe, skb);
 	else
-		rxe_rcv_pkt(rxe, pkt, skb);
+		rxe_rcv_pkt(pkt, skb);
 
 	return;
 

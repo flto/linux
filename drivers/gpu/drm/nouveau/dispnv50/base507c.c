@@ -23,9 +23,12 @@
 
 #include <nvif/cl507c.h>
 #include <nvif/event.h>
+#include <nvif/timer.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_fourcc.h>
 #include <drm/drm_plane_helper.h>
+
 #include "nouveau_bo.h"
 
 void
@@ -56,12 +59,21 @@ static void
 base507c_image_set(struct nv50_wndw *wndw, struct nv50_wndw_atom *asyw)
 {
 	u32 *push;
-	if ((push = evo_wait(&wndw->wndw, 10))) {
+	if ((push = evo_wait(&wndw->wndw, 13))) {
 		evo_mthd(push, 0x0084, 1);
 		evo_data(push, asyw->image.mode << 8 |
 			       asyw->image.interval << 4);
 		evo_mthd(push, 0x00c0, 1);
 		evo_data(push, asyw->image.handle[0]);
+		if (asyw->image.format == 0xca) {
+			evo_mthd(push, 0x0110, 2);
+			evo_data(push, 1);
+			evo_data(push, 0x6400);
+		} else {
+			evo_mthd(push, 0x0110, 2);
+			evo_data(push, 0);
+			evo_data(push, 0);
+		}
 		evo_mthd(push, 0x0800, 5);
 		evo_data(push, asyw->image.offset[0] >> 8);
 		evo_data(push, 0x00000000);
@@ -179,9 +191,6 @@ base507c_acquire(struct nv50_wndw *wndw, struct nv50_wndw_atom *asyw,
 	const struct drm_framebuffer *fb = asyw->state.fb;
 	int ret;
 
-	if (!fb->format->depth)
-		return -EINVAL;
-
 	ret = drm_atomic_helper_check_plane_state(&asyw->state, &asyh->state,
 						  DRM_PLANE_HELPER_NO_SCALING,
 						  DRM_PLANE_HELPER_NO_SCALING,
@@ -200,6 +209,14 @@ base507c_acquire(struct nv50_wndw *wndw, struct nv50_wndw_atom *asyw,
 	asyh->base.y = asyw->state.src.y1 >> 16;
 	asyh->base.w = asyw->state.fb->width;
 	asyh->base.h = asyw->state.fb->height;
+
+	/* Some newer formats, esp FP16 ones, don't have a
+	 * "depth". There's nothing that really makes sense there
+	 * either, so just set it to the implicit bit count.
+	 */
+	if (!asyh->base.depth)
+		asyh->base.depth = asyh->base.cpp * 8;
+
 	return 0;
 }
 
@@ -215,6 +232,8 @@ base507c_format[] = {
 	DRM_FORMAT_ABGR2101010,
 	DRM_FORMAT_XBGR8888,
 	DRM_FORMAT_ABGR8888,
+	DRM_FORMAT_XBGR16161616F,
+	DRM_FORMAT_ABGR16161616F,
 	0
 };
 
@@ -244,7 +263,8 @@ base507c_new_(const struct nv50_wndw_func *func, const u32 *format,
 	struct nv50_disp_base_channel_dma_v0 args = {
 		.head = head,
 	};
-	struct nv50_disp *disp = nv50_disp(drm->dev);
+	struct nouveau_display *disp = nouveau_display(drm->dev);
+	struct nv50_disp *disp50 = nv50_disp(drm->dev);
 	struct nv50_wndw *wndw;
 	int ret;
 
@@ -254,9 +274,9 @@ base507c_new_(const struct nv50_wndw_func *func, const u32 *format,
 	if (*pwndw = wndw, ret)
 		return ret;
 
-	ret = nv50_dmac_create(&drm->client.device, &disp->disp->object,
+	ret = nv50_dmac_create(&drm->client.device, &disp->disp.object,
 			       &oclass, head, &args, sizeof(args),
-			       disp->sync->bo.offset, &wndw->wndw);
+			       disp50->sync->bo.offset, &wndw->wndw);
 	if (ret) {
 		NV_ERROR(drm, "base%04x allocation failed: %d\n", oclass, ret);
 		return ret;

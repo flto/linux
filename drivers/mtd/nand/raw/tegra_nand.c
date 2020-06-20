@@ -467,7 +467,9 @@ static int tegra_nand_exec_op(struct nand_chip *chip,
 			      const struct nand_operation *op,
 			      bool check_only)
 {
-	tegra_nand_select_target(chip, op->cs);
+	if (!check_only)
+		tegra_nand_select_target(chip, op->cs);
+
 	return nand_op_parser_exec_op(chip, &tegra_nand_op_parser, op,
 				      check_only);
 }
@@ -853,7 +855,7 @@ static int tegra_nand_get_strength(struct nand_chip *chip, const int *strength,
 		} else {
 			strength_sel = strength[i];
 
-			if (strength_sel < chip->ecc_strength_ds)
+			if (strength_sel < chip->base.eccreq.strength)
 				continue;
 		}
 
@@ -917,9 +919,9 @@ static int tegra_nand_attach_chip(struct nand_chip *chip)
 	chip->ecc.mode = NAND_ECC_HW;
 	chip->ecc.size = 512;
 	chip->ecc.steps = mtd->writesize / chip->ecc.size;
-	if (chip->ecc_step_ds != 512) {
+	if (chip->base.eccreq.step_size != 512) {
 		dev_err(ctrl->dev, "Unsupported step size %d\n",
-			chip->ecc_step_ds);
+			chip->base.eccreq.step_size);
 		return -EINVAL;
 	}
 
@@ -950,7 +952,7 @@ static int tegra_nand_attach_chip(struct nand_chip *chip)
 		if (ret < 0) {
 			dev_err(ctrl->dev,
 				"No valid strength found, minimum %d\n",
-				chip->ecc_strength_ds);
+				chip->base.eccreq.strength);
 			return ret;
 		}
 
@@ -1113,7 +1115,7 @@ static int tegra_nand_chips_init(struct device *dev,
 	if (!mtd->name)
 		mtd->name = "tegra_nand";
 
-	chip->options = NAND_NO_SUBPAGE_WRITE | NAND_USE_BOUNCE_BUFFER;
+	chip->options = NAND_NO_SUBPAGE_WRITE | NAND_USES_DMA;
 
 	ret = nand_scan(chip, 1);
 	if (ret)

@@ -1,17 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- *
  * RMNET Data virtual network driver
- *
  */
 
 #include <linux/etherdevice.h>
@@ -222,6 +212,8 @@ void rmnet_vnd_setup(struct net_device *rmnet_dev)
 	rmnet_dev->needs_free_netdev = true;
 	rmnet_dev->ethtool_ops = &rmnet_ethtool_ops;
 
+	rmnet_dev->features |= NETIF_F_LLTX;
+
 	/* This perm addr will be used as interface identifier by IPv6 */
 	rmnet_dev->addr_assign_type = NET_ADDR_RANDOM;
 	eth_random_addr(rmnet_dev->perm_addr);
@@ -232,16 +224,17 @@ void rmnet_vnd_setup(struct net_device *rmnet_dev)
 int rmnet_vnd_newlink(u8 id, struct net_device *rmnet_dev,
 		      struct rmnet_port *port,
 		      struct net_device *real_dev,
-		      struct rmnet_endpoint *ep)
+		      struct rmnet_endpoint *ep,
+		      struct netlink_ext_ack *extack)
+
 {
 	struct rmnet_priv *priv = netdev_priv(rmnet_dev);
 	int rc;
 
-	if (ep->egress_dev)
-		return -EINVAL;
-
-	if (rmnet_get_endpoint(port, id))
+	if (rmnet_get_endpoint(port, id)) {
+		NL_SET_ERR_MSG_MOD(extack, "MUX ID already exists");
 		return -EBUSY;
+	}
 
 	rmnet_dev->hw_features = NETIF_F_RXCSUM;
 	rmnet_dev->hw_features |= NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
@@ -274,14 +267,6 @@ int rmnet_vnd_dellink(u8 id, struct rmnet_port *port,
 	ep->egress_dev = NULL;
 	port->nr_rmnet_devs--;
 	return 0;
-}
-
-u8 rmnet_vnd_get_mux(struct net_device *rmnet_dev)
-{
-	struct rmnet_priv *priv;
-
-	priv = netdev_priv(rmnet_dev);
-	return priv->mux_id;
 }
 
 int rmnet_vnd_do_flow_control(struct net_device *rmnet_dev, int enable)

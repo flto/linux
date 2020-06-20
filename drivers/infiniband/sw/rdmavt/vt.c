@@ -91,7 +91,7 @@ struct rvt_dev_info *rvt_alloc_device(size_t size, int nports)
 {
 	struct rvt_dev_info *rdi;
 
-	rdi = (struct rvt_dev_info *)ib_alloc_device(size);
+	rdi = container_of(_ib_alloc_device(size), struct rvt_dev_info, ibdev);
 	if (!rdi)
 		return rdi;
 
@@ -284,40 +284,23 @@ static int rvt_query_gid(struct ib_device *ibdev, u8 port_num,
 					 &gid->global.interface_id);
 }
 
-struct rvt_ucontext {
-	struct ib_ucontext ibucontext;
-};
-
-static inline struct rvt_ucontext *to_iucontext(struct ib_ucontext
-						*ibucontext)
-{
-	return container_of(ibucontext, struct rvt_ucontext, ibucontext);
-}
-
 /**
  * rvt_alloc_ucontext - Allocate a user context
- * @ibdev: Verbs IB dev
+ * @uctx: Verbs context
  * @udata: User data allocated
  */
-static struct ib_ucontext *rvt_alloc_ucontext(struct ib_device *ibdev,
-					      struct ib_udata *udata)
+static int rvt_alloc_ucontext(struct ib_ucontext *uctx, struct ib_udata *udata)
 {
-	struct rvt_ucontext *context;
-
-	context = kmalloc(sizeof(*context), GFP_KERNEL);
-	if (!context)
-		return ERR_PTR(-ENOMEM);
-	return &context->ibucontext;
+	return 0;
 }
 
 /**
- *rvt_dealloc_ucontext - Free a user context
- *@context - Free this
+ * rvt_dealloc_ucontext - Free a user context
+ * @context - Free this
  */
-static int rvt_dealloc_ucontext(struct ib_ucontext *context)
+static void rvt_dealloc_ucontext(struct ib_ucontext *context)
 {
-	kfree(to_iucontext(context));
-	return 0;
+	return;
 }
 
 static int rvt_get_port_immutable(struct ib_device *ibdev, u8 port_num,
@@ -393,7 +376,8 @@ enum {
 };
 
 static const struct ib_device_ops rvt_dev_ops = {
-	.alloc_fmr = rvt_alloc_fmr,
+	.uverbs_abi_ver = RVT_UVERBS_ABI_VERSION,
+
 	.alloc_mr = rvt_alloc_mr,
 	.alloc_pd = rvt_alloc_pd,
 	.alloc_ucontext = rvt_alloc_ucontext,
@@ -402,7 +386,6 @@ static const struct ib_device_ops rvt_dev_ops = {
 	.create_cq = rvt_create_cq,
 	.create_qp = rvt_create_qp,
 	.create_srq = rvt_create_srq,
-	.dealloc_fmr = rvt_dealloc_fmr,
 	.dealloc_pd = rvt_dealloc_pd,
 	.dealloc_ucontext = rvt_dealloc_ucontext,
 	.dereg_mr = rvt_dereg_mr,
@@ -414,7 +397,6 @@ static const struct ib_device_ops rvt_dev_ops = {
 	.get_dma_mr = rvt_get_dma_mr,
 	.get_port_immutable = rvt_get_port_immutable,
 	.map_mr_sg = rvt_map_mr_sg,
-	.map_phys_fmr = rvt_map_phys_fmr,
 	.mmap = rvt_mmap,
 	.modify_ah = rvt_modify_ah,
 	.modify_device = rvt_modify_device,
@@ -435,7 +417,12 @@ static const struct ib_device_ops rvt_dev_ops = {
 	.reg_user_mr = rvt_reg_user_mr,
 	.req_notify_cq = rvt_req_notify_cq,
 	.resize_cq = rvt_resize_cq,
-	.unmap_fmr = rvt_unmap_fmr,
+
+	INIT_RDMA_OBJ_SIZE(ib_ah, rvt_ah, ibah),
+	INIT_RDMA_OBJ_SIZE(ib_cq, rvt_cq, ibcq),
+	INIT_RDMA_OBJ_SIZE(ib_pd, rvt_pd, ibpd),
+	INIT_RDMA_OBJ_SIZE(ib_srq, rvt_srq, ibsrq),
+	INIT_RDMA_OBJ_SIZE(ib_ucontext, rvt_ucontext, ibucontext),
 };
 
 static noinline int check_support(struct rvt_dev_info *rdi, int verb)
@@ -446,7 +433,7 @@ static noinline int check_support(struct rvt_dev_info *rdi, int verb)
 		 * These functions are not part of verbs specifically but are
 		 * required for rdmavt to function.
 		 */
-		if ((!rdi->driver_f.port_callback) ||
+		if ((!rdi->ibdev.ops.init_port) ||
 		    (!rdi->driver_f.get_pci_dev))
 			return -EINVAL;
 		break;
@@ -536,7 +523,7 @@ static noinline int check_support(struct rvt_dev_info *rdi, int verb)
  *
  * Return: 0 on success otherwise an errno.
  */
-int rvt_register_device(struct rvt_dev_info *rdi, u32 driver_id)
+int rvt_register_device(struct rvt_dev_info *rdi)
 {
 	int ret = 0, i;
 
@@ -606,7 +593,6 @@ int rvt_register_device(struct rvt_dev_info *rdi, u32 driver_id)
 	 * exactly which functions rdmavt supports, nor do they know the ABI
 	 * version, so we do all of this sort of stuff here.
 	 */
-	rdi->ibdev.uverbs_abi_ver = RVT_UVERBS_ABI_VERSION;
 	rdi->ibdev.uverbs_cmd_mask =
 		(1ull << IB_USER_VERBS_CMD_GET_CONTEXT)         |
 		(1ull << IB_USER_VERBS_CMD_QUERY_DEVICE)        |
@@ -642,10 +628,8 @@ int rvt_register_device(struct rvt_dev_info *rdi, u32 driver_id)
 	if (!rdi->ibdev.num_comp_vectors)
 		rdi->ibdev.num_comp_vectors = 1;
 
-	rdi->ibdev.driver_id = driver_id;
 	/* We are now good to announce we exist */
-	ret = ib_register_device(&rdi->ibdev, dev_name(&rdi->ibdev.dev),
-				 rdi->driver_f.port_callback);
+	ret = ib_register_device(&rdi->ibdev, dev_name(&rdi->ibdev.dev));
 	if (ret) {
 		rvt_pr_err(rdi, "Failed to register driver with ib core.\n");
 		goto bail_wss;
@@ -689,9 +673,10 @@ EXPORT_SYMBOL(rvt_unregister_device);
 
 /**
  * rvt_init_port - init internal data for driver port
- * @rdi: rvt dev strut
+ * @rdi: rvt_dev_info struct
  * @port: rvt port
  * @port_index: 0 based index of ports, different from IB core port num
+ * @pkey_table: pkey_table for @port
  *
  * Keep track of a list of ports. No need to have a detach port.
  * They persist until the driver goes away.

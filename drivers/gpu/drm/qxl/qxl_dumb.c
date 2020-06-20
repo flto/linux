@@ -32,7 +32,7 @@ int qxl_mode_dumb_create(struct drm_file *file_priv,
 			    struct drm_device *dev,
 			    struct drm_mode_create_dumb *args)
 {
-	struct qxl_device *qdev = dev->dev_private;
+	struct qxl_device *qdev = to_qxl(dev);
 	struct qxl_bo *qobj;
 	uint32_t handle;
 	int r;
@@ -59,7 +59,7 @@ int qxl_mode_dumb_create(struct drm_file *file_priv,
 	surf.stride = pitch;
 	surf.format = format;
 	r = qxl_gem_object_create_with_handle(qdev, file_priv,
-					      QXL_GEM_DOMAIN_VRAM,
+					      QXL_GEM_DOMAIN_SURFACE,
 					      args->size, &surf, &qobj,
 					      &handle);
 	if (r)

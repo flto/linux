@@ -31,6 +31,8 @@
  *
  */
 
+#ifdef CONFIG_MLX5_FPGA_IPSEC
+
 #include <linux/mlx5/device.h>
 
 #include "accel/ipsec.h"
@@ -56,12 +58,21 @@ int mlx5_accel_ipsec_counters_read(struct mlx5_core_dev *mdev, u64 *counters,
 
 void *mlx5_accel_esp_create_hw_context(struct mlx5_core_dev *mdev,
 				       struct mlx5_accel_esp_xfrm *xfrm,
-				       const __be32 saddr[4],
-				       const __be32 daddr[4],
-				       const __be32 spi, bool is_ipv6)
+				       u32 *sa_handle)
 {
-	return mlx5_fpga_ipsec_create_sa_ctx(mdev, xfrm, saddr, daddr,
-					     spi, is_ipv6);
+	__be32 saddr[4] = {}, daddr[4] = {};
+
+	if (!xfrm->attrs.is_ipv6) {
+		saddr[3] = xfrm->attrs.saddr.a4;
+		daddr[3] = xfrm->attrs.daddr.a4;
+	} else {
+		memcpy(saddr, xfrm->attrs.saddr.a6, sizeof(saddr));
+		memcpy(daddr, xfrm->attrs.daddr.a6, sizeof(daddr));
+	}
+
+	return mlx5_fpga_ipsec_create_sa_ctx(mdev, xfrm, saddr,
+					     daddr, xfrm->attrs.spi,
+					     xfrm->attrs.is_ipv6, sa_handle);
 }
 
 void mlx5_accel_esp_free_hw_context(void *context)
@@ -72,6 +83,11 @@ void mlx5_accel_esp_free_hw_context(void *context)
 int mlx5_accel_ipsec_init(struct mlx5_core_dev *mdev)
 {
 	return mlx5_fpga_ipsec_init(mdev);
+}
+
+void mlx5_accel_ipsec_build_fs_cmds(void)
+{
+	mlx5_fpga_ipsec_build_fs_cmds();
 }
 
 void mlx5_accel_ipsec_cleanup(struct mlx5_core_dev *mdev)
@@ -107,3 +123,5 @@ int mlx5_accel_esp_modify_xfrm(struct mlx5_accel_esp_xfrm *xfrm,
 	return mlx5_fpga_esp_modify_xfrm(xfrm, attrs);
 }
 EXPORT_SYMBOL_GPL(mlx5_accel_esp_modify_xfrm);
+
+#endif

@@ -38,7 +38,6 @@
 #include <linux/netdevice.h>
 #include <linux/pci.h>
 #include <linux/skbuff.h>
-#include <linux/types.h>
 #include <asm/byteorder.h>
 #include <linux/io.h>
 #include <linux/compiler.h>
@@ -160,6 +159,7 @@ struct qed_dcbx_get {
 enum qed_nvm_images {
 	QED_NVM_IMAGE_ISCSI_CFG,
 	QED_NVM_IMAGE_FCOE_CFG,
+	QED_NVM_IMAGE_MDUMP,
 	QED_NVM_IMAGE_NVM_CFG1,
 	QED_NVM_IMAGE_DEFAULT_CFG,
 	QED_NVM_IMAGE_NVM_META,
@@ -464,7 +464,7 @@ enum qed_db_rec_space {
 
 #define DIRECT_REG_RD(reg_addr) readl((void __iomem *)(reg_addr))
 
-#define DIRECT_REG_WR64(reg_addr, val) writeq((u32)val,	\
+#define DIRECT_REG_WR64(reg_addr, val) writeq((u64)val,	\
 					      (void __iomem *)(reg_addr))
 
 #define QED_COALESCE_MAX 0x1FF
@@ -607,6 +607,16 @@ struct qed_sb_info {
 	struct qed_dev *cdev;
 };
 
+enum qed_hw_err_type {
+	QED_HW_ERR_FAN_FAIL,
+	QED_HW_ERR_MFW_RESP_FAIL,
+	QED_HW_ERR_HW_ATTN,
+	QED_HW_ERR_DMAE_FAIL,
+	QED_HW_ERR_RAMROD_FAIL,
+	QED_HW_ERR_FW_ASSERT,
+	QED_HW_ERR_LAST,
+};
+
 enum qed_dev_type {
 	QED_DEV_TYPE_BB,
 	QED_DEV_TYPE_AH,
@@ -644,6 +654,7 @@ struct qed_dev_info {
 	u16		mtu;
 
 	bool wol_support;
+	bool smart_an;
 
 	/* MBI version */
 	u32 mbi_version;
@@ -689,7 +700,7 @@ enum qed_link_mode_bits {
 	QED_LM_40000baseLR4_Full_BIT = BIT(9),
 	QED_LM_50000baseKR2_Full_BIT = BIT(10),
 	QED_LM_100000baseKR4_Full_BIT = BIT(11),
-	QED_LM_2500baseX_Full_BIT = BIT(12),
+	QED_LM_TP_BIT = BIT(12),
 	QED_LM_Backplane_BIT = BIT(13),
 	QED_LM_1000baseKX_Full_BIT = BIT(14),
 	QED_LM_10000baseKX4_Full_BIT = BIT(15),
@@ -764,6 +775,7 @@ struct qed_probe_params {
 	u32 dp_module;
 	u8 dp_level;
 	bool is_vf;
+	bool recov_in_prog;
 };
 
 #define QED_DRV_VER_STR_SIZE 12
@@ -803,16 +815,20 @@ enum qed_nvm_flash_cmd {
 	QED_NVM_FLASH_CMD_FILE_DATA = 0x2,
 	QED_NVM_FLASH_CMD_FILE_START = 0x3,
 	QED_NVM_FLASH_CMD_NVM_CHANGE = 0x4,
+	QED_NVM_FLASH_CMD_NVM_CFG_ID = 0x5,
 	QED_NVM_FLASH_CMD_NVM_MAX,
 };
 
 struct qed_common_cb_ops {
 	void (*arfs_filter_op)(void *dev, void *fltr, u8 fw_rc);
-	void	(*link_update)(void			*dev,
-			       struct qed_link_output	*link);
-	void	(*dcbx_aen)(void *dev, struct qed_dcbx_get *get, u32 mib_type);
+	void (*link_update)(void *dev, struct qed_link_output *link);
+	void (*schedule_recovery_handler)(void *dev);
+	void (*schedule_hw_err_handler)(void *dev,
+					enum qed_hw_err_type err_type);
+	void (*dcbx_aen)(void *dev, struct qed_dcbx_get *get, u32 mib_type);
 	void (*get_generic_tlv_data)(void *dev, struct qed_generic_tlvs *data);
 	void (*get_protocol_tlv_data)(void *dev, void *data);
+	void (*bw_update)(void *dev);
 };
 
 struct qed_selftest_ops {
@@ -905,7 +921,8 @@ struct qed_common_ops {
 
 	u32		(*sb_release)(struct qed_dev *cdev,
 				      struct qed_sb_info *sb_info,
-				      u16 sb_id);
+				      u16 sb_id,
+				      enum qed_sb_type type);
 
 	void		(*simd_handler_config)(struct qed_dev *cdev,
 					       void *token,
@@ -1029,6 +1046,15 @@ struct qed_common_ops {
  */
 	int (*set_led)(struct qed_dev *cdev,
 		       enum qed_led_mode mode);
+
+/**
+ * @brief attn_clr_enable - Prevent attentions from being reasserted
+ *
+ * @param cdev
+ * @param clr_enable
+ */
+	void (*attn_clr_enable)(struct qed_dev *cdev, bool clr_enable);
+
 /**
  * @brief db_recovery_add - add doorbell information to the doorbell
  * recovery mechanism.
@@ -1056,6 +1082,24 @@ struct qed_common_ops {
  */
 	int (*db_recovery_del)(struct qed_dev *cdev,
 			       void __iomem *db_addr, void *db_data);
+
+/**
+ * @brief recovery_process - Trigger a recovery process
+ *
+ * @param cdev
+ *
+ * @return 0 on success, error otherwise.
+ */
+	int (*recovery_process)(struct qed_dev *cdev);
+
+/**
+ * @brief recovery_prolog - Execute the prolog operations of a recovery process
+ *
+ * @param cdev
+ *
+ * @return 0 on success, error otherwise.
+ */
+	int (*recovery_prolog)(struct qed_dev *cdev);
 
 /**
  * @brief update_drv_state - API to inform the change in the driver state.
@@ -1103,6 +1147,41 @@ struct qed_common_ops {
  */
 	int (*read_module_eeprom)(struct qed_dev *cdev,
 				  char *buf, u8 dev_addr, u32 offset, u32 len);
+
+/**
+ * @brief get_affin_hwfn_idx
+ *
+ * @param cdev
+ */
+	u8 (*get_affin_hwfn_idx)(struct qed_dev *cdev);
+
+/**
+ * @brief read_nvm_cfg - Read NVM config attribute value.
+ * @param cdev
+ * @param buf - buffer
+ * @param cmd - NVM CFG command id
+ * @param entity_id - Entity id
+ *
+ */
+	int (*read_nvm_cfg)(struct qed_dev *cdev, u8 **buf, u32 cmd,
+			    u32 entity_id);
+/**
+ * @brief read_nvm_cfg - Read NVM config attribute value.
+ * @param cdev
+ * @param cmd - NVM CFG command id
+ *
+ * @return config id length, 0 on error.
+ */
+	int (*read_nvm_cfg_len)(struct qed_dev *cdev, u32 cmd);
+
+/**
+ * @brief set_grc_config - Configure value for grc config id.
+ * @param cdev
+ * @param cfg_id - grc config id
+ * @param val - grc config value
+ *
+ */
+	int (*set_grc_config)(struct qed_dev *cdev, u32 cfg_id, u32 val);
 };
 
 #define MASK_FIELD(_name, _value) \
@@ -1119,6 +1198,17 @@ struct qed_common_ops {
 
 #define GET_FIELD(value, name) \
 	(((value) >> (name ## _SHIFT)) & name ## _MASK)
+
+#define GET_MFW_FIELD(name, field) \
+	(((name) & (field ## _MASK)) >> (field ## _OFFSET))
+
+#define SET_MFW_FIELD(name, field, value)				 \
+	do {								 \
+		(name) &= ~(field ## _MASK);				 \
+		(name) |= (((value) << (field ## _OFFSET)) & (field ## _MASK));\
+	} while (0)
+
+#define DB_ADDR_SHIFT(addr) ((addr) << DB_PWM_ADDR_OFFSET_SHIFT)
 
 /* Debug print definitions */
 #define DP_ERR(cdev, fmt, ...)					\
@@ -1318,7 +1408,6 @@ static inline u16 qed_sb_update_sb_idx(struct qed_sb_info *sb_info)
 	}
 
 	/* Let SB update */
-	mmiowb();
 	return rc;
 }
 
@@ -1354,7 +1443,6 @@ static inline void qed_sb_ack(struct qed_sb_info *sb_info,
 	/* Both segments (interrupts & acks) are written to same place address;
 	 * Need to guarantee all commands will be received (in-order) by HW.
 	 */
-	mmiowb();
 	barrier();
 }
 

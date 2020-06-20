@@ -593,23 +593,6 @@ static void fsmc_write_buf_dma(struct fsmc_nand_data *host, const u8 *buf,
 	dma_xfer(host, (void *)buf, len, DMA_TO_DEVICE);
 }
 
-/* fsmc_select_chip - assert or deassert nCE */
-static void fsmc_ce_ctrl(struct fsmc_nand_data *host, bool assert)
-{
-	u32 pc = readl(host->regs_va + FSMC_PC);
-
-	if (!assert)
-		writel_relaxed(pc & ~FSMC_ENABLE, host->regs_va + FSMC_PC);
-	else
-		writel_relaxed(pc | FSMC_ENABLE, host->regs_va + FSMC_PC);
-
-	/*
-	 * nCE line changes must be applied before returning from this
-	 * function.
-	 */
-	mb();
-}
-
 /*
  * fsmc_exec_op - hook called by the core to execute NAND operations
  *
@@ -625,35 +608,28 @@ static int fsmc_exec_op(struct nand_chip *chip, const struct nand_operation *op,
 	unsigned int op_id;
 	int i;
 
-	pr_debug("Executing operation [%d instructions]:\n", op->ninstrs);
+	if (check_only)
+		return 0;
 
-	fsmc_ce_ctrl(host, true);
+	pr_debug("Executing operation [%d instructions]:\n", op->ninstrs);
 
 	for (op_id = 0; op_id < op->ninstrs; op_id++) {
 		instr = &op->instrs[op_id];
 
+		nand_op_trace("  ", instr);
+
 		switch (instr->type) {
 		case NAND_OP_CMD_INSTR:
-			pr_debug("  ->CMD      [0x%02x]\n",
-				 instr->ctx.cmd.opcode);
-
 			writeb_relaxed(instr->ctx.cmd.opcode, host->cmd_va);
 			break;
 
 		case NAND_OP_ADDR_INSTR:
-			pr_debug("  ->ADDR     [%d cyc]",
-				 instr->ctx.addr.naddrs);
-
 			for (i = 0; i < instr->ctx.addr.naddrs; i++)
 				writeb_relaxed(instr->ctx.addr.addrs[i],
 					       host->addr_va);
 			break;
 
 		case NAND_OP_DATA_IN_INSTR:
-			pr_debug("  ->DATA_IN  [%d B%s]\n", instr->ctx.data.len,
-				 instr->ctx.data.force_8bit ?
-				 ", force 8-bit" : "");
-
 			if (host->mode == USE_DMA_ACCESS)
 				fsmc_read_buf_dma(host, instr->ctx.data.buf.in,
 						  instr->ctx.data.len);
@@ -663,10 +639,6 @@ static int fsmc_exec_op(struct nand_chip *chip, const struct nand_operation *op,
 			break;
 
 		case NAND_OP_DATA_OUT_INSTR:
-			pr_debug("  ->DATA_OUT [%d B%s]\n", instr->ctx.data.len,
-				 instr->ctx.data.force_8bit ?
-				 ", force 8-bit" : "");
-
 			if (host->mode == USE_DMA_ACCESS)
 				fsmc_write_buf_dma(host,
 						   instr->ctx.data.buf.out,
@@ -677,16 +649,11 @@ static int fsmc_exec_op(struct nand_chip *chip, const struct nand_operation *op,
 			break;
 
 		case NAND_OP_WAITRDY_INSTR:
-			pr_debug("  ->WAITRDY  [max %d ms]\n",
-				 instr->ctx.waitrdy.timeout_ms);
-
 			ret = nand_soft_waitrdy(chip,
 						instr->ctx.waitrdy.timeout_ms);
 			break;
 		}
 	}
-
-	fsmc_ce_ctrl(host, false);
 
 	return ret;
 }
@@ -727,7 +694,7 @@ static int fsmc_read_page_hwecc(struct nand_chip *chip, u8 *buf,
 	for (i = 0, s = 0; s < eccsteps; s++, i += eccbytes, p += eccsize) {
 		nand_read_page_op(chip, page, s * eccsize, NULL, 0);
 		chip->ecc.hwctl(chip, NAND_ECC_READ);
-		ret = nand_read_data_op(chip, p, eccsize, false);
+		ret = nand_read_data_op(chip, p, eccsize, false, false);
 		if (ret)
 			return ret;
 
@@ -845,11 +812,12 @@ static int fsmc_bch8_correct_data(struct nand_chip *chip, u8 *dat,
 
 	i = 0;
 	while (num_err--) {
-		change_bit(0, (unsigned long *)&err_idx[i]);
-		change_bit(1, (unsigned long *)&err_idx[i]);
+		err_idx[i] ^= 3;
 
 		if (err_idx[i] < chip->ecc.size * 8) {
-			change_bit(err_idx[i], (unsigned long *)dat);
+			int err = err_idx[i];
+
+			dat[err >> 3] ^= BIT(err & 7);
 			i++;
 		}
 	}
@@ -985,6 +953,19 @@ static const struct nand_controller_ops fsmc_nand_controller_ops = {
 	.exec_op = fsmc_exec_op,
 	.setup_data_interface = fsmc_setup_data_interface,
 };
+
+/**
+ * fsmc_nand_disable() - Disables the NAND bank
+ * @host: The instance to disable
+ */
+static void fsmc_nand_disable(struct fsmc_nand_data *host)
+{
+	u32 val;
+
+	val = readl(host->regs_va + FSMC_PC);
+	val &= ~FSMC_ENABLE;
+	writel(val, host->regs_va + FSMC_PC);
+}
 
 /*
  * fsmc_nand_probe - Probe function
@@ -1141,6 +1122,7 @@ release_dma_read_chan:
 	if (host->mode == USE_DMA_ACCESS)
 		dma_release_channel(host->read_dma_chan);
 disable_clk:
+	fsmc_nand_disable(host);
 	clk_disable_unprepare(host->clk);
 
 	return ret;
@@ -1154,7 +1136,13 @@ static int fsmc_nand_remove(struct platform_device *pdev)
 	struct fsmc_nand_data *host = platform_get_drvdata(pdev);
 
 	if (host) {
-		nand_release(&host->nand);
+		struct nand_chip *chip = &host->nand;
+		int ret;
+
+		ret = mtd_device_unregister(nand_to_mtd(chip));
+		WARN_ON(ret);
+		nand_cleanup(chip);
+		fsmc_nand_disable(host);
 
 		if (host->mode == USE_DMA_ACCESS) {
 			dma_release_channel(host->write_dma_chan);
@@ -1185,6 +1173,7 @@ static int fsmc_nand_resume(struct device *dev)
 		clk_prepare_enable(host->clk);
 		if (host->dev_timings)
 			fsmc_nand_setup(host, host->dev_timings);
+		nand_reset(&host->nand, 0);
 	}
 
 	return 0;

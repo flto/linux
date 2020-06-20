@@ -11,8 +11,6 @@
 #include "hnae3.h"
 #include "hclge_main.h"
 
-#define hclge_is_csq(ring) ((ring)->flag & HCLGE_TYPE_CSQ)
-
 #define cmq_ring_to_dev(ring)   (&(ring)->dev->pdev->dev)
 
 static int hclge_ring_space(struct hclge_cmq_ring *ring)
@@ -103,15 +101,17 @@ static void hclge_cmd_config_regs(struct hclge_cmq_ring *ring)
 	dma_addr_t dma = ring->desc_dma_addr;
 	struct hclge_dev *hdev = ring->dev;
 	struct hclge_hw *hw = &hdev->hw;
+	u32 reg_val;
 
 	if (ring->ring_type == HCLGE_TYPE_CSQ) {
 		hclge_write_dev(hw, HCLGE_NIC_CSQ_BASEADDR_L_REG,
 				lower_32_bits(dma));
 		hclge_write_dev(hw, HCLGE_NIC_CSQ_BASEADDR_H_REG,
 				upper_32_bits(dma));
-		hclge_write_dev(hw, HCLGE_NIC_CSQ_DEPTH_REG,
-				(ring->desc_num >> HCLGE_NIC_CMQ_DESC_NUM_S) |
-				HCLGE_NIC_CMQ_ENABLE);
+		reg_val = hclge_read_dev(hw, HCLGE_NIC_CSQ_DEPTH_REG);
+		reg_val &= HCLGE_NIC_SW_RST_RDY;
+		reg_val |= ring->desc_num >> HCLGE_NIC_CMQ_DESC_NUM_S;
+		hclge_write_dev(hw, HCLGE_NIC_CSQ_DEPTH_REG, reg_val);
 		hclge_write_dev(hw, HCLGE_NIC_CSQ_HEAD_REG, 0);
 		hclge_write_dev(hw, HCLGE_NIC_CSQ_TAIL_REG, 0);
 	} else {
@@ -120,8 +120,7 @@ static void hclge_cmd_config_regs(struct hclge_cmq_ring *ring)
 		hclge_write_dev(hw, HCLGE_NIC_CRQ_BASEADDR_H_REG,
 				upper_32_bits(dma));
 		hclge_write_dev(hw, HCLGE_NIC_CRQ_DEPTH_REG,
-				(ring->desc_num >> HCLGE_NIC_CMQ_DESC_NUM_S) |
-				HCLGE_NIC_CMQ_ENABLE);
+				ring->desc_num >> HCLGE_NIC_CMQ_DESC_NUM_S);
 		hclge_write_dev(hw, HCLGE_NIC_CRQ_HEAD_REG, 0);
 		hclge_write_dev(hw, HCLGE_NIC_CRQ_TAIL_REG, 0);
 	}
@@ -144,7 +143,7 @@ static int hclge_cmd_csq_clean(struct hclge_hw *hw)
 	rmb(); /* Make sure head is ready before touch any data */
 
 	if (!is_valid_csq_clean_head(csq, head)) {
-		dev_warn(&hdev->pdev->dev, "wrong cmd head (%d, %d-%d)\n", head,
+		dev_warn(&hdev->pdev->dev, "wrong cmd head (%u, %d-%d)\n", head,
 			 csq->next_to_use, csq->next_to_clean);
 		dev_warn(&hdev->pdev->dev,
 			 "Disabling any further commands to IMP firmware\n");
@@ -170,8 +169,16 @@ static bool hclge_is_special_opcode(u16 opcode)
 	/* these commands have several descriptors,
 	 * and use the first one to save opcode and return value
 	 */
-	u16 spec_opcode[3] = {HCLGE_OPC_STATS_64_BIT,
-		HCLGE_OPC_STATS_32_BIT, HCLGE_OPC_STATS_MAC};
+	u16 spec_opcode[] = {HCLGE_OPC_STATS_64_BIT,
+			     HCLGE_OPC_STATS_32_BIT,
+			     HCLGE_OPC_STATS_MAC,
+			     HCLGE_OPC_STATS_MAC_ALL,
+			     HCLGE_OPC_QUERY_32_BIT_REG,
+			     HCLGE_OPC_QUERY_64_BIT_REG,
+			     HCLGE_QUERY_CLEAR_MPF_RAS_INT,
+			     HCLGE_QUERY_CLEAR_PF_RAS_INT,
+			     HCLGE_QUERY_CLEAR_ALL_MPF_MSIX_INT,
+			     HCLGE_QUERY_CLEAR_ALL_PF_MSIX_INT};
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(spec_opcode); i++) {
@@ -180,6 +187,61 @@ static bool hclge_is_special_opcode(u16 opcode)
 	}
 
 	return false;
+}
+
+static int hclge_cmd_convert_err_code(u16 desc_ret)
+{
+	switch (desc_ret) {
+	case HCLGE_CMD_EXEC_SUCCESS:
+		return 0;
+	case HCLGE_CMD_NO_AUTH:
+		return -EPERM;
+	case HCLGE_CMD_NOT_SUPPORTED:
+		return -EOPNOTSUPP;
+	case HCLGE_CMD_QUEUE_FULL:
+		return -EXFULL;
+	case HCLGE_CMD_NEXT_ERR:
+		return -ENOSR;
+	case HCLGE_CMD_UNEXE_ERR:
+		return -ENOTBLK;
+	case HCLGE_CMD_PARA_ERR:
+		return -EINVAL;
+	case HCLGE_CMD_RESULT_ERR:
+		return -ERANGE;
+	case HCLGE_CMD_TIMEOUT:
+		return -ETIME;
+	case HCLGE_CMD_HILINK_ERR:
+		return -ENOLINK;
+	case HCLGE_CMD_QUEUE_ILLEGAL:
+		return -ENXIO;
+	case HCLGE_CMD_INVALID:
+		return -EBADR;
+	default:
+		return -EIO;
+	}
+}
+
+static int hclge_cmd_check_retval(struct hclge_hw *hw, struct hclge_desc *desc,
+				  int num, int ntc)
+{
+	u16 opcode, desc_ret;
+	int handle;
+
+	opcode = le16_to_cpu(desc[0].opcode);
+	for (handle = 0; handle < num; handle++) {
+		desc[handle] = hw->cmq.csq.desc[ntc];
+		ntc++;
+		if (ntc >= hw->cmq.csq.desc_num)
+			ntc = 0;
+	}
+	if (likely(!hclge_is_special_opcode(opcode)))
+		desc_ret = le16_to_cpu(desc[num - 1].retval);
+	else
+		desc_ret = le16_to_cpu(desc[0].retval);
+
+	hw->cmq.last_status = desc_ret;
+
+	return hclge_cmd_convert_err_code(desc_ret);
 }
 
 /**
@@ -194,18 +256,26 @@ static bool hclge_is_special_opcode(u16 opcode)
 int hclge_cmd_send(struct hclge_hw *hw, struct hclge_desc *desc, int num)
 {
 	struct hclge_dev *hdev = container_of(hw, struct hclge_dev, hw);
+	struct hclge_cmq_ring *csq = &hw->cmq.csq;
 	struct hclge_desc *desc_to_use;
 	bool complete = false;
 	u32 timeout = 0;
 	int handle = 0;
 	int retval = 0;
-	u16 opcode, desc_ret;
 	int ntc;
 
 	spin_lock_bh(&hw->cmq.csq.lock);
 
-	if (num > hclge_ring_space(&hw->cmq.csq) ||
-	    test_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state)) {
+	if (test_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state)) {
+		spin_unlock_bh(&hw->cmq.csq.lock);
+		return -EBUSY;
+	}
+
+	if (num > hclge_ring_space(&hw->cmq.csq)) {
+		/* If CMDQ ring is full, SW HEAD and HW HEAD may be different,
+		 * need update the SW HEAD pointer csq->next_to_clean
+		 */
+		csq->next_to_clean = hclge_read_dev(hw, HCLGE_NIC_CSQ_HEAD_REG);
 		spin_unlock_bh(&hw->cmq.csq.lock);
 		return -EBUSY;
 	}
@@ -215,12 +285,11 @@ int hclge_cmd_send(struct hclge_hw *hw, struct hclge_desc *desc, int num)
 	 * which will be use for hardware to write back
 	 */
 	ntc = hw->cmq.csq.next_to_use;
-	opcode = le16_to_cpu(desc[0].opcode);
 	while (handle < num) {
 		desc_to_use = &hw->cmq.csq.desc[hw->cmq.csq.next_to_use];
 		*desc_to_use = desc[handle];
 		(hw->cmq.csq.next_to_use)++;
-		if (hw->cmq.csq.next_to_use == hw->cmq.csq.desc_num)
+		if (hw->cmq.csq.next_to_use >= hw->cmq.csq.desc_num)
 			hw->cmq.csq.next_to_use = 0;
 		handle++;
 	}
@@ -243,31 +312,10 @@ int hclge_cmd_send(struct hclge_hw *hw, struct hclge_desc *desc, int num)
 		} while (timeout < hw->cmq.tx_timeout);
 	}
 
-	if (!complete) {
-		retval = -EAGAIN;
-	} else {
-		handle = 0;
-		while (handle < num) {
-			/* Get the result of hardware write back */
-			desc_to_use = &hw->cmq.csq.desc[ntc];
-			desc[handle] = *desc_to_use;
-
-			if (likely(!hclge_is_special_opcode(opcode)))
-				desc_ret = le16_to_cpu(desc[handle].retval);
-			else
-				desc_ret = le16_to_cpu(desc[0].retval);
-
-			if (desc_ret == HCLGE_CMD_EXEC_SUCCESS)
-				retval = 0;
-			else
-				retval = -EIO;
-			hw->cmq.last_status = desc_ret;
-			ntc++;
-			handle++;
-			if (ntc == hw->cmq.csq.desc_num)
-				ntc = 0;
-		}
-	}
+	if (!complete)
+		retval = -EBADE;
+	else
+		retval = hclge_cmd_check_retval(hw, desc, num, ntc);
 
 	/* Clean the command send queue */
 	handle = hclge_cmd_csq_clean(hw);
@@ -335,13 +383,30 @@ err_csq:
 	return ret;
 }
 
+static int hclge_firmware_compat_config(struct hclge_dev *hdev)
+{
+	struct hclge_firmware_compat_cmd *req;
+	struct hclge_desc desc;
+	u32 compat = 0;
+
+	hclge_cmd_setup_basic_desc(&desc, HCLGE_OPC_M7_COMPAT_CFG, false);
+
+	req = (struct hclge_firmware_compat_cmd *)desc.data;
+
+	hnae3_set_bit(compat, HCLGE_LINK_EVENT_REPORT_EN_B, 1);
+	hnae3_set_bit(compat, HCLGE_NCSI_ERROR_REPORT_EN_B, 1);
+	req->compat = cpu_to_le32(compat);
+
+	return hclge_cmd_send(&hdev->hw, &desc, 1);
+}
+
 int hclge_cmd_init(struct hclge_dev *hdev)
 {
 	u32 version;
 	int ret;
 
 	spin_lock_bh(&hdev->hw.cmq.csq.lock);
-	spin_lock_bh(&hdev->hw.cmq.crq.lock);
+	spin_lock(&hdev->hw.cmq.crq.lock);
 
 	hdev->hw.cmq.csq.next_to_clean = 0;
 	hdev->hw.cmq.csq.next_to_use = 0;
@@ -350,7 +415,7 @@ int hclge_cmd_init(struct hclge_dev *hdev)
 
 	hclge_cmd_init_regs(&hdev->hw);
 
-	spin_unlock_bh(&hdev->hw.cmq.crq.lock);
+	spin_unlock(&hdev->hw.cmq.crq.lock);
 	spin_unlock_bh(&hdev->hw.cmq.csq.lock);
 
 	clear_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state);
@@ -359,32 +424,71 @@ int hclge_cmd_init(struct hclge_dev *hdev)
 	 * reset may happen when lower level reset is being processed.
 	 */
 	if ((hclge_is_reset_pending(hdev))) {
-		set_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state);
-		return -EBUSY;
+		dev_err(&hdev->pdev->dev,
+			"failed to init cmd since reset %#lx pending\n",
+			hdev->reset_pending);
+		ret = -EBUSY;
+		goto err_cmd_init;
 	}
 
 	ret = hclge_cmd_query_firmware_version(&hdev->hw, &version);
 	if (ret) {
 		dev_err(&hdev->pdev->dev,
 			"firmware version query failed %d\n", ret);
-		return ret;
+		goto err_cmd_init;
 	}
 	hdev->fw_version = version;
 
-	dev_info(&hdev->pdev->dev, "The firmware version is %08x\n", version);
+	dev_info(&hdev->pdev->dev, "The firmware version is %lu.%lu.%lu.%lu\n",
+		 hnae3_get_field(version, HNAE3_FW_VERSION_BYTE3_MASK,
+				 HNAE3_FW_VERSION_BYTE3_SHIFT),
+		 hnae3_get_field(version, HNAE3_FW_VERSION_BYTE2_MASK,
+				 HNAE3_FW_VERSION_BYTE2_SHIFT),
+		 hnae3_get_field(version, HNAE3_FW_VERSION_BYTE1_MASK,
+				 HNAE3_FW_VERSION_BYTE1_SHIFT),
+		 hnae3_get_field(version, HNAE3_FW_VERSION_BYTE0_MASK,
+				 HNAE3_FW_VERSION_BYTE0_SHIFT));
+
+	/* ask the firmware to enable some features, driver can work without
+	 * it.
+	 */
+	ret = hclge_firmware_compat_config(hdev);
+	if (ret)
+		dev_warn(&hdev->pdev->dev,
+			 "Firmware compatible features not enabled(%d).\n",
+			 ret);
 
 	return 0;
+
+err_cmd_init:
+	set_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state);
+
+	return ret;
 }
 
-static void hclge_destroy_queue(struct hclge_cmq_ring *ring)
+static void hclge_cmd_uninit_regs(struct hclge_hw *hw)
 {
-	spin_lock(&ring->lock);
-	hclge_free_cmd_desc(ring);
-	spin_unlock(&ring->lock);
+	hclge_write_dev(hw, HCLGE_NIC_CSQ_BASEADDR_L_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CSQ_BASEADDR_H_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CSQ_DEPTH_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CSQ_HEAD_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CSQ_TAIL_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CRQ_BASEADDR_L_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CRQ_BASEADDR_H_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CRQ_DEPTH_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CRQ_HEAD_REG, 0);
+	hclge_write_dev(hw, HCLGE_NIC_CRQ_TAIL_REG, 0);
 }
 
-void hclge_destroy_cmd_queue(struct hclge_hw *hw)
+void hclge_cmd_uninit(struct hclge_dev *hdev)
 {
-	hclge_destroy_queue(&hw->cmq.csq);
-	hclge_destroy_queue(&hw->cmq.crq);
+	spin_lock_bh(&hdev->hw.cmq.csq.lock);
+	spin_lock(&hdev->hw.cmq.crq.lock);
+	set_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state);
+	hclge_cmd_uninit_regs(&hdev->hw);
+	spin_unlock(&hdev->hw.cmq.crq.lock);
+	spin_unlock_bh(&hdev->hw.cmq.csq.lock);
+
+	hclge_free_cmd_desc(&hdev->hw.cmq.csq);
+	hclge_free_cmd_desc(&hdev->hw.cmq.crq);
 }

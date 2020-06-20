@@ -80,7 +80,7 @@ obj-$(CONFIG_KGDB)		+= kgdb.o
 obj-$(CONFIG_PROC_FS)		+= proc.o
 obj-$(CONFIG_MAGIC_SYSRQ)	+= sysrq.o
 
-obj-$(CONFIG_64BIT)		+= cpu-bugs64.o
+obj-$(CONFIG_CPU_R4X00_BUGS64)	+= r4k-bugs64.o
 
 obj-$(CONFIG_I8253)		+= i8253.o
 
@@ -97,8 +97,6 @@ obj-$(CONFIG_MIPS_MACHINE)	+= mips_machine.o
 obj-$(CONFIG_MIPSR2_TO_R6_EMULATOR)	+= mips-r2-to-r6-emul.o
 
 CFLAGS_cpu-bugs64.o	= $(shell if $(CC) $(KBUILD_CFLAGS) -Wa,-mdaddi -c -o /dev/null -x c /dev/null >/dev/null 2>&1; then echo "-DHAVE_AS_SET_DADDI"; fi)
-
-obj-$(CONFIG_HAVE_STD_PC_SERIAL_PORT)	+= 8250-platform.o
 
 obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o
 obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event_mipsxx.o

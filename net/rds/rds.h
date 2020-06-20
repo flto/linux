@@ -19,10 +19,13 @@
  */
 #define RDS_PROTOCOL_3_0	0x0300
 #define RDS_PROTOCOL_3_1	0x0301
+#define RDS_PROTOCOL_4_0	0x0400
+#define RDS_PROTOCOL_4_1	0x0401
 #define RDS_PROTOCOL_VERSION	RDS_PROTOCOL_3_1
 #define RDS_PROTOCOL_MAJOR(v)	((v) >> 8)
 #define RDS_PROTOCOL_MINOR(v)	((v) & 255)
 #define RDS_PROTOCOL(maj, min)	(((maj) << 8) | min)
+#define RDS_PROTOCOL_COMPAT_VERSION	RDS_PROTOCOL_3_1
 
 /* The following ports, 16385, 18634, 18635, are registered with IANA as
  * the ports to be used for RDS over TCP and UDP.  Currently, only RDS over
@@ -37,7 +40,6 @@
 #ifdef ATOMIC64_INIT
 #define KERNEL_HAS_ATOMIC64
 #endif
-
 #ifdef RDS_DEBUG
 #define rdsdebug(fmt, args...) pr_debug("%s(): " fmt, __func__ , ##args)
 #else
@@ -151,8 +153,12 @@ struct rds_connection {
 	struct rds_cong_map	*c_fcong;
 
 	/* Protocol version */
+	unsigned int		c_proposed_version;
 	unsigned int		c_version;
 	possible_net_t		c_net;
+
+	/* TOS */
+	u8			c_tos;
 
 	struct list_head	c_map_item;
 	unsigned long		c_map_queued;
@@ -264,6 +270,12 @@ struct rds_ext_header_rdma_dest {
 #define	RDS_MSG_RX_END		2
 #define	RDS_MSG_RX_CMSG		3
 
+/* The following values are whitelisted for usercopy */
+struct rds_inc_usercopy {
+	rds_rdma_cookie_t	rdma_cookie;
+	ktime_t			rx_tstamp;
+};
+
 struct rds_incoming {
 	refcount_t		i_refcount;
 	struct list_head	i_item;
@@ -273,14 +285,13 @@ struct rds_incoming {
 	unsigned long		i_rx_jiffies;
 	struct in6_addr		i_saddr;
 
-	rds_rdma_cookie_t	i_rdma_cookie;
-	ktime_t			i_rx_tstamp;
+	struct rds_inc_usercopy i_usercopy;
 	u64			i_rx_lat_trace[RDS_RX_MAX_TRACES];
 };
 
 struct rds_mr {
 	struct rb_node		r_rb_node;
-	refcount_t		r_refcount;
+	struct kref		r_kref;
 	u32			r_key;
 
 	/* A copy of the creation flags */
@@ -288,18 +299,10 @@ struct rds_mr {
 	unsigned int		r_invalidate:1;
 	unsigned int		r_write:1;
 
-	/* This is for RDS_MR_DEAD.
-	 * It would be nice & consistent to make this part of the above
-	 * bit field here, but we need to use test_and_set_bit.
-	 */
-	unsigned long		r_state;
 	struct rds_sock		*r_sock; /* back pointer to the socket that owns us */
 	struct rds_transport	*r_trans;
 	void			*r_trans_private;
 };
-
-/* Flags for mr->r_state */
-#define RDS_MR_DEAD		0
 
 static inline rds_rdma_cookie_t rds_rdma_make_cookie(u32 r_key, u32 offset)
 {
@@ -466,10 +469,12 @@ struct rds_message {
 			struct rds_notifier	*op_notifier;
 
 			struct rds_mr		*op_rdma_mr;
+
+			u64			op_odp_addr;
+			struct rds_mr		*op_odp_mr;
 		} rdma;
 		struct rm_data_op {
 			unsigned int		op_active:1;
-			unsigned int		op_notify:1;
 			unsigned int		op_nents;
 			unsigned int		op_count;
 			unsigned int		op_dmasg;
@@ -562,11 +567,13 @@ struct rds_transport {
 	void (*exit)(void);
 	void *(*get_mr)(struct scatterlist *sg, unsigned long nr_sg,
 			struct rds_sock *rs, u32 *key_ret,
-			struct rds_connection *conn);
+			struct rds_connection *conn,
+			u64 start, u64 length, int need_odp);
 	void (*sync_mr)(void *trans_private, int direction);
 	void (*free_mr)(void *trans_private, int invalidate);
 	void (*flush_mrs)(void);
 	bool (*t_unloading)(struct rds_connection *conn);
+	u8 (*get_tos_map)(u8 tos);
 };
 
 /* Bind hash table key length.  It is the sum of the size of a struct
@@ -648,6 +655,7 @@ struct rds_sock {
 	u8			rs_rx_traces;
 	u8			rs_rx_trace[RDS_MSG_RX_DGRAM_TRACE_MAX];
 	struct rds_msg_zcopy_queue rs_zcookie_queue;
+	u8			rs_tos;
 };
 
 static inline struct rds_sock *rds_sk_to_rs(const struct sock *sk)
@@ -709,7 +717,7 @@ struct rds_statistics {
 	uint64_t	s_cong_send_blocked;
 	uint64_t	s_recv_bytes_added_to_socket;
 	uint64_t	s_recv_bytes_removed_from_socket;
-
+	uint64_t	s_send_stuck_rm;
 };
 
 /* af_rds.c */
@@ -756,13 +764,14 @@ void rds_conn_exit(void);
 struct rds_connection *rds_conn_create(struct net *net,
 				       const struct in6_addr *laddr,
 				       const struct in6_addr *faddr,
-				       struct rds_transport *trans, gfp_t gfp,
+				       struct rds_transport *trans,
+				       u8 tos, gfp_t gfp,
 				       int dev_if);
 struct rds_connection *rds_conn_create_outgoing(struct net *net,
 						const struct in6_addr *laddr,
 						const struct in6_addr *faddr,
 						struct rds_transport *trans,
-						gfp_t gfp, int dev_if);
+						u8 tos, gfp_t gfp, int dev_if);
 void rds_conn_shutdown(struct rds_conn_path *cpath);
 void rds_conn_destroy(struct rds_connection *conn);
 void rds_conn_drop(struct rds_connection *conn);
@@ -835,8 +844,7 @@ rds_conn_connecting(struct rds_connection *conn)
 
 /* message.c */
 struct rds_message *rds_message_alloc(unsigned int nents, gfp_t gfp);
-struct scatterlist *rds_message_alloc_sgs(struct rds_message *rm, int nents,
-					  int *ret);
+struct scatterlist *rds_message_alloc_sgs(struct rds_message *rm, int nents);
 int rds_message_copy_from_user(struct rds_message *rm, struct iov_iter *from,
 			       bool zcopy);
 struct rds_message *rds_message_map_pages(unsigned long *page_addrs, unsigned int total_len);
@@ -929,18 +937,19 @@ void rds_atomic_send_complete(struct rds_message *rm, int wc_status);
 int rds_cmsg_atomic(struct rds_sock *rs, struct rds_message *rm,
 		    struct cmsghdr *cmsg);
 
-void __rds_put_mr_final(struct rds_mr *mr);
-static inline void rds_mr_put(struct rds_mr *mr)
-{
-	if (refcount_dec_and_test(&mr->r_refcount))
-		__rds_put_mr_final(mr);
-}
+void __rds_put_mr_final(struct kref *kref);
 
 static inline bool rds_destroy_pending(struct rds_connection *conn)
 {
 	return !check_net(rds_conn_net(conn)) ||
 	       (conn->c_trans->t_unloading && conn->c_trans->t_unloading(conn));
 }
+
+enum {
+	ODP_NOT_NEEDED,
+	ODP_ZEROBASED,
+	ODP_VIRTUAL
+};
 
 /* stats.c */
 DECLARE_PER_CPU_SHARED_ALIGNED(struct rds_statistics, rds_stats);

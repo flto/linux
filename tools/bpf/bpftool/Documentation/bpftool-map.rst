@@ -21,36 +21,43 @@ SYNOPSIS
 MAP COMMANDS
 =============
 
-|	**bpftool** **map { show | list }**   [*MAP*]
+|	**bpftool** **map** { **show** | **list** }   [*MAP*]
 |	**bpftool** **map create**     *FILE* **type** *TYPE* **key** *KEY_SIZE* **value** *VALUE_SIZE* \
 |		**entries** *MAX_ENTRIES* **name** *NAME* [**flags** *FLAGS*] [**dev** *NAME*]
 |	**bpftool** **map dump**       *MAP*
-|	**bpftool** **map update**     *MAP*  **key** *DATA*   **value** *VALUE* [*UPDATE_FLAGS*]
-|	**bpftool** **map lookup**     *MAP*  **key** *DATA*
+|	**bpftool** **map update**     *MAP* [**key** *DATA*] [**value** *VALUE*] [*UPDATE_FLAGS*]
+|	**bpftool** **map lookup**     *MAP* [**key** *DATA*]
 |	**bpftool** **map getnext**    *MAP* [**key** *DATA*]
 |	**bpftool** **map delete**     *MAP*  **key** *DATA*
 |	**bpftool** **map pin**        *MAP*  *FILE*
 |	**bpftool** **map event_pipe** *MAP* [**cpu** *N* **index** *M*]
+|	**bpftool** **map peek**       *MAP*
+|	**bpftool** **map push**       *MAP* **value** *VALUE*
+|	**bpftool** **map pop**        *MAP*
+|	**bpftool** **map enqueue**    *MAP* **value** *VALUE*
+|	**bpftool** **map dequeue**    *MAP*
+|	**bpftool** **map freeze**     *MAP*
 |	**bpftool** **map help**
 |
-|	*MAP* := { **id** *MAP_ID* | **pinned** *FILE* }
+|	*MAP* := { **id** *MAP_ID* | **pinned** *FILE* | **name** *MAP_NAME* }
 |	*DATA* := { [**hex**] *BYTES* }
-|	*PROG* := { **id** *PROG_ID* | **pinned** *FILE* | **tag** *PROG_TAG* }
+|	*PROG* := { **id** *PROG_ID* | **pinned** *FILE* | **tag** *PROG_TAG* | **name** *PROG_NAME* }
 |	*VALUE* := { *DATA* | *MAP* | *PROG* }
 |	*UPDATE_FLAGS* := { **any** | **exist** | **noexist** }
 |	*TYPE* := { **hash** | **array** | **prog_array** | **perf_event_array** | **percpu_hash**
 |		| **percpu_array** | **stack_trace** | **cgroup_array** | **lru_hash**
 |		| **lru_percpu_hash** | **lpm_trie** | **array_of_maps** | **hash_of_maps**
-|		| **devmap** | **sockmap** | **cpumap** | **xskmap** | **sockhash**
+|		| **devmap** | **devmap_hash** | **sockmap** | **cpumap** | **xskmap** | **sockhash**
 |		| **cgroup_storage** | **reuseport_sockarray** | **percpu_cgroup_storage**
-|		| **queue** | **stack** }
+|		| **queue** | **stack** | **sk_storage** | **struct_ops** }
 
 DESCRIPTION
 ===========
 	**bpftool map { show | list }**   [*MAP*]
 		  Show information about loaded maps.  If *MAP* is specified
-		  show information only about given map, otherwise list all
-		  maps currently loaded on the system.
+		  show information only about given maps, otherwise list all
+		  maps currently loaded on the system.  In case of **name**,
+		  *MAP* may match several maps which will all be shown.
 
 		  Output will start with map ID followed by map type and
 		  zero or more named attributes (depending on kernel version).
@@ -59,10 +66,18 @@ DESCRIPTION
 		  Create a new map with given parameters and pin it to *bpffs*
 		  as *FILE*.
 
-	**bpftool map dump**    *MAP*
-		  Dump all entries in a given *MAP*.
+		  *FLAGS* should be an integer which is the combination of
+		  desired flags, e.g. 1024 for **BPF_F_MMAPABLE** (see bpf.h
+		  UAPI header for existing flags).
 
-	**bpftool map update**  *MAP*  **key** *DATA*   **value** *VALUE* [*UPDATE_FLAGS*]
+		  Keyword **dev** expects a network interface name, and is used
+		  to request hardware offload for the map.
+
+	**bpftool map dump**    *MAP*
+		  Dump all entries in a given *MAP*.  In case of **name**,
+		  *MAP* may match several maps which will all be dumped.
+
+	**bpftool map update**  *MAP* [**key** *DATA*] [**value** *VALUE*] [*UPDATE_FLAGS*]
 		  Update map entry for a given *KEY*.
 
 		  *UPDATE_FLAGS* can be one of: **any** update existing entry
@@ -70,12 +85,12 @@ DESCRIPTION
 		  exists; **noexist** update only if entry doesn't exist.
 
 		  If the **hex** keyword is provided in front of the bytes
-		  sequence, the bytes are parsed as hexadeximal values, even if
+		  sequence, the bytes are parsed as hexadecimal values, even if
 		  no "0x" prefix is added. If the keyword is not provided, then
 		  the bytes are parsed as decimal values, unless a "0x" prefix
 		  (for hexadecimal) or a "0" prefix (for octal) is provided.
 
-	**bpftool map lookup**  *MAP*  **key** *DATA*
+	**bpftool map lookup**  *MAP* [**key** *DATA*]
 		  Lookup **key** in the map.
 
 	**bpftool map getnext** *MAP* [**key** *DATA*]
@@ -92,10 +107,10 @@ DESCRIPTION
 		  extensions of *bpffs*.
 
 	**bpftool** **map event_pipe** *MAP* [**cpu** *N* **index** *M*]
-		  Read events from a BPF_MAP_TYPE_PERF_EVENT_ARRAY map.
+		  Read events from a **BPF_MAP_TYPE_PERF_EVENT_ARRAY** map.
 
 		  Install perf rings into a perf event array map and dump
-		  output of any bpf_perf_event_output() call in the kernel.
+		  output of any **bpf_perf_event_output**\ () call in the kernel.
 		  By default read the number of CPUs on the system and
 		  install perf ring for each CPU in the corresponding index
 		  in the array.
@@ -107,6 +122,29 @@ DESCRIPTION
 		  replace any existing ring.  Any other application will stop
 		  receiving events if it installed its rings earlier.
 
+	**bpftool map peek**  *MAP*
+		  Peek next value in the queue or stack.
+
+	**bpftool map push**  *MAP* **value** *VALUE*
+		  Push *VALUE* onto the stack.
+
+	**bpftool map pop**  *MAP*
+		  Pop and print value from the stack.
+
+	**bpftool map enqueue**  *MAP* **value** *VALUE*
+		  Enqueue *VALUE* into the queue.
+
+	**bpftool map dequeue**  *MAP*
+		  Dequeue and print value from the queue.
+
+	**bpftool map freeze**  *MAP*
+		  Freeze the map as read-only from user space. Entries from a
+		  frozen map can not longer be updated or deleted with the
+		  **bpf**\ () system call. This operation is not reversible,
+		  and the map remains immutable from user space until its
+		  destruction. However, read and write permissions for BPF
+		  programs to the map remain unchanged.
+
 	**bpftool map help**
 		  Print short help message.
 
@@ -115,7 +153,7 @@ OPTIONS
 	-h, --help
 		  Print short generic help message (similar to **bpftool help**).
 
-	-v, --version
+	-V, --version
 		  Print version number (similar to **bpftool version**).
 
 	-j, --json
@@ -131,6 +169,10 @@ OPTIONS
 	-n, --nomount
 		  Do not automatically attempt to mount any virtual file system
 		  (such as tracefs or BPF virtual file system) when necessary.
+
+	-d, --debug
+		  Print all logs available from libbpf, including debug-level
+		  information.
 
 EXAMPLES
 ========
@@ -234,7 +276,13 @@ SEE ALSO
 	**bpf**\ (2),
 	**bpf-helpers**\ (7),
 	**bpftool**\ (8),
-	**bpftool-prog**\ (8),
+	**bpftool-btf**\ (8),
 	**bpftool-cgroup**\ (8),
+	**bpftool-feature**\ (8),
+	**bpftool-gen**\ (8),
+	**bpftool-iter**\ (8),
+	**bpftool-link**\ (8),
 	**bpftool-net**\ (8),
-	**bpftool-perf**\ (8)
+	**bpftool-perf**\ (8),
+	**bpftool-prog**\ (8),
+	**bpftool-struct_ops**\ (8)

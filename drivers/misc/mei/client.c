@@ -1,17 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- *
+ * Copyright (c) 2003-2019, Intel Corporation. All rights reserved.
  * Intel Management Engine Interface (Intel MEI) Linux driver
- * Copyright (c) 2003-2012, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
 
 #include <linux/sched/signal.h>
@@ -276,6 +266,7 @@ void mei_me_cl_rm_by_uuid(struct mei_device *dev, const uuid_le *uuid)
 	down_write(&dev->me_clients_rwsem);
 	me_cl = __mei_me_cl_by_uuid(dev, uuid);
 	__mei_me_cl_del(dev, me_cl);
+	mei_me_cl_put(me_cl);
 	up_write(&dev->me_clients_rwsem);
 }
 
@@ -297,6 +288,7 @@ void mei_me_cl_rm_by_uuid_id(struct mei_device *dev, const uuid_le *uuid, u8 id)
 	down_write(&dev->me_clients_rwsem);
 	me_cl = __mei_me_cl_by_uuid_id(dev, uuid, id);
 	__mei_me_cl_del(dev, me_cl);
+	mei_me_cl_put(me_cl);
 	up_write(&dev->me_clients_rwsem);
 }
 
@@ -401,8 +393,11 @@ static void mei_io_list_flush_cl(struct list_head *head,
 	struct mei_cl_cb *cb, *next;
 
 	list_for_each_entry_safe(cb, next, head, list) {
-		if (cl == cb->cl)
+		if (cl == cb->cl) {
 			list_del_init(&cb->list);
+			if (cb->fop_type == MEI_FOP_READ)
+				mei_io_cb_free(cb);
+		}
 	}
 }
 
@@ -676,7 +671,7 @@ int mei_cl_unlink(struct mei_cl *cl)
 
 void mei_host_client_init(struct mei_device *dev)
 {
-	dev->dev_state = MEI_DEV_ENABLED;
+	mei_set_devstate(dev, MEI_DEV_ENABLED);
 	dev->reset_count = 0;
 
 	schedule_work(&dev->bus_rescan_work);
@@ -1592,7 +1587,7 @@ int mei_cl_irq_write(struct mei_cl *cl, struct mei_cl_cb *cb,
 		goto err;
 	}
 
-	hbuf_len = mei_slots2data(hbuf_slots);
+	hbuf_len = mei_slots2data(hbuf_slots) & MEI_MSG_MAX_LEN_MASK;
 	dr_slots = mei_dma_ring_empty_slots(dev);
 	dr_len = mei_slots2data(dr_slots);
 
@@ -1725,7 +1720,7 @@ ssize_t mei_cl_write(struct mei_cl *cl, struct mei_cl_cb *cb)
 		goto out;
 	}
 
-	hbuf_len = mei_slots2data(hbuf_slots);
+	hbuf_len = mei_slots2data(hbuf_slots) & MEI_MSG_MAX_LEN_MASK;
 	dr_slots = mei_dma_ring_empty_slots(dev);
 	dr_len =  mei_slots2data(dr_slots);
 

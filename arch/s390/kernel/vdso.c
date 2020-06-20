@@ -21,20 +21,12 @@
 #include <linux/memblock.h>
 #include <linux/compat.h>
 #include <asm/asm-offsets.h>
-#include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/mmu.h>
 #include <asm/mmu_context.h>
 #include <asm/sections.h>
 #include <asm/vdso.h>
 #include <asm/facility.h>
-
-#ifdef CONFIG_COMPAT
-extern char vdso32_start, vdso32_end;
-static void *vdso32_kbase = &vdso32_start;
-static unsigned int vdso32_pages;
-static struct page **vdso32_pagelist;
-#endif
 
 extern char vdso64_start, vdso64_end;
 static void *vdso64_kbase = &vdso64_start;
@@ -55,12 +47,6 @@ static vm_fault_t vdso_fault(const struct vm_special_mapping *sm,
 
 	vdso_pagelist = vdso64_pagelist;
 	vdso_pages = vdso64_pages;
-#ifdef CONFIG_COMPAT
-	if (vma->vm_mm->context.compat_mm) {
-		vdso_pagelist = vdso32_pagelist;
-		vdso_pages = vdso32_pages;
-	}
-#endif
 
 	if (vmf->pgoff >= vdso_pages)
 		return VM_FAULT_SIGBUS;
@@ -76,10 +62,6 @@ static int vdso_mremap(const struct vm_special_mapping *sm,
 	unsigned long vdso_pages;
 
 	vdso_pages = vdso64_pages;
-#ifdef CONFIG_COMPAT
-	if (vma->vm_mm->context.compat_mm)
-		vdso_pages = vdso32_pages;
-#endif
 
 	if ((vdso_pages << PAGE_SHIFT) != vma->vm_end - vma->vm_start)
 		return -EINVAL;
@@ -97,21 +79,13 @@ static const struct vm_special_mapping vdso_mapping = {
 	.mremap = vdso_mremap,
 };
 
-static int __init vdso_setup(char *s)
+static int __init vdso_setup(char *str)
 {
-	unsigned long val;
-	int rc;
+	bool enabled;
 
-	rc = 0;
-	if (strncmp(s, "on", 3) == 0)
-		vdso_enabled = 1;
-	else if (strncmp(s, "off", 4) == 0)
-		vdso_enabled = 0;
-	else {
-		rc = kstrtoul(s, 0, &val);
-		vdso_enabled = rc ? 0 : !!val;
-	}
-	return !rc;
+	if (!kstrtobool(str, &enabled))
+		vdso_enabled = enabled;
+	return 1;
 }
 __setup("vdso=", vdso_setup);
 
@@ -216,19 +190,11 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 
 	if (!vdso_enabled)
 		return 0;
-	/*
-	 * Only map the vdso for dynamically linked elf binaries.
-	 */
-	if (!uses_interp)
+
+	if (is_compat_task())
 		return 0;
 
 	vdso_pages = vdso64_pages;
-#ifdef CONFIG_COMPAT
-	if (is_compat_task()) {
-		vdso_pages = vdso32_pages;
-		mm->context.compat_mm = 1;
-	}
-#endif
 	/*
 	 * vDSO has a problem and was disabled, just don't "enable" it for
 	 * the process
@@ -241,7 +207,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	 * it at vdso_base which is the "natural" base for it, but we might
 	 * fail and end up putting it elsewhere.
 	 */
-	if (down_write_killable(&mm->mmap_sem))
+	if (mmap_write_lock_killable(mm))
 		return -EINTR;
 	vdso_base = get_unmapped_area(NULL, 0, vdso_pages << PAGE_SHIFT, 0, 0);
 	if (IS_ERR_VALUE(vdso_base)) {
@@ -272,7 +238,7 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	rc = 0;
 
 out_up:
-	up_write(&mm->mmap_sem);
+	mmap_write_unlock(mm);
 	return rc;
 }
 
@@ -281,24 +247,6 @@ static int __init vdso_init(void)
 	int i;
 
 	vdso_init_data(vdso_data);
-#ifdef CONFIG_COMPAT
-	/* Calculate the size of the 32 bit vDSO */
-	vdso32_pages = ((&vdso32_end - &vdso32_start
-			 + PAGE_SIZE - 1) >> PAGE_SHIFT) + 1;
-
-	/* Make sure pages are in the correct state */
-	vdso32_pagelist = kcalloc(vdso32_pages + 1, sizeof(struct page *),
-				  GFP_KERNEL);
-	BUG_ON(vdso32_pagelist == NULL);
-	for (i = 0; i < vdso32_pages - 1; i++) {
-		struct page *pg = virt_to_page(vdso32_kbase + i*PAGE_SIZE);
-		ClearPageReserved(pg);
-		get_page(pg);
-		vdso32_pagelist[i] = pg;
-	}
-	vdso32_pagelist[vdso32_pages - 1] = virt_to_page(vdso_data);
-	vdso32_pagelist[vdso32_pages] = NULL;
-#endif
 
 	/* Calculate the size of the 64 bit vDSO */
 	vdso64_pages = ((&vdso64_end - &vdso64_start
@@ -310,7 +258,6 @@ static int __init vdso_init(void)
 	BUG_ON(vdso64_pagelist == NULL);
 	for (i = 0; i < vdso64_pages - 1; i++) {
 		struct page *pg = virt_to_page(vdso64_kbase + i*PAGE_SIZE);
-		ClearPageReserved(pg);
 		get_page(pg);
 		vdso64_pagelist[i] = pg;
 	}

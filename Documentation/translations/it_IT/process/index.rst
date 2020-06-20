@@ -27,6 +27,7 @@ Di seguito le guide che ogni sviluppatore dovrebbe leggere.
    code-of-conduct
    development-process
    submitting-patches
+   programming-language
    coding-style
    maintainer-pgp-guide
    email-clients
@@ -58,6 +59,7 @@ perché non si è trovato un posto migliore.
    magic-number
    volatile-considered-harmful
    clang-format
+   ../riscv/patch-acceptance
 
 .. only::  subproject and html
 

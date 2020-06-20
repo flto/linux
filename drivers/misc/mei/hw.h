@@ -1,17 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- *
+ * Copyright (c) 2003-2018, Intel Corporation. All rights reserved
  * Intel Management Engine Interface (Intel MEI) Linux driver
- * Copyright (c) 2003-2012, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
 
 #ifndef _MEI_HW_TYPES_H_
@@ -219,11 +209,14 @@ struct mei_msg_hdr {
 	u32 extension[0];
 } __packed;
 
+/* The length is up to 9 bits */
+#define MEI_MSG_MAX_LEN_MASK GENMASK(9, 0)
+
 #define MEI_MSG_HDR_MAX 2
 
 struct mei_bus_message {
 	u8 hbm_cmd;
-	u8 data[0];
+	u8 data[];
 } __packed;
 
 /**
@@ -311,7 +304,8 @@ struct mei_client_properties {
 	u8 protocol_version;
 	u8 max_number_of_connections;
 	u8 fixed_address;
-	u8 single_recv_buf;
+	u8 single_recv_buf:1;
+	u8 reserved:7;
 	u32 max_msg_length;
 } __packed;
 

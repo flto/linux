@@ -37,7 +37,7 @@
 #include <linux/mlx5/driver.h>
 #include <linux/mlx5/accel.h>
 
-#ifdef CONFIG_MLX5_ACCEL
+#ifdef CONFIG_MLX5_FPGA_IPSEC
 
 #define MLX5_IPSEC_DEV(mdev) (mlx5_accel_ipsec_device_caps(mdev) & \
 			      MLX5_ACCEL_IPSEC_CAP_DEVICE)
@@ -48,12 +48,11 @@ int mlx5_accel_ipsec_counters_read(struct mlx5_core_dev *mdev, u64 *counters,
 
 void *mlx5_accel_esp_create_hw_context(struct mlx5_core_dev *mdev,
 				       struct mlx5_accel_esp_xfrm *xfrm,
-				       const __be32 saddr[4],
-				       const __be32 daddr[4],
-				       const __be32 spi, bool is_ipv6);
+				       u32 *sa_handle);
 void mlx5_accel_esp_free_hw_context(void *context);
 
 int mlx5_accel_ipsec_init(struct mlx5_core_dev *mdev);
+void mlx5_accel_ipsec_build_fs_cmds(void);
 void mlx5_accel_ipsec_cleanup(struct mlx5_core_dev *mdev);
 
 #else
@@ -63,9 +62,7 @@ void mlx5_accel_ipsec_cleanup(struct mlx5_core_dev *mdev);
 static inline void *
 mlx5_accel_esp_create_hw_context(struct mlx5_core_dev *mdev,
 				 struct mlx5_accel_esp_xfrm *xfrm,
-				 const __be32 saddr[4],
-				 const __be32 daddr[4],
-				 const __be32 spi, bool is_ipv6)
+				 u32 *sa_handle)
 {
 	return NULL;
 }
@@ -77,6 +74,10 @@ static inline void mlx5_accel_esp_free_hw_context(void *context)
 static inline int mlx5_accel_ipsec_init(struct mlx5_core_dev *mdev)
 {
 	return 0;
+}
+
+static inline void mlx5_accel_ipsec_build_fs_cmds(void)
+{
 }
 
 static inline void mlx5_accel_ipsec_cleanup(struct mlx5_core_dev *mdev)

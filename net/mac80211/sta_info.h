@@ -1,11 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright 2002-2005, Devicescape Software, Inc.
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright(c) 2015-2017 Intel Deutschland GmbH
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright(c) 2020 Intel Corporation
  */
 
 #ifndef STA_INFO_H
@@ -71,6 +69,8 @@
  * @WLAN_STA_MPSP_RECIPIENT: local STA is recipient of a MPSP.
  * @WLAN_STA_PS_DELIVER: station woke up, but we're still blocking TX
  *	until pending frames are delivered
+ * @WLAN_STA_USES_ENCRYPTION: This station was configured for encryption,
+ *	so drop all packets without a key later.
  *
  * @NUM_WLAN_STA_FLAGS: number of defined flags
  */
@@ -101,6 +101,7 @@ enum ieee80211_sta_info_flags {
 	WLAN_STA_MPSP_OWNER,
 	WLAN_STA_MPSP_RECIPIENT,
 	WLAN_STA_PS_DELIVER,
+	WLAN_STA_USES_ENCRYPTION,
 
 	NUM_WLAN_STA_FLAGS,
 };
@@ -118,6 +119,7 @@ enum ieee80211_sta_info_flags {
 #define HT_AGG_STATE_WANT_STOP		5
 #define HT_AGG_STATE_START_CB		6
 #define HT_AGG_STATE_STOP_CB		7
+#define HT_AGG_STATE_SENT_ADDBA		8
 
 DECLARE_EWMA(avg_signal, 10, 8)
 enum ieee80211_agg_stop_reason {
@@ -126,6 +128,23 @@ enum ieee80211_agg_stop_reason {
 	AGG_STOP_PEER_REQUEST,
 	AGG_STOP_DESTROY_STA,
 };
+
+/* Debugfs flags to enable/disable use of RX/TX airtime in scheduler */
+#define AIRTIME_USE_TX		BIT(0)
+#define AIRTIME_USE_RX		BIT(1)
+
+struct airtime_info {
+	u64 rx_airtime;
+	u64 tx_airtime;
+	s64 deficit;
+	atomic_t aql_tx_pending; /* Estimated airtime for frames pending */
+	u32 aql_limit_low;
+	u32 aql_limit_high;
+};
+
+void ieee80211_sta_update_pending_airtime(struct ieee80211_local *local,
+					  struct sta_info *sta, u8 ac,
+					  u16 tx_airtime, bool tx_completed);
 
 struct sta_info;
 
@@ -343,6 +362,7 @@ struct ieee80211_fast_rx {
 
 /* we use only values in the range 0-100, so pick a large precision */
 DECLARE_EWMA(mesh_fail_avg, 20, 8)
+DECLARE_EWMA(mesh_tx_rate_avg, 8, 16)
 
 /**
  * struct mesh_sta - mesh STA information
@@ -366,6 +386,7 @@ DECLARE_EWMA(mesh_fail_avg, 20, 8)
  *	processed
  * @connected_to_gate: true if mesh STA has a path to a mesh gate
  * @fail_avg: moving percentage of failed MSDUs
+ * @tx_rate_avg: moving average of tx bitrate
  */
 struct mesh_sta {
 	struct timer_list plink_timer;
@@ -394,6 +415,8 @@ struct mesh_sta {
 
 	/* moving percentage of failed MSDUs */
 	struct ewma_mesh_fail_avg fail_avg;
+	/* moving average of tx bitrate */
+	struct ewma_mesh_tx_rate_avg tx_rate_avg;
 };
 
 DECLARE_EWMA(signal, 10, 8)
@@ -455,10 +478,14 @@ struct ieee80211_sta_rx_stats {
  *	the station when it leaves powersave or polls for frames
  * @driver_buffered_tids: bitmap of TIDs the driver has data buffered on
  * @txq_buffered_tids: bitmap of TIDs that mac80211 has txq data buffered on
+ * @assoc_at: clock boottime (in ns) of last association
  * @last_connected: time (in seconds) when a station got connected
  * @last_seq_ctrl: last received seq/frag number from this STA (per TID
  *	plus one for non-QoS frames)
  * @tid_seq: per-TID sequence numbers for sending to this STA
+ * @airtime: per-AC struct airtime_info describing airtime statistics for this
+ *	station
+ * @airtime_weight: station weight for airtime fairness calculation purposes
  * @ampdu_mlme: A-MPDU state machine state
  * @mesh: mesh STA information
  * @debugfs_dir: debug filesystem directory dentry
@@ -480,10 +507,28 @@ struct ieee80211_sta_rx_stats {
  * @tdls_chandef: a TDLS peer can have a wider chandef that is compatible to
  *	the BSS one.
  * @tx_stats: TX statistics
+ * @tx_stats.packets: # of packets transmitted
+ * @tx_stats.bytes: # of bytes in all packets transmitted
+ * @tx_stats.last_rate: last TX rate
+ * @tx_stats.msdu: # of transmitted MSDUs per TID
  * @rx_stats: RX statistics
+ * @rx_stats_avg: averaged RX statistics
+ * @rx_stats_avg.signal: averaged signal
+ * @rx_stats_avg.chain_signal: averaged per-chain signal
  * @pcpu_rx_stats: per-CPU RX statistics, assigned only if the driver needs
  *	this (by advertising the USES_RSS hw flag)
  * @status_stats: TX status statistics
+ * @status_stats.filtered: # of filtered frames
+ * @status_stats.retry_failed: # of frames that failed after retry
+ * @status_stats.retry_count: # of retries attempted
+ * @status_stats.lost_packets: # of lost packets
+ * @status_stats.last_tdls_pkt_time: timestamp of last TDLS packet
+ * @status_stats.msdu_retries: # of MSDU retries
+ * @status_stats.msdu_failed: # of failed MSDUs
+ * @status_stats.last_ack: last ack timestamp (jiffies)
+ * @status_stats.last_ack_signal: last ACK signal
+ * @status_stats.ack_signal_filled: last ACK signal validity
+ * @status_stats.avg_ack_signal: average ACK signal
  */
 struct sta_info {
 	/* General information, mostly static */
@@ -493,7 +538,9 @@ struct sta_info {
 	u8 addr[ETH_ALEN];
 	struct ieee80211_local *local;
 	struct ieee80211_sub_if_data *sdata;
-	struct ieee80211_key __rcu *gtk[NUM_DEFAULT_KEYS + NUM_DEFAULT_MGMT_KEYS];
+	struct ieee80211_key __rcu *gtk[NUM_DEFAULT_KEYS +
+					NUM_DEFAULT_MGMT_KEYS +
+					NUM_DEFAULT_BEACON_KEYS];
 	struct ieee80211_key __rcu *ptk[NUM_DEFAULT_KEYS];
 	u8 ptk_idx;
 	struct rate_control_ref *rate_ctrl;
@@ -530,6 +577,7 @@ struct sta_info {
 	unsigned long driver_buffered_tids;
 	unsigned long txq_buffered_tids;
 
+	u64 assoc_at;
 	long last_connected;
 
 	/* Updated from RX path only, no locking requirements */
@@ -564,6 +612,9 @@ struct sta_info {
 		u64 msdu[IEEE80211_NUM_TIDS + 1];
 	} tx_stats;
 	u16 tid_seq[IEEE80211_QOS_CTL_TID_MASK + 1];
+
+	struct airtime_info airtime[IEEE80211_NUM_ACS];
+	u16 airtime_weight;
 
 	/*
 	 * Aggregation information, locked with lock.
@@ -687,6 +738,10 @@ struct sta_info *sta_info_get(struct ieee80211_sub_if_data *sdata,
 
 struct sta_info *sta_info_get_bss(struct ieee80211_sub_if_data *sdata,
 				  const u8 *addr);
+
+/* user must hold sta_mtx or be in RCU critical section */
+struct sta_info *sta_info_get_by_addrs(struct ieee80211_local *local,
+				       const u8 *sta_addr, const u8 *vif_addr);
 
 #define for_each_sta_info(local, _addr, _sta, _tmp)			\
 	rhl_for_each_entry_rcu(_sta, _tmp,				\

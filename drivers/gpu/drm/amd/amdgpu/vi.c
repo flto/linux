@@ -20,8 +20,10 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  *
  */
+
+#include <linux/pci.h>
 #include <linux/slab.h>
-#include <drm/drmP.h>
+
 #include "amdgpu.h"
 #include "amdgpu_atombios.h"
 #include "amdgpu_ih.h"
@@ -57,7 +59,6 @@
 
 #include "vid.h"
 #include "vi.h"
-#include "vi_dpm.h"
 #include "gmc_v8_0.h"
 #include "gmc_v7_0.h"
 #include "gfx_v8_0.h"
@@ -447,27 +448,6 @@ static bool vi_read_bios_from_rom(struct amdgpu_device *adev,
 	return true;
 }
 
-static void vi_detect_hw_virtualization(struct amdgpu_device *adev)
-{
-	uint32_t reg = 0;
-
-	if (adev->asic_type == CHIP_TONGA ||
-	    adev->asic_type == CHIP_FIJI) {
-	       reg = RREG32(mmBIF_IOV_FUNC_IDENTIFIER);
-	       /* bit0: 0 means pf and 1 means vf */
-	       if (REG_GET_FIELD(reg, BIF_IOV_FUNC_IDENTIFIER, FUNC_IDENTIFIER))
-		       adev->virt.caps |= AMDGPU_SRIOV_CAPS_IS_VF;
-	       /* bit31: 0 means disable IOV and 1 means enable */
-	       if (REG_GET_FIELD(reg, BIF_IOV_FUNC_IDENTIFIER, IOV_ENABLE))
-		       adev->virt.caps |= AMDGPU_SRIOV_CAPS_ENABLE_IOV;
-	}
-
-	if (reg == 0) {
-		if (is_virtual_machine()) /* passthrough mode exclus sr-iov mode */
-			adev->virt.caps |= AMDGPU_PASSTHROUGH_MODE;
-	}
-}
-
 static const struct amdgpu_allowed_register_entry vi_allowed_read_registers[] = {
 	{mmGRBM_STATUS},
 	{mmGRBM_STATUS2},
@@ -689,6 +669,68 @@ static int vi_gpu_pci_config_reset(struct amdgpu_device *adev)
 }
 
 /**
+ * vi_asic_pci_config_reset - soft reset GPU
+ *
+ * @adev: amdgpu_device pointer
+ *
+ * Use PCI Config method to reset the GPU.
+ *
+ * Returns 0 for success.
+ */
+static int vi_asic_pci_config_reset(struct amdgpu_device *adev)
+{
+	int r;
+
+	amdgpu_atombios_scratch_regs_engine_hung(adev, true);
+
+	r = vi_gpu_pci_config_reset(adev);
+
+	amdgpu_atombios_scratch_regs_engine_hung(adev, false);
+
+	return r;
+}
+
+static bool vi_asic_supports_baco(struct amdgpu_device *adev)
+{
+	switch (adev->asic_type) {
+	case CHIP_FIJI:
+	case CHIP_TONGA:
+	case CHIP_POLARIS10:
+	case CHIP_POLARIS11:
+	case CHIP_POLARIS12:
+	case CHIP_TOPAZ:
+		return amdgpu_dpm_is_baco_supported(adev);
+	default:
+		return false;
+	}
+}
+
+static enum amd_reset_method
+vi_asic_reset_method(struct amdgpu_device *adev)
+{
+	bool baco_reset;
+
+	switch (adev->asic_type) {
+	case CHIP_FIJI:
+	case CHIP_TONGA:
+	case CHIP_POLARIS10:
+	case CHIP_POLARIS11:
+	case CHIP_POLARIS12:
+	case CHIP_TOPAZ:
+		baco_reset = amdgpu_dpm_is_baco_supported(adev);
+		break;
+	default:
+		baco_reset = false;
+		break;
+	}
+
+	if (baco_reset)
+		return AMD_RESET_METHOD_BACO;
+	else
+		return AMD_RESET_METHOD_LEGACY;
+}
+
+/**
  * vi_asic_reset - soft reset GPU
  *
  * @adev: amdgpu_device pointer
@@ -701,11 +743,11 @@ static int vi_asic_reset(struct amdgpu_device *adev)
 {
 	int r;
 
-	amdgpu_atombios_scratch_regs_engine_hung(adev, true);
-
-	r = vi_gpu_pci_config_reset(adev);
-
-	amdgpu_atombios_scratch_regs_engine_hung(adev, false);
+	if (vi_asic_reset_method(adev) == AMD_RESET_METHOD_BACO) {
+		r = amdgpu_dpm_baco_reset(adev);
+	} else {
+		r = vi_asic_pci_config_reset(adev);
+	}
 
 	return r;
 }
@@ -941,12 +983,88 @@ static bool vi_need_full_reset(struct amdgpu_device *adev)
 	}
 }
 
+static void vi_get_pcie_usage(struct amdgpu_device *adev, uint64_t *count0,
+			      uint64_t *count1)
+{
+	uint32_t perfctr = 0;
+	uint64_t cnt0_of, cnt1_of;
+	int tmp;
+
+	/* This reports 0 on APUs, so return to avoid writing/reading registers
+	 * that may or may not be different from their GPU counterparts
+	 */
+	if (adev->flags & AMD_IS_APU)
+		return;
+
+	/* Set the 2 events that we wish to watch, defined above */
+	/* Reg 40 is # received msgs, Reg 104 is # of posted requests sent */
+	perfctr = REG_SET_FIELD(perfctr, PCIE_PERF_CNTL_TXCLK, EVENT0_SEL, 40);
+	perfctr = REG_SET_FIELD(perfctr, PCIE_PERF_CNTL_TXCLK, EVENT1_SEL, 104);
+
+	/* Write to enable desired perf counters */
+	WREG32_PCIE(ixPCIE_PERF_CNTL_TXCLK, perfctr);
+	/* Zero out and enable the perf counters
+	 * Write 0x5:
+	 * Bit 0 = Start all counters(1)
+	 * Bit 2 = Global counter reset enable(1)
+	 */
+	WREG32_PCIE(ixPCIE_PERF_COUNT_CNTL, 0x00000005);
+
+	msleep(1000);
+
+	/* Load the shadow and disable the perf counters
+	 * Write 0x2:
+	 * Bit 0 = Stop counters(0)
+	 * Bit 1 = Load the shadow counters(1)
+	 */
+	WREG32_PCIE(ixPCIE_PERF_COUNT_CNTL, 0x00000002);
+
+	/* Read register values to get any >32bit overflow */
+	tmp = RREG32_PCIE(ixPCIE_PERF_CNTL_TXCLK);
+	cnt0_of = REG_GET_FIELD(tmp, PCIE_PERF_CNTL_TXCLK, COUNTER0_UPPER);
+	cnt1_of = REG_GET_FIELD(tmp, PCIE_PERF_CNTL_TXCLK, COUNTER1_UPPER);
+
+	/* Get the values and add the overflow */
+	*count0 = RREG32_PCIE(ixPCIE_PERF_COUNT0_TXCLK) | (cnt0_of << 32);
+	*count1 = RREG32_PCIE(ixPCIE_PERF_COUNT1_TXCLK) | (cnt1_of << 32);
+}
+
+static uint64_t vi_get_pcie_replay_count(struct amdgpu_device *adev)
+{
+	uint64_t nak_r, nak_g;
+
+	/* Get the number of NAKs received and generated */
+	nak_r = RREG32_PCIE(ixPCIE_RX_NUM_NAK);
+	nak_g = RREG32_PCIE(ixPCIE_RX_NUM_NAK_GENERATED);
+
+	/* Add the total number of NAKs, i.e the number of replays */
+	return (nak_r + nak_g);
+}
+
+static bool vi_need_reset_on_init(struct amdgpu_device *adev)
+{
+	u32 clock_cntl, pc;
+
+	if (adev->flags & AMD_IS_APU)
+		return false;
+
+	/* check if the SMC is already running */
+	clock_cntl = RREG32_SMC(ixSMC_SYSCON_CLOCK_CNTL_0);
+	pc = RREG32_SMC(ixSMC_PC_C);
+	if ((0 == REG_GET_FIELD(clock_cntl, SMC_SYSCON_CLOCK_CNTL_0, ck_disable)) &&
+	    (0x20100 <= pc))
+		return true;
+
+	return false;
+}
+
 static const struct amdgpu_asic_funcs vi_asic_funcs =
 {
 	.read_disabled_bios = &vi_read_disabled_bios,
 	.read_bios_from_rom = &vi_read_bios_from_rom,
 	.read_register = &vi_read_register,
 	.reset = &vi_asic_reset,
+	.reset_method = &vi_asic_reset_method,
 	.set_vga_state = &vi_vga_set_state,
 	.get_xclk = &vi_get_xclk,
 	.set_uvd_clocks = &vi_set_uvd_clocks,
@@ -956,6 +1074,10 @@ static const struct amdgpu_asic_funcs vi_asic_funcs =
 	.invalidate_hdp = &vi_invalidate_hdp,
 	.need_full_reset = &vi_need_full_reset,
 	.init_doorbell_index = &legacy_doorbell_index_init,
+	.get_pcie_usage = &vi_get_pcie_usage,
+	.need_reset_on_init = &vi_need_reset_on_init,
+	.get_pcie_replay_count = &vi_get_pcie_replay_count,
+	.supports_baco = &vi_asic_supports_baco,
 };
 
 #define CZ_REV_BRISTOL(rev)	 \
@@ -1585,9 +1707,6 @@ static const struct amdgpu_ip_block_version vi_common_ip_block =
 
 int vi_set_ip_blocks(struct amdgpu_device *adev)
 {
-	/* in early init stage, vbios code won't work */
-	vi_detect_hw_virtualization(adev);
-
 	if (amdgpu_sriov_vf(adev))
 		adev->virt.ops = &xgpu_vi_virt_ops;
 
@@ -1726,8 +1845,8 @@ void legacy_doorbell_index_init(struct amdgpu_device *adev)
 	adev->doorbell_index.mec_ring6 = AMDGPU_DOORBELL_MEC_RING6;
 	adev->doorbell_index.mec_ring7 = AMDGPU_DOORBELL_MEC_RING7;
 	adev->doorbell_index.gfx_ring0 = AMDGPU_DOORBELL_GFX_RING0;
-	adev->doorbell_index.sdma_engine0 = AMDGPU_DOORBELL_sDMA_ENGINE0;
-	adev->doorbell_index.sdma_engine1 = AMDGPU_DOORBELL_sDMA_ENGINE1;
+	adev->doorbell_index.sdma_engine[0] = AMDGPU_DOORBELL_sDMA_ENGINE0;
+	adev->doorbell_index.sdma_engine[1] = AMDGPU_DOORBELL_sDMA_ENGINE1;
 	adev->doorbell_index.ih = AMDGPU_DOORBELL_IH;
 	adev->doorbell_index.max_assignment = AMDGPU_DOORBELL_MAX_ASSIGNMENT;
 }

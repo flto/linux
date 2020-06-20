@@ -21,6 +21,12 @@
 		gpio0 = &gpio1;
 		gpio1 = &gpio2;
 		gpio2 = &gpio3;
+		i2c0 = &i2c1;
+		i2c1 = &i2c2;
+		i2c2 = &i2c3;
+		mmc0 = &esdhc1;
+		mmc1 = &esdhc2;
+		mmc2 = &esdhc3;
 		serial0 = &uart1;
 		serial1 = &uart2;
 		serial2 = &uart3;
@@ -60,7 +66,7 @@
 			cache-level = <2>;
 		};
 
-		aips1: aips@43f00000 {
+		aips1: bus@43f00000 {
 			compatible = "fsl,aips", "simple-bus";
 			#address-cells = <1>;
 			#size-cells = <1>;
@@ -193,7 +199,7 @@
 			};
 		};
 
-		aips2: aips@53f00000 {
+		aips2: bus@53f00000 {
 			compatible = "fsl,aips", "simple-bus";
 			#address-cells = <1>;
 			#size-cells = <1>;

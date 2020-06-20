@@ -16,12 +16,6 @@
 #define V4L2_CID_INTEL_IPU3_BASE	(V4L2_CID_USER_BASE + 0x10c0)
 #define V4L2_CID_INTEL_IPU3_MODE	(V4L2_CID_INTEL_IPU3_BASE + 1)
 
-/* custom ctrl to set pipe mode */
-enum ipu3_running_mode {
-	IPU3_RUNNING_MODE_VIDEO = 0,
-	IPU3_RUNNING_MODE_STILL = 1,
-};
-
 /******************* ipu3_uapi_stats_3a *******************/
 
 #define IPU3_UAPI_MAX_STRIPES				2
@@ -438,11 +432,11 @@ struct ipu3_uapi_awb_fr_raw_buffer {
  *
  * @grid_cfg:	grid config, default 16x16.
  * @bayer_coeff:	1D Filter 1x11 center symmetry/anti-symmetry.
- *			coeffcients defaults { 0, 0, 0, 0, 0, 128 }.
+ *			coefficients defaults { 0, 0, 0, 0, 0, 128 }.
  *			Applied on whole image for each Bayer channel separately
  *			by a weighted sum of its 11x1 neighbors.
  * @reserved1:	reserved
- * @bayer_sign:	sign of filter coeffcients, default 0.
+ * @bayer_sign:	sign of filter coefficients, default 0.
  * @bayer_nf:	normalization factor for the convolution coeffs, to make sure
  *		total memory needed is within pre-determined range.
  *		NF should be the log2 of the sum of the abs values of the
@@ -455,8 +449,8 @@ struct ipu3_uapi_awb_fr_config_s {
 	__u16 reserved1;
 	__u32 bayer_sign;
 	__u8 bayer_nf;
-	__u8 reserved2[3];
-} __attribute__((aligned(32))) __packed;
+	__u8 reserved2[7];
+} __packed;
 
 /**
  * struct ipu3_uapi_4a_config - 4A config
@@ -472,7 +466,8 @@ struct ipu3_uapi_4a_config {
 	struct ipu3_uapi_ae_grid_config ae_grd_config;
 	__u8 padding[20];
 	struct ipu3_uapi_af_config_s af_config;
-	struct ipu3_uapi_awb_fr_config_s awb_fr_config;
+	struct ipu3_uapi_awb_fr_config_s awb_fr_config
+		__attribute__((aligned(32)));
 } __packed;
 
 /**
@@ -1223,6 +1218,11 @@ struct ipu3_uapi_shd_config {
  *
  * All CU inputs are unsigned, they will be converted to signed when written
  * to register, i.e. a01 will be written to 9 bit register in s4.4 format.
+ * The data precision s4.4 means 4 bits for integer parts and 4 bits for the
+ * fractional part, the first bit indicates positive or negative value.
+ * For userspace software (commonly the imaging library), the computation for
+ * the CU slope values should be based on the slope resolution 1/16 (binary
+ * 0.0001 - the minimal interval value), the slope value range is [-256, +255].
  * This applies to &ipu3_uapi_iefd_cux6_ed, &ipu3_uapi_iefd_cux2_1,
  * &ipu3_uapi_iefd_cux2_1, &ipu3_uapi_iefd_cux4 and &ipu3_uapi_iefd_cux6_rad.
  */

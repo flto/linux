@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* AFS dynamic root handling
  *
  * Copyright (C) 2018 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public Licence
- * as published by the Free Software Foundation; either version
- * 2 of the Licence, or (at your option) any later version.
  */
 
 #include <linux/fs.h>
@@ -14,12 +10,98 @@
 #include <linux/dns_resolver.h>
 #include "internal.h"
 
-const struct file_operations afs_dynroot_file_operations = {
-	.open		= dcache_dir_open,
-	.release	= dcache_dir_close,
-	.iterate_shared	= dcache_readdir,
-	.llseek		= dcache_dir_lseek,
-};
+static atomic_t afs_autocell_ino;
+
+/*
+ * iget5() comparator for inode created by autocell operations
+ *
+ * These pseudo inodes don't match anything.
+ */
+static int afs_iget5_pseudo_test(struct inode *inode, void *opaque)
+{
+	return 0;
+}
+
+/*
+ * iget5() inode initialiser
+ */
+static int afs_iget5_pseudo_set(struct inode *inode, void *opaque)
+{
+	struct afs_super_info *as = AFS_FS_S(inode->i_sb);
+	struct afs_vnode *vnode = AFS_FS_I(inode);
+	struct afs_fid *fid = opaque;
+
+	vnode->volume		= as->volume;
+	vnode->fid		= *fid;
+	inode->i_ino		= fid->vnode;
+	inode->i_generation	= fid->unique;
+	return 0;
+}
+
+/*
+ * Create an inode for a dynamic root directory or an autocell dynamic
+ * automount dir.
+ */
+struct inode *afs_iget_pseudo_dir(struct super_block *sb, bool root)
+{
+	struct afs_super_info *as = AFS_FS_S(sb);
+	struct afs_vnode *vnode;
+	struct inode *inode;
+	struct afs_fid fid = {};
+
+	_enter("");
+
+	if (as->volume)
+		fid.vid = as->volume->vid;
+	if (root) {
+		fid.vnode = 1;
+		fid.unique = 1;
+	} else {
+		fid.vnode = atomic_inc_return(&afs_autocell_ino);
+		fid.unique = 0;
+	}
+
+	inode = iget5_locked(sb, fid.vnode,
+			     afs_iget5_pseudo_test, afs_iget5_pseudo_set, &fid);
+	if (!inode) {
+		_leave(" = -ENOMEM");
+		return ERR_PTR(-ENOMEM);
+	}
+
+	_debug("GOT INODE %p { ino=%lu, vl=%llx, vn=%llx, u=%x }",
+	       inode, inode->i_ino, fid.vid, fid.vnode, fid.unique);
+
+	vnode = AFS_FS_I(inode);
+
+	/* there shouldn't be an existing inode */
+	BUG_ON(!(inode->i_state & I_NEW));
+
+	inode->i_size		= 0;
+	inode->i_mode		= S_IFDIR | S_IRUGO | S_IXUGO;
+	if (root) {
+		inode->i_op	= &afs_dynroot_inode_operations;
+		inode->i_fop	= &simple_dir_operations;
+	} else {
+		inode->i_op	= &afs_autocell_inode_operations;
+	}
+	set_nlink(inode, 2);
+	inode->i_uid		= GLOBAL_ROOT_UID;
+	inode->i_gid		= GLOBAL_ROOT_GID;
+	inode->i_ctime = inode->i_atime = inode->i_mtime = current_time(inode);
+	inode->i_blocks		= 0;
+	inode->i_generation	= 0;
+
+	set_bit(AFS_VNODE_PSEUDODIR, &vnode->flags);
+	if (!root) {
+		set_bit(AFS_VNODE_MOUNTPOINT, &vnode->flags);
+		inode->i_flags |= S_AUTOMOUNT;
+	}
+
+	inode->i_flags |= S_NOATIME;
+	unlock_new_inode(inode);
+	_leave(" = %p", inode);
+	return inode;
+}
 
 /*
  * Probe to see if a cell may exist.  This prevents positive dentries from
@@ -28,6 +110,7 @@ const struct file_operations afs_dynroot_file_operations = {
 static int afs_probe_cell_name(struct dentry *dentry)
 {
 	struct afs_cell *cell;
+	struct afs_net *net = afs_d2net(dentry);
 	const char *name = dentry->d_name.name;
 	size_t len = dentry->d_name.len;
 	int ret;
@@ -40,13 +123,14 @@ static int afs_probe_cell_name(struct dentry *dentry)
 		len--;
 	}
 
-	cell = afs_lookup_cell_rcu(afs_d2net(dentry), name, len);
+	cell = afs_lookup_cell_rcu(net, name, len);
 	if (!IS_ERR(cell)) {
-		afs_put_cell(afs_d2net(dentry), cell);
+		afs_put_cell(net, cell);
 		return 0;
 	}
 
-	ret = dns_query("afsdb", name, len, "srv=1", NULL, NULL);
+	ret = dns_query(net->net, "afsdb", name, len, "srv=1",
+			NULL, NULL, false);
 	if (ret == -ENODATA)
 		ret = -EDESTADDRREQ;
 	return ret;
@@ -144,6 +228,9 @@ static struct dentry *afs_dynroot_lookup(struct inode *dir, struct dentry *dentr
 	_enter("%pd", dentry);
 
 	ASSERTCMP(d_inode(dentry), ==, NULL);
+
+	if (flags & LOOKUP_CREATE)
+		return ERR_PTR(-EOPNOTSUPP);
 
 	if (dentry->d_name.len >= AFSNAMEMAX) {
 		_leave(" = -ENAMETOOLONG");
@@ -261,8 +348,7 @@ int afs_dynroot_populate(struct super_block *sb)
 	struct afs_net *net = afs_sb2net(sb);
 	int ret;
 
-	if (mutex_lock_interruptible(&net->proc_cells_lock) < 0)
-		return -ERESTARTSYS;
+	mutex_lock(&net->proc_cells_lock);
 
 	net->dynroot_sb = sb;
 	hlist_for_each_entry(cell, &net->proc_cells, proc_link) {

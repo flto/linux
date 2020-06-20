@@ -1,20 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Fast and scalable bitmaps.
  *
  * Copyright (C) 2016 Facebook
  * Copyright (C) 2013-2014 Jens Axboe
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public
- * License v2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #ifndef __LINUX_SCALE_BITMAP_H
@@ -227,15 +216,6 @@ int sbitmap_get_shallow(struct sbitmap *sb, unsigned int alloc_hint,
  */
 bool sbitmap_any_bit_set(const struct sbitmap *sb);
 
-/**
- * sbitmap_any_bit_clear() - Check for an unset bit in a &struct
- * sbitmap.
- * @sb: Bitmap to check.
- *
- * Return: true if any bit in the bitmap is clear, false otherwise.
- */
-bool sbitmap_any_bit_clear(const struct sbitmap *sb);
-
 #define SB_NR_TO_INDEX(sb, bitnr) ((bitnr) >> (sb)->shift)
 #define SB_NR_TO_BIT(sb, bitnr) ((bitnr) & ((1U << (sb)->shift) - 1U))
 
@@ -330,7 +310,7 @@ static inline void sbitmap_clear_bit(struct sbitmap *sb, unsigned int bitnr)
 /*
  * This one is special, since it doesn't actually clear the bit, rather it
  * sets the corresponding bit in the ->cleared mask instead. Paired with
- * the caller doing sbitmap_batch_clear() if a given index is full, which
+ * the caller doing sbitmap_deferred_clear() if a given index is full, which
  * will clear the previously freed entries in the corresponding ->word.
  */
 static inline void sbitmap_deferred_clear_bit(struct sbitmap *sb, unsigned int bitnr)

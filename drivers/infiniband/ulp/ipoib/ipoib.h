@@ -248,7 +248,6 @@ struct ipoib_cm_tx {
 	struct list_head     list;
 	struct net_device   *dev;
 	struct ipoib_neigh  *neigh;
-	struct ipoib_path   *path;
 	struct ipoib_tx_buf *tx_ring;
 	unsigned int	     tx_head;
 	unsigned int	     tx_tail;
@@ -378,8 +377,12 @@ struct ipoib_dev_priv {
 	struct ipoib_rx_buf *rx_ring;
 
 	struct ipoib_tx_buf *tx_ring;
+	/* cyclic ring variables for managing tx_ring, for UD only */
 	unsigned int	     tx_head;
 	unsigned int	     tx_tail;
+	/* cyclic ring variables for counting overall outstanding send WRs */
+	unsigned int	     global_tx_head;
+	unsigned int	     global_tx_tail;
 	struct ib_sge	     tx_sge[MAX_SKB_FRAGS + 1];
 	struct ib_ud_wr      tx_wr;
 	struct ib_wc	     send_wc[MAX_SEND_CQE];
@@ -781,12 +784,12 @@ static inline void ipoib_cm_handle_tx_wc(struct net_device *dev, struct ib_wc *w
 #ifdef CONFIG_INFINIBAND_IPOIB_DEBUG
 void ipoib_create_debug_files(struct net_device *dev);
 void ipoib_delete_debug_files(struct net_device *dev);
-int ipoib_register_debugfs(void);
+void ipoib_register_debugfs(void);
 void ipoib_unregister_debugfs(void);
 #else
 static inline void ipoib_create_debug_files(struct net_device *dev) { }
 static inline void ipoib_delete_debug_files(struct net_device *dev) { }
-static inline int ipoib_register_debugfs(void) { return 0; }
+static inline void ipoib_register_debugfs(void) { }
 static inline void ipoib_unregister_debugfs(void) { }
 #endif
 
@@ -838,7 +841,5 @@ extern int ipoib_debug_level;
 #endif /* CONFIG_INFINIBAND_IPOIB_DEBUG_DATA */
 
 #define IPOIB_QPN(ha) (be32_to_cpup((__be32 *) ha) & 0xffffff)
-
-extern const char ipoib_driver_version[];
 
 #endif /* _IPOIB_H */

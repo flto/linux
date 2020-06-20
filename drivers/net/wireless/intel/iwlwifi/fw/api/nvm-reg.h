@@ -8,7 +8,7 @@
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright (C) 2018 Intel Corporation
+ * Copyright(C) 2018 - 2020 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -31,7 +31,7 @@
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright (C) 2018 Intel Corporation
+ * Copyright(C) 2018 - 2020 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -75,11 +75,21 @@ enum iwl_regulatory_and_nvm_subcmd_ids {
 	NVM_ACCESS_COMPLETE = 0x0,
 
 	/**
+	 * @LARI_CONFIG_CHANGE: &struct iwl_lari_config_change_cmd
+	 */
+	LARI_CONFIG_CHANGE = 0x1,
+
+	/**
 	 * @NVM_GET_INFO:
 	 * Command is &struct iwl_nvm_get_info,
 	 * response is &struct iwl_nvm_get_info_rsp
 	 */
 	NVM_GET_INFO = 0x2,
+
+	/**
+	 * @TAS_CONFIG: &struct iwl_tas_config_cmd
+	 */
+	TAS_CONFIG = 0x3,
 };
 
 /**
@@ -233,7 +243,8 @@ struct iwl_nvm_get_info_phy {
 	__le32 rx_chains;
 } __packed; /* REGULATORY_NVM_GET_INFO_PHY_SKU_SECTION_S_VER_1 */
 
-#define IWL_NUM_CHANNELS (51)
+#define IWL_NUM_CHANNELS_V1	51
+#define IWL_NUM_CHANNELS	110
 
 /**
  * struct iwl_nvm_get_info_regulatory - regulatory information
@@ -241,11 +252,37 @@ struct iwl_nvm_get_info_phy {
  * @channel_profile: regulatory data of this channel
  * @reserved: reserved
  */
-struct iwl_nvm_get_info_regulatory {
+struct iwl_nvm_get_info_regulatory_v1 {
 	__le32 lar_enabled;
-	__le16 channel_profile[IWL_NUM_CHANNELS];
+	__le16 channel_profile[IWL_NUM_CHANNELS_V1];
 	__le16 reserved;
 } __packed; /* REGULATORY_NVM_GET_INFO_REGULATORY_S_VER_1 */
+
+/**
+ * struct iwl_nvm_get_info_regulatory - regulatory information
+ * @lar_enabled: is LAR enabled
+ * @n_channels: number of valid channels in the array
+ * @channel_profile: regulatory data of this channel
+ */
+struct iwl_nvm_get_info_regulatory {
+	__le32 lar_enabled;
+	__le32 n_channels;
+	__le32 channel_profile[IWL_NUM_CHANNELS];
+} __packed; /* REGULATORY_NVM_GET_INFO_REGULATORY_S_VER_2 */
+
+/**
+ * struct iwl_nvm_get_info_rsp_v3 - response to get NVM data
+ * @general: general NVM data
+ * @mac_sku: data relating to MAC sku
+ * @phy_sku: data relating to PHY sku
+ * @regulatory: regulatory data
+ */
+struct iwl_nvm_get_info_rsp_v3 {
+	struct iwl_nvm_get_info_general general;
+	struct iwl_nvm_get_info_sku mac_sku;
+	struct iwl_nvm_get_info_phy phy_sku;
+	struct iwl_nvm_get_info_regulatory_v1 regulatory;
+} __packed; /* REGULATORY_NVM_GET_INFO_RSP_API_S_VER_3 */
 
 /**
  * struct iwl_nvm_get_info_rsp - response to get NVM data
@@ -259,7 +296,7 @@ struct iwl_nvm_get_info_rsp {
 	struct iwl_nvm_get_info_sku mac_sku;
 	struct iwl_nvm_get_info_phy phy_sku;
 	struct iwl_nvm_get_info_regulatory regulatory;
-} __packed; /* REGULATORY_NVM_GET_INFO_RSP_API_S_VER_3 */
+} __packed; /* REGULATORY_NVM_GET_INFO_RSP_API_S_VER_4 */
 
 /**
  * struct iwl_nvm_access_complete_cmd - NVM_ACCESS commands are completed
@@ -403,5 +440,40 @@ enum iwl_mcc_source {
 	MCC_SOURCE_GET_CURRENT = 0x10,
 	MCC_SOURCE_GETTING_MCC_TEST_MODE = 0x11,
 };
+
+#define IWL_TAS_BLACK_LIST_MAX 16
+/**
+ * struct iwl_tas_config_cmd - configures the TAS
+ * @black_list_size: size of relevant field in black_list_array
+ * @black_list_array: black list countries (without TAS)
+ */
+struct iwl_tas_config_cmd {
+	__le32 black_list_size;
+	__le32 black_list_array[IWL_TAS_BLACK_LIST_MAX];
+} __packed; /* TAS_CONFIG_CMD_API_S_VER_2 */
+
+/**
+ * enum iwl_lari_configs - bit masks for the various LARI config operations
+ * @LARI_CONFIG_DISABLE_11AC_UKRAINE_MSK: disable 11ac in ukraine
+ * @LARI_CONFIG_CHANGE_ETSI_TO_PASSIVE_MSK: ETSI 5.8GHz SRD passive scan
+ * @LARI_CONFIG_CHANGE_ETSI_TO_DISABLED_MSK: ETSI 5.8GHz SRD disabled
+ * @LARI_CONFIG_ENABLE_5G2_IN_INDONESIA_MSK: enable 5.15/5.35GHz bands in
+ * 	Indonesia
+ */
+enum iwl_lari_config_masks {
+	LARI_CONFIG_DISABLE_11AC_UKRAINE_MSK		= BIT(0),
+	LARI_CONFIG_CHANGE_ETSI_TO_PASSIVE_MSK		= BIT(1),
+	LARI_CONFIG_CHANGE_ETSI_TO_DISABLED_MSK		= BIT(2),
+	LARI_CONFIG_ENABLE_5G2_IN_INDONESIA_MSK		= BIT(3),
+};
+
+/**
+ * struct iwl_lari_config_change_cmd - change LARI configuration
+ * @config_bitmap: bit map of the config commands. each bit will trigger a
+ * different predefined FW config operation
+ */
+struct iwl_lari_config_change_cmd {
+	__le32 config_bitmap;
+} __packed; /* LARI_CHANGE_CONF_CMD_S_VER_1 */
 
 #endif /* __iwl_fw_api_nvm_reg_h__ */

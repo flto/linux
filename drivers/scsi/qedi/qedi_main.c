@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * QLogic iSCSI Offload Driver
  * Copyright (c) 2016 Cavium Inc.
- *
- * This software is available under the terms of the GNU General Public License
- * (GPL) Version 2, available from the file COPYING in the main directory of
- * this source tree.
  */
 
 #include <linux/module.h>
@@ -31,6 +28,10 @@
 #include "qedi_gbl.h"
 #include "qedi_iscsi.h"
 
+static uint qedi_qed_debug;
+module_param(qedi_qed_debug, uint, 0644);
+MODULE_PARM_DESC(qedi_qed_debug, " QED debug level 0 (default)");
+
 static uint qedi_fw_debug;
 module_param(qedi_fw_debug, uint, 0644);
 MODULE_PARM_DESC(qedi_fw_debug, " Firmware debug level 0(default) to 3");
@@ -44,7 +45,7 @@ module_param(qedi_io_tracing, uint, 0644);
 MODULE_PARM_DESC(qedi_io_tracing,
 		 " Enable logging of SCSI requests/completions into trace buffer. (default off).");
 
-uint qedi_ll2_buf_size = 0x400;
+static uint qedi_ll2_buf_size = 0x400;
 module_param(qedi_ll2_buf_size, uint, 0644);
 MODULE_PARM_DESC(qedi_ll2_buf_size,
 		 "parameter to set ping packet size, default - 0x400, Jumbo packets - 0x2400.");
@@ -61,6 +62,7 @@ static struct qedi_cmd *qedi_get_cmd_from_tid(struct qedi_ctx *qedi, u32 tid);
 static void qedi_reset_uio_rings(struct qedi_uio_dev *udev);
 static void qedi_ll2_free_skbs(struct qedi_ctx *qedi);
 static struct nvm_iscsi_block *qedi_get_nvram_block(struct qedi_ctx *qedi);
+static void qedi_recovery_handler(struct work_struct *work);
 
 static int qedi_iscsi_event_cb(void *context, u8 fw_event_code, void *fw_handle)
 {
@@ -660,8 +662,6 @@ exit_setup_shost:
 static int qedi_ll2_rx(void *cookie, struct sk_buff *skb, u32 arg1, u32 arg2)
 {
 	struct qedi_ctx *qedi = (struct qedi_ctx *)cookie;
-	struct qedi_uio_dev *udev;
-	struct qedi_uio_ctrl *uctrl;
 	struct skb_work_list *work;
 	struct ethhdr *eh;
 
@@ -699,9 +699,6 @@ static int qedi_ll2_rx(void *cookie, struct sk_buff *skb, u32 arg1, u32 arg2)
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_LL2,
 		  "Allowed frame ethertype [0x%x] len [0x%x].\n",
 		  eh->h_proto, skb->len);
-
-	udev = qedi->udev;
-	uctrl = udev->uctrl;
 
 	work = kzalloc(sizeof(*work), GFP_ATOMIC);
 	if (!work) {
@@ -923,7 +920,7 @@ static void qedi_get_boot_tgt_info(struct nvm_iscsi_block *block,
 	ipv6_en = !!(block->generic.ctrl_flags &
 		     NVM_ISCSI_CFG_GEN_IPV6_ENABLED);
 
-	snprintf(tgt->iscsi_name, sizeof(tgt->iscsi_name), "%s\n",
+	snprintf(tgt->iscsi_name, sizeof(tgt->iscsi_name), "%s",
 		 block->target[index].target_name.byte);
 
 	tgt->ipv6_en = ipv6_en;
@@ -988,6 +985,9 @@ static int qedi_find_boot_info(struct qedi_ctx *qedi,
 		sess = cls_sess->dd_data;
 
 		if (!iscsi_is_session_online(cls_sess))
+			continue;
+
+		if (!sess->targetname)
 			continue;
 
 		if (pri_ctrl_flags) {
@@ -1113,6 +1113,20 @@ exit_get_data:
 	return;
 }
 
+static void qedi_schedule_recovery_handler(void *dev)
+{
+	struct qedi_ctx *qedi = dev;
+
+	QEDI_ERR(&qedi->dbg_ctx, "Recovery handler scheduled.\n");
+
+	if (test_and_set_bit(QEDI_IN_RECOVERY, &qedi->flags))
+		return;
+
+	atomic_set(&qedi->link_state, QEDI_LINK_DOWN);
+
+	schedule_delayed_work(&qedi->recovery_work, 0);
+}
+
 static void qedi_link_update(void *dev, struct qed_link_output *link)
 {
 	struct qedi_ctx *qedi = (struct qedi_ctx *)dev;
@@ -1130,6 +1144,7 @@ static void qedi_link_update(void *dev, struct qed_link_output *link)
 static struct qed_iscsi_cb_ops qedi_cb_ops = {
 	{
 		.link_update =		qedi_link_update,
+		.schedule_recovery_handler = qedi_schedule_recovery_handler,
 		.get_protocol_tlv_data = qedi_get_protocol_tlv_data,
 		.get_generic_tlv_data = qedi_get_generic_tlv_data,
 	}
@@ -1286,13 +1301,13 @@ process_again:
 			  "process already running\n");
 	}
 
-	if (qedi_fp_has_work(fp) == 0)
+	if (!qedi_fp_has_work(fp))
 		qed_sb_update_sb_idx(fp->sb_info);
 
 	/* Check for more work */
 	rmb();
 
-	if (qedi_fp_has_work(fp) == 0)
+	if (!qedi_fp_has_work(fp))
 		qed_sb_ack(fp->sb_info, IGU_INT_ENABLE, 1);
 	else
 		goto process_again;
@@ -1313,13 +1328,20 @@ static void qedi_simd_int_handler(void *cookie)
 static void qedi_sync_free_irqs(struct qedi_ctx *qedi)
 {
 	int i;
+	u16 idx;
 
 	if (qedi->int_info.msix_cnt) {
 		for (i = 0; i < qedi->int_info.used_cnt; i++) {
-			synchronize_irq(qedi->int_info.msix[i].vector);
-			irq_set_affinity_hint(qedi->int_info.msix[i].vector,
+			idx = i * qedi->dev_info.common.num_hwfns +
+			qedi_ops->common->get_affin_hwfn_idx(qedi->cdev);
+
+			QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
+				  "Freeing IRQ #%d vector_idx=%d.\n", i, idx);
+
+			synchronize_irq(qedi->int_info.msix[idx].vector);
+			irq_set_affinity_hint(qedi->int_info.msix[idx].vector,
 					      NULL);
-			free_irq(qedi->int_info.msix[i].vector,
+			free_irq(qedi->int_info.msix[idx].vector,
 				 &qedi->fp_array[i]);
 		}
 	} else {
@@ -1334,20 +1356,28 @@ static void qedi_sync_free_irqs(struct qedi_ctx *qedi)
 static int qedi_request_msix_irq(struct qedi_ctx *qedi)
 {
 	int i, rc, cpu;
+	u16 idx;
 
 	cpu = cpumask_first(cpu_online_mask);
 	for (i = 0; i < qedi->int_info.msix_cnt; i++) {
-		rc = request_irq(qedi->int_info.msix[i].vector,
+		idx = i * qedi->dev_info.common.num_hwfns +
+			  qedi_ops->common->get_affin_hwfn_idx(qedi->cdev);
+
+		QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
+			  "dev_info: num_hwfns=%d affin_hwfn_idx=%d.\n",
+			  qedi->dev_info.common.num_hwfns,
+			  qedi_ops->common->get_affin_hwfn_idx(qedi->cdev));
+
+		rc = request_irq(qedi->int_info.msix[idx].vector,
 				 qedi_msix_handler, 0, "qedi",
 				 &qedi->fp_array[i]);
-
 		if (rc) {
 			QEDI_WARN(&qedi->dbg_ctx, "request_irq failed.\n");
 			qedi_sync_free_irqs(qedi);
 			return rc;
 		}
 		qedi->int_info.used_cnt++;
-		rc = irq_set_affinity_hint(qedi->int_info.msix[i].vector,
+		rc = irq_set_affinity_hint(qedi->int_info.msix[idx].vector,
 					   get_cpu_mask(cpu));
 		cpu = cpumask_next(cpu, cpu_online_mask);
 	}
@@ -1392,10 +1422,8 @@ static void qedi_free_nvm_iscsi_cfg(struct qedi_ctx *qedi)
 
 static int qedi_alloc_nvm_iscsi_cfg(struct qedi_ctx *qedi)
 {
-	struct qedi_nvm_iscsi_image nvm_image;
-
 	qedi->iscsi_image = dma_alloc_coherent(&qedi->pdev->dev,
-					       sizeof(nvm_image),
+					       sizeof(struct qedi_nvm_iscsi_image),
 					       &qedi->nvm_buf_dma, GFP_KERNEL);
 	if (!qedi->iscsi_image) {
 		QEDI_ERR(&qedi->dbg_ctx, "Could not allocate NVM BUF.\n");
@@ -2236,14 +2264,13 @@ static void qedi_boot_release(void *data)
 static int qedi_get_boot_info(struct qedi_ctx *qedi)
 {
 	int ret = 1;
-	struct qedi_nvm_iscsi_image nvm_image;
 
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
 		  "Get NVM iSCSI CFG image\n");
 	ret = qedi_ops->common->nvm_get_image(qedi->cdev,
 					      QED_NVM_IMAGE_ISCSI_CFG,
 					      (char *)qedi->iscsi_image,
-					      sizeof(nvm_image));
+					      sizeof(struct qedi_nvm_iscsi_image));
 	if (ret)
 		QEDI_ERR(&qedi->dbg_ctx,
 			 "Could not get NVM image. ret = %d\n", ret);
@@ -2316,16 +2343,22 @@ static void __qedi_remove(struct pci_dev *pdev, int mode)
 	struct qedi_ctx *qedi = pci_get_drvdata(pdev);
 	int rval;
 
-	if (qedi->tmf_thread) {
-		flush_workqueue(qedi->tmf_thread);
-		destroy_workqueue(qedi->tmf_thread);
-		qedi->tmf_thread = NULL;
-	}
+	if (mode == QEDI_MODE_SHUTDOWN)
+		iscsi_host_for_each_session(qedi->shost,
+					    qedi_clear_session_ctx);
 
-	if (qedi->offload_thread) {
-		flush_workqueue(qedi->offload_thread);
-		destroy_workqueue(qedi->offload_thread);
-		qedi->offload_thread = NULL;
+	if (mode == QEDI_MODE_NORMAL || mode == QEDI_MODE_SHUTDOWN) {
+		if (qedi->tmf_thread) {
+			flush_workqueue(qedi->tmf_thread);
+			destroy_workqueue(qedi->tmf_thread);
+			qedi->tmf_thread = NULL;
+		}
+
+		if (qedi->offload_thread) {
+			flush_workqueue(qedi->offload_thread);
+			destroy_workqueue(qedi->offload_thread);
+			qedi->offload_thread = NULL;
+		}
 	}
 
 #ifdef CONFIG_DEBUG_FS
@@ -2341,8 +2374,7 @@ static void __qedi_remove(struct pci_dev *pdev, int mode)
 		qedi_ops->ll2->stop(qedi->cdev);
 	}
 
-	if (mode == QEDI_MODE_NORMAL)
-		qedi_free_iscsi_pf_param(qedi);
+	qedi_free_iscsi_pf_param(qedi);
 
 	rval = qedi_ops->common->update_drv_state(qedi->cdev, false);
 	if (rval)
@@ -2355,14 +2387,11 @@ static void __qedi_remove(struct pci_dev *pdev, int mode)
 
 	qedi_destroy_fp(qedi);
 
-	if (mode == QEDI_MODE_NORMAL) {
+	if (mode == QEDI_MODE_NORMAL || mode == QEDI_MODE_SHUTDOWN) {
 		qedi_release_cid_que(qedi);
 		qedi_cm_free_mem(qedi);
 		qedi_free_uio(qedi->udev);
 		qedi_free_itt(qedi);
-
-		iscsi_host_remove(qedi->shost);
-		iscsi_host_free(qedi->shost);
 
 		if (qedi->ll2_recv_thread) {
 			kthread_stop(qedi->ll2_recv_thread);
@@ -2372,14 +2401,26 @@ static void __qedi_remove(struct pci_dev *pdev, int mode)
 
 		if (qedi->boot_kset)
 			iscsi_boot_destroy_kset(qedi->boot_kset);
+
+		iscsi_host_remove(qedi->shost);
+		iscsi_host_free(qedi->shost);
 	}
+}
+
+static void qedi_shutdown(struct pci_dev *pdev)
+{
+	struct qedi_ctx *qedi = pci_get_drvdata(pdev);
+
+	QEDI_ERR(&qedi->dbg_ctx, "%s: Shutdown qedi\n", __func__);
+	if (test_and_set_bit(QEDI_IN_SHUTDOWN, &qedi->flags))
+		return;
+	__qedi_remove(pdev, QEDI_MODE_SHUTDOWN);
 }
 
 static int __qedi_probe(struct pci_dev *pdev, int mode)
 {
 	struct qedi_ctx *qedi;
 	struct qed_ll2_params params;
-	u32 dp_module = 0;
 	u8 dp_level = 0;
 	bool is_vf = false;
 	char host_buf[16];
@@ -2402,7 +2443,7 @@ static int __qedi_probe(struct pci_dev *pdev, int mode)
 
 	memset(&qed_params, 0, sizeof(qed_params));
 	qed_params.protocol = QED_PROTOCOL_ISCSI;
-	qed_params.dp_module = dp_module;
+	qed_params.dp_module = qedi_qed_debug;
 	qed_params.dp_level = dp_level;
 	qed_params.is_vf = is_vf;
 	qedi->cdev = qedi_ops->common->probe(pdev, &qed_params);
@@ -2418,14 +2459,17 @@ static int __qedi_probe(struct pci_dev *pdev, int mode)
 	if (rc)
 		goto free_host;
 
-	if (mode != QEDI_MODE_RECOVERY) {
-		rc = qedi_set_iscsi_pf_param(qedi);
-		if (rc) {
-			rc = -ENOMEM;
-			QEDI_ERR(&qedi->dbg_ctx,
-				 "Set iSCSI pf param fail\n");
-			goto free_host;
-		}
+	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
+		  "dev_info: num_hwfns=%d affin_hwfn_idx=%d.\n",
+		  qedi->dev_info.common.num_hwfns,
+		  qedi_ops->common->get_affin_hwfn_idx(qedi->cdev));
+
+	rc = qedi_set_iscsi_pf_param(qedi);
+	if (rc) {
+		rc = -ENOMEM;
+		QEDI_ERR(&qedi->dbg_ctx,
+			 "Set iSCSI pf param fail\n");
+		goto free_host;
 	}
 
 	qedi_ops->common->update_pf_params(qedi->cdev, &qedi->pf_params);
@@ -2616,6 +2660,8 @@ static int __qedi_probe(struct pci_dev *pdev, int mode)
 			goto free_cid_que;
 		}
 
+		INIT_DELAYED_WORK(&qedi->recovery_work, qedi_recovery_handler);
+
 		/* F/w needs 1st task context memory entry for performance */
 		set_bit(QEDI_RESERVE_TASK_ID, qedi->task_idx_map);
 		atomic_set(&qedi->num_offloads, 0);
@@ -2656,6 +2702,32 @@ exit_probe:
 	return rc;
 }
 
+static void qedi_mark_conn_recovery(struct iscsi_cls_session *cls_session)
+{
+	struct iscsi_session *session = cls_session->dd_data;
+	struct iscsi_conn *conn = session->leadconn;
+	struct qedi_conn *qedi_conn = conn->dd_data;
+
+	iscsi_conn_failure(qedi_conn->cls_conn->dd_data, ISCSI_ERR_CONN_FAILED);
+}
+
+static void qedi_recovery_handler(struct work_struct *work)
+{
+	struct qedi_ctx *qedi =
+			container_of(work, struct qedi_ctx, recovery_work.work);
+
+	iscsi_host_for_each_session(qedi->shost, qedi_mark_conn_recovery);
+
+	/* Call common_ops->recovery_prolog to allow the MFW to quiesce
+	 * any PCI transactions.
+	 */
+	qedi_ops->common->recovery_prolog(qedi->cdev);
+
+	__qedi_remove(qedi->pdev, QEDI_MODE_RECOVERY);
+	__qedi_probe(qedi->pdev, QEDI_MODE_RECOVERY);
+	clear_bit(QEDI_IN_RECOVERY, &qedi->flags);
+}
+
 static int qedi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	return __qedi_probe(pdev, QEDI_MODE_NORMAL);
@@ -2680,6 +2752,7 @@ static struct pci_driver qedi_pci_driver = {
 	.id_table = qedi_pci_tbl,
 	.probe = qedi_probe,
 	.remove = qedi_remove,
+	.shutdown = qedi_shutdown,
 };
 
 static int __init qedi_init(void)

@@ -101,6 +101,7 @@ static int mlxreg_hotplug_device_create(struct mlxreg_hotplug_priv_data *priv,
 					struct mlxreg_core_data *data)
 {
 	struct mlxreg_core_hotplug_platform_data *pdata;
+	struct i2c_client *client;
 
 	/* Notify user by sending hwmon uevent. */
 	kobject_uevent(&priv->hwmon->kobj, KOBJ_CHANGE);
@@ -121,17 +122,19 @@ static int mlxreg_hotplug_device_create(struct mlxreg_hotplug_priv_data *priv,
 		return -EFAULT;
 	}
 
-	data->hpdev.client = i2c_new_device(data->hpdev.adapter,
-					    data->hpdev.brdinfo);
-	if (!data->hpdev.client) {
+	client = i2c_new_client_device(data->hpdev.adapter,
+				       data->hpdev.brdinfo);
+	if (IS_ERR(client)) {
 		dev_err(priv->dev, "Failed to create client %s at bus %d at addr 0x%02x\n",
 			data->hpdev.brdinfo->type, data->hpdev.nr +
 			pdata->shift_nr, data->hpdev.brdinfo->addr);
 
 		i2c_put_adapter(data->hpdev.adapter);
 		data->hpdev.adapter = NULL;
-		return -EFAULT;
+		return PTR_ERR(client);
 	}
+
+	data->hpdev.client = client;
 
 	return 0;
 }
@@ -248,7 +251,8 @@ mlxreg_hotplug_work_helper(struct mlxreg_hotplug_priv_data *priv,
 			   struct mlxreg_core_item *item)
 {
 	struct mlxreg_core_data *data;
-	u32 asserted, regval, bit;
+	unsigned long asserted;
+	u32 regval, bit;
 	int ret;
 
 	/*
@@ -281,7 +285,7 @@ mlxreg_hotplug_work_helper(struct mlxreg_hotplug_priv_data *priv,
 	asserted = item->cache ^ regval;
 	item->cache = regval;
 
-	for_each_set_bit(bit, (unsigned long *)&asserted, 8) {
+	for_each_set_bit(bit, &asserted, 8) {
 		data = item->data + bit;
 		if (regval & BIT(bit)) {
 			if (item->inversed)
@@ -495,17 +499,52 @@ static int mlxreg_hotplug_set_irq(struct mlxreg_hotplug_priv_data *priv)
 {
 	struct mlxreg_core_hotplug_platform_data *pdata;
 	struct mlxreg_core_item *item;
-	int i, ret;
+	struct mlxreg_core_data *data;
+	u32 regval;
+	int i, j, ret;
 
 	pdata = dev_get_platdata(&priv->pdev->dev);
 	item = pdata->items;
 
 	for (i = 0; i < pdata->counter; i++, item++) {
+		if (item->capability) {
+			/*
+			 * Read group capability register to get actual number
+			 * of interrupt capable components and set group mask
+			 * accordingly.
+			 */
+			ret = regmap_read(priv->regmap, item->capability,
+					  &regval);
+			if (ret)
+				goto out;
+
+			item->mask = GENMASK((regval & item->mask) - 1, 0);
+		}
+
 		/* Clear group presense event. */
 		ret = regmap_write(priv->regmap, item->reg +
 				   MLXREG_HOTPLUG_EVENT_OFF, 0);
 		if (ret)
 			goto out;
+
+		/*
+		 * Verify if hardware configuration requires to disable
+		 * interrupt capability for some of components.
+		 */
+		data = item->data;
+		for (j = 0; j < item->count; j++, data++) {
+			/* Verify if the attribute has capability register. */
+			if (data->capability) {
+				/* Read capability register. */
+				ret = regmap_read(priv->regmap,
+						  data->capability, &regval);
+				if (ret)
+					goto out;
+
+				if (!(regval & data->bit))
+					item->mask &= ~BIT(j);
+			}
+		}
 
 		/* Set group initial status as mask and unmask group event. */
 		if (item->inversed) {
@@ -620,11 +659,8 @@ static int mlxreg_hotplug_probe(struct platform_device *pdev)
 		priv->irq = pdata->irq;
 	} else {
 		priv->irq = platform_get_irq(pdev, 0);
-		if (priv->irq < 0) {
-			dev_err(&pdev->dev, "Failed to get platform irq: %d\n",
-				priv->irq);
+		if (priv->irq < 0)
 			return priv->irq;
-		}
 	}
 
 	priv->regmap = pdata->regmap;
@@ -672,6 +708,7 @@ static int mlxreg_hotplug_remove(struct platform_device *pdev)
 
 	/* Clean interrupts setup. */
 	mlxreg_hotplug_unset_irq(priv);
+	devm_free_irq(&pdev->dev, priv->irq, priv);
 
 	return 0;
 }

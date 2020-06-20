@@ -29,12 +29,20 @@ bool pcie_ports_disabled;
  */
 bool pcie_ports_native;
 
+/*
+ * If the user specified "pcie_ports=dpc-native", use the Linux DPC PCIe
+ * service even if the platform hasn't given us permission.
+ */
+bool pcie_ports_dpc_native;
+
 static int __init pcie_port_setup(char *str)
 {
 	if (!strncmp(str, "compat", 6))
 		pcie_ports_disabled = true;
 	else if (!strncmp(str, "native", 6))
 		pcie_ports_native = true;
+	else if (!strncmp(str, "dpc-native", 10))
+		pcie_ports_dpc_native = true;
 
 	return 1;
 }
@@ -107,7 +115,7 @@ static int pcie_portdrv_probe(struct pci_dev *dev,
 
 	pci_save_state(dev);
 
-	dev_pm_set_driver_flags(&dev->dev, DPM_FLAG_NEVER_SKIP |
+	dev_pm_set_driver_flags(&dev->dev, DPM_FLAG_NO_DIRECT_COMPLETE |
 					   DPM_FLAG_SMART_SUSPEND);
 
 	if (pci_bridge_d3_possible(dev)) {
@@ -182,10 +190,12 @@ static void pcie_portdrv_err_resume(struct pci_dev *dev)
 /*
  * LINUX Device Driver Model
  */
-static const struct pci_device_id port_pci_ids[] = { {
+static const struct pci_device_id port_pci_ids[] = {
 	/* handle any PCI-Express port */
-	PCI_DEVICE_CLASS(((PCI_CLASS_BRIDGE_PCI << 8) | 0x00), ~0),
-	}, { /* end: all zeroes */ }
+	{ PCI_DEVICE_CLASS(((PCI_CLASS_BRIDGE_PCI << 8) | 0x00), ~0) },
+	/* subtractive decode PCI-to-PCI bridge, class type is 060401h */
+	{ PCI_DEVICE_CLASS(((PCI_CLASS_BRIDGE_PCI << 8) | 0x01), ~0) },
+	{ },
 };
 
 static const struct pci_error_handlers pcie_portdrv_err_handler = {
@@ -238,6 +248,7 @@ static void __init pcie_init_services(void)
 	pcie_pme_init();
 	pcie_dpc_init();
 	pcie_hp_init();
+	pcie_bandwidth_notification_init();
 }
 
 static int __init pcie_portdrv_init(void)

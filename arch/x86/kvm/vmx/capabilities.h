@@ -2,6 +2,8 @@
 #ifndef __KVM_X86_VMX_CAPS_H
 #define __KVM_X86_VMX_CAPS_H
 
+#include <asm/vmx.h>
+
 #include "lapic.h"
 
 extern bool __read_mostly enable_vpid;
@@ -10,10 +12,13 @@ extern bool __read_mostly enable_ept;
 extern bool __read_mostly enable_unrestricted_guest;
 extern bool __read_mostly enable_ept_ad_bits;
 extern bool __read_mostly enable_pml;
+extern bool __read_mostly enable_apicv;
 extern int __read_mostly pt_mode;
 
 #define PT_MODE_SYSTEM		0
 #define PT_MODE_HOST_GUEST	1
+
+#define PMU_CAP_FW_WRITES	(1ULL << 13)
 
 struct nested_vmx_msrs {
 	/*
@@ -98,7 +103,7 @@ static inline bool cpu_has_load_perf_global_ctrl(void)
 	       (vmcs_config.vmexit_ctrl & VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL);
 }
 
-static inline bool vmx_mpx_supported(void)
+static inline bool cpu_has_vmx_mpx(void)
 {
 	return (vmcs_config.vmexit_ctrl & VM_EXIT_CLEAR_BNDCFGS) &&
 		(vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_BNDCFGS);
@@ -245,6 +250,12 @@ static inline bool vmx_xsaves_supported(void)
 		SECONDARY_EXEC_XSAVES;
 }
 
+static inline bool vmx_waitpkg_supported(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl &
+		SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE;
+}
+
 static inline bool cpu_has_vmx_tsc_scaling(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
@@ -338,6 +349,33 @@ static inline bool cpu_has_vmx_intel_pt(void)
 		(vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_PT_USE_GPA) &&
 		(vmcs_config.vmexit_ctrl & VM_EXIT_CLEAR_IA32_RTIT_CTL) &&
 		(vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_IA32_RTIT_CTL);
+}
+
+/*
+ * Processor Trace can operate in one of three modes:
+ *  a. system-wide: trace both host/guest and output to host buffer
+ *  b. host-only:   only trace host and output to host buffer
+ *  c. host-guest:  trace host and guest simultaneously and output to their
+ *                  respective buffer
+ *
+ * KVM currently only supports (a) and (c).
+ */
+static inline bool vmx_pt_mode_is_system(void)
+{
+	return pt_mode == PT_MODE_SYSTEM;
+}
+static inline bool vmx_pt_mode_is_host_guest(void)
+{
+	return pt_mode == PT_MODE_HOST_GUEST;
+}
+
+static inline u64 vmx_get_perf_capabilities(void)
+{
+	/*
+	 * Since counters are virtualized, KVM would support full
+	 * width counting unconditionally, even if the host lacks it.
+	 */
+	return PMU_CAP_FW_WRITES;
 }
 
 #endif /* __KVM_X86_VMX_CAPS_H */

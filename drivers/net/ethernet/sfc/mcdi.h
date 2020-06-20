@@ -1,10 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /****************************************************************************
  * Driver for Solarflare network controllers and boards
  * Copyright 2008-2013 Solarflare Communications Inc.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation, incorporated herein by reference.
  */
 
 #ifndef EFX_MCDI_H
@@ -329,6 +326,18 @@ void efx_mcdi_sensor_event(struct efx_nic *efx, efx_qword_t *ev);
 #define MCDI_EVENT_FIELD(_ev, _field)			\
 	EFX_QWORD_FIELD(_ev, MCDI_EVENT_ ## _field)
 
+#define MCDI_CAPABILITY(field)						\
+	MC_CMD_GET_CAPABILITIES_V4_OUT_ ## field ## _LBN
+
+#define MCDI_CAPABILITY_OFST(field) \
+	MC_CMD_GET_CAPABILITIES_V4_OUT_ ## field ## _OFST
+
+/* field is FLAGS1 or FLAGS2 */
+#define efx_has_cap(efx, flag, field) \
+	efx->type->check_caps(efx, \
+			      MCDI_CAPABILITY(flag), \
+			      MCDI_CAPABILITY_OFST(field))
+
 void efx_mcdi_print_fwver(struct efx_nic *efx, char *buf, size_t len);
 int efx_mcdi_get_board_cfg(struct efx_nic *efx, u8 *mac_address,
 			   u16 *fw_subtype_list, u32 *capabilities);
@@ -349,11 +358,8 @@ int efx_mcdi_flush_rxqs(struct efx_nic *efx);
 int efx_mcdi_port_probe(struct efx_nic *efx);
 void efx_mcdi_port_remove(struct efx_nic *efx);
 int efx_mcdi_port_reconfigure(struct efx_nic *efx);
-int efx_mcdi_port_get_number(struct efx_nic *efx);
 u32 efx_mcdi_phy_get_caps(struct efx_nic *efx);
 void efx_mcdi_process_link_change(struct efx_nic *efx, efx_qword_t *ev);
-int efx_mcdi_set_mac(struct efx_nic *efx);
-#define EFX_MC_STATS_GENERATION_INVALID ((__force __le64)(-1))
 void efx_mcdi_mac_start_stats(struct efx_nic *efx);
 void efx_mcdi_mac_stop_stats(struct efx_nic *efx);
 void efx_mcdi_mac_pull_stats(struct efx_nic *efx);

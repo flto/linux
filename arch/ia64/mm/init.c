@@ -9,6 +9,7 @@
 #include <linux/init.h>
 
 #include <linux/dma-noncoherent.h>
+#include <linux/dmar.h>
 #include <linux/efi.h>
 #include <linux/elf.h>
 #include <linux/memblock.h>
@@ -23,10 +24,10 @@
 #include <linux/proc_fs.h>
 #include <linux/bitops.h>
 #include <linux/kexec.h>
+#include <linux/swiotlb.h>
 
 #include <asm/dma.h>
 #include <asm/io.h>
-#include <asm/machvec.h>
 #include <asm/numa.h>
 #include <asm/patch.h>
 #include <asm/pgalloc.h>
@@ -63,18 +64,17 @@ __ia64_sync_icache_dcache (pte_t pte)
 	if (test_bit(PG_arch_1, &page->flags))
 		return;				/* i-cache is already coherent with d-cache */
 
-	flush_icache_range(addr, addr + (PAGE_SIZE << compound_order(page)));
+	flush_icache_range(addr, addr + page_size(page));
 	set_bit(PG_arch_1, &page->flags);	/* mark page as clean */
 }
 
-#ifdef CONFIG_SWIOTLB
 /*
  * Since DMA is i-cache coherent, any (complete) pages that were written via
  * DMA can be marked as "clean" so that lazy_mmu_prot_update() doesn't have to
  * flush them when they get mapped into an executable vm-area.
  */
-void arch_sync_dma_for_cpu(struct device *dev, phys_addr_t paddr,
-		size_t size, enum dma_data_direction dir)
+void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
+		enum dma_data_direction dir)
 {
 	unsigned long pfn = PHYS_PFN(paddr);
 
@@ -82,7 +82,6 @@ void arch_sync_dma_for_cpu(struct device *dev, phys_addr_t paddr,
 		set_bit(PG_arch_1, &pfn_to_page(pfn)->flags);
 	} while (++pfn <= PHYS_PFN(paddr + size - 1));
 }
-#endif
 
 inline void
 ia64_set_rbs_bot (void)
@@ -119,13 +118,13 @@ ia64_init_addr_space (void)
 		vma->vm_end = vma->vm_start + PAGE_SIZE;
 		vma->vm_flags = VM_DATA_DEFAULT_FLAGS|VM_GROWSUP|VM_ACCOUNT;
 		vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
-		down_write(&current->mm->mmap_sem);
+		mmap_write_lock(current->mm);
 		if (insert_vm_struct(current->mm, vma)) {
-			up_write(&current->mm->mmap_sem);
+			mmap_write_unlock(current->mm);
 			vm_area_free(vma);
 			return;
 		}
-		up_write(&current->mm->mmap_sem);
+		mmap_write_unlock(current->mm);
 	}
 
 	/* map NaT-page at address zero to speed up speculative dereferencing of NULL: */
@@ -137,13 +136,13 @@ ia64_init_addr_space (void)
 			vma->vm_page_prot = __pgprot(pgprot_val(PAGE_READONLY) | _PAGE_MA_NAT);
 			vma->vm_flags = VM_READ | VM_MAYREAD | VM_IO |
 					VM_DONTEXPAND | VM_DONTDUMP;
-			down_write(&current->mm->mmap_sem);
+			mmap_write_lock(current->mm);
 			if (insert_vm_struct(current->mm, vma)) {
-				up_write(&current->mm->mmap_sem);
+				mmap_write_unlock(current->mm);
 				vm_area_free(vma);
 				return;
 			}
-			up_write(&current->mm->mmap_sem);
+			mmap_write_unlock(current->mm);
 		}
 	}
 }
@@ -209,6 +208,7 @@ static struct page * __init
 put_kernel_page (struct page *page, unsigned long address, pgprot_t pgprot)
 {
 	pgd_t *pgd;
+	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
@@ -216,7 +216,10 @@ put_kernel_page (struct page *page, unsigned long address, pgprot_t pgprot)
 	pgd = pgd_offset_k(address);		/* note: this is NOT pgd_offset()! */
 
 	{
-		pud = pud_alloc(&init_mm, pgd, address);
+		p4d = p4d_alloc(&init_mm, pgd, address);
+		if (!p4d)
+			goto out;
+		pud = pud_alloc(&init_mm, p4d, address);
 		if (!pud)
 			goto out;
 		pmd = pmd_alloc(&init_mm, pud, address);
@@ -383,6 +386,7 @@ int vmemmap_find_next_valid_pfn(int node, int i)
 
 	do {
 		pgd_t *pgd;
+		p4d_t *p4d;
 		pud_t *pud;
 		pmd_t *pmd;
 		pte_t *pte;
@@ -393,7 +397,13 @@ int vmemmap_find_next_valid_pfn(int node, int i)
 			continue;
 		}
 
-		pud = pud_offset(pgd, end_address);
+		p4d = p4d_offset(pgd, end_address);
+		if (p4d_none(*p4d)) {
+			end_address += P4D_SIZE;
+			continue;
+		}
+
+		pud = pud_offset(p4d, end_address);
 		if (pud_none(*pud)) {
 			end_address += PUD_SIZE;
 			continue;
@@ -431,6 +441,7 @@ int __init create_mem_map_page_table(u64 start, u64 end, void *arg)
 	struct page *map_start, *map_end;
 	int node;
 	pgd_t *pgd;
+	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
@@ -444,23 +455,53 @@ int __init create_mem_map_page_table(u64 start, u64 end, void *arg)
 
 	for (address = start_page; address < end_page; address += PAGE_SIZE) {
 		pgd = pgd_offset_k(address);
-		if (pgd_none(*pgd))
-			pgd_populate(&init_mm, pgd, memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node));
-		pud = pud_offset(pgd, address);
+		if (pgd_none(*pgd)) {
+			p4d = memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node);
+			if (!p4d)
+				goto err_alloc;
+			pgd_populate(&init_mm, pgd, p4d);
+		}
+		p4d = p4d_offset(pgd, address);
 
-		if (pud_none(*pud))
-			pud_populate(&init_mm, pud, memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node));
+		if (p4d_none(*p4d)) {
+			pud = memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node);
+			if (!pud)
+				goto err_alloc;
+			p4d_populate(&init_mm, p4d, pud);
+		}
+		pud = pud_offset(p4d, address);
+
+		if (pud_none(*pud)) {
+			pmd = memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node);
+			if (!pmd)
+				goto err_alloc;
+			pud_populate(&init_mm, pud, pmd);
+		}
 		pmd = pmd_offset(pud, address);
 
-		if (pmd_none(*pmd))
-			pmd_populate_kernel(&init_mm, pmd, memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node));
+		if (pmd_none(*pmd)) {
+			pte = memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node);
+			if (!pte)
+				goto err_alloc;
+			pmd_populate_kernel(&init_mm, pmd, pte);
+		}
 		pte = pte_offset_kernel(pmd, address);
 
-		if (pte_none(*pte))
-			set_pte(pte, pfn_pte(__pa(memblock_alloc_node(PAGE_SIZE, PAGE_SIZE, node)) >> PAGE_SHIFT,
+		if (pte_none(*pte)) {
+			void *page = memblock_alloc_node(PAGE_SIZE, PAGE_SIZE,
+							 node);
+			if (!page)
+				goto err_alloc;
+			set_pte(pte, pfn_pte(__pa(page) >> PAGE_SHIFT,
 					     PAGE_KERNEL));
+		}
 	}
 	return 0;
+
+err_alloc:
+	panic("%s: Failed to allocate %lu bytes align=0x%lx nid=%d\n",
+	      __func__, PAGE_SIZE, PAGE_SIZE, node);
+	return -ENOMEM;
 }
 
 struct memmap_init_callback_data {
@@ -610,13 +651,17 @@ mem_init (void)
 	BUG_ON(PTRS_PER_PMD * sizeof(pmd_t) != PAGE_SIZE);
 	BUG_ON(PTRS_PER_PTE * sizeof(pte_t) != PAGE_SIZE);
 
-#ifdef CONFIG_PCI
 	/*
-	 * This needs to be called _after_ the command line has been parsed but _before_
-	 * any drivers that may need the PCI DMA interface are initialized or bootmem has
-	 * been freed.
+	 * This needs to be called _after_ the command line has been parsed but
+	 * _before_ any drivers that may need the PCI DMA interface are
+	 * initialized or bootmem has been freed.
 	 */
-	platform_dma_init();
+#ifdef CONFIG_INTEL_IOMMU
+	detect_intel_iommu();
+	if (!iommu_detected)
+#endif
+#ifdef CONFIG_SWIOTLB
+		swiotlb_init(1);
 #endif
 
 #ifdef CONFIG_FLATMEM
@@ -644,14 +689,17 @@ mem_init (void)
 }
 
 #ifdef CONFIG_MEMORY_HOTPLUG
-int arch_add_memory(int nid, u64 start, u64 size, struct vmem_altmap *altmap,
-		bool want_memblock)
+int arch_add_memory(int nid, u64 start, u64 size,
+		    struct mhp_params *params)
 {
 	unsigned long start_pfn = start >> PAGE_SHIFT;
 	unsigned long nr_pages = size >> PAGE_SHIFT;
 	int ret;
 
-	ret = __add_pages(nid, start_pfn, nr_pages, altmap, want_memblock);
+	if (WARN_ON_ONCE(params->pgprot.pgprot != PAGE_KERNEL.pgprot))
+		return -EINVAL;
+
+	ret = __add_pages(nid, start_pfn, nr_pages, params);
 	if (ret)
 		printk("%s: Problem encountered in __add_pages() as ret=%d\n",
 		       __func__,  ret);
@@ -659,21 +707,12 @@ int arch_add_memory(int nid, u64 start, u64 size, struct vmem_altmap *altmap,
 	return ret;
 }
 
-#ifdef CONFIG_MEMORY_HOTREMOVE
-int arch_remove_memory(int nid, u64 start, u64 size, struct vmem_altmap *altmap)
+void arch_remove_memory(int nid, u64 start, u64 size,
+			struct vmem_altmap *altmap)
 {
 	unsigned long start_pfn = start >> PAGE_SHIFT;
 	unsigned long nr_pages = size >> PAGE_SHIFT;
-	struct zone *zone;
-	int ret;
 
-	zone = page_zone(pfn_to_page(start_pfn));
-	ret = __remove_pages(zone, start_pfn, nr_pages, altmap);
-	if (ret)
-		pr_warn("%s: Problem encountered in __remove_pages() as"
-			" ret=%d\n", __func__,  ret);
-
-	return ret;
+	__remove_pages(start_pfn, nr_pages, altmap);
 }
-#endif
 #endif

@@ -89,13 +89,11 @@ struct i40iw_mr {
 	union {
 		struct ib_mr ibmr;
 		struct ib_mw ibmw;
-		struct ib_fmr ibfmr;
 	};
 	struct ib_umem *region;
 	u16 type;
 	u32 page_cnt;
-	u32 page_size;
-	u64 page_msk;
+	u64 page_size;
 	u32 npages;
 	u32 stag;
 	u64 length;

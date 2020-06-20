@@ -18,6 +18,7 @@
 #include "test_util.h"
 #include "kvm_util.h"
 #include "processor.h"
+#include "vmx.h"
 
 #define VCPU_ID 0
 
@@ -25,32 +26,50 @@ static void guest_code(void)
 {
 }
 
+static bool smt_possible(void)
+{
+	char buf[16];
+	FILE *f;
+	bool res = true;
+
+	f = fopen("/sys/devices/system/cpu/smt/control", "r");
+	if (f) {
+		if (fread(buf, sizeof(*buf), sizeof(buf), f) > 0) {
+			if (!strncmp(buf, "forceoff", 8) ||
+			    !strncmp(buf, "notsupported", 12))
+				res = false;
+		}
+		fclose(f);
+	}
+
+	return res;
+}
+
 static void test_hv_cpuid(struct kvm_cpuid2 *hv_cpuid_entries,
-			  int evmcs_enabled)
+			  bool evmcs_enabled)
 {
 	int i;
+	int nent = 9;
+	u32 test_val;
 
-	if (!evmcs_enabled)
-		TEST_ASSERT(hv_cpuid_entries->nent == 6,
-			    "KVM_GET_SUPPORTED_HV_CPUID should return 6 entries"
-			    " when Enlightened VMCS is disabled (returned %d)",
-			    hv_cpuid_entries->nent);
-	else
-		TEST_ASSERT(hv_cpuid_entries->nent == 7,
-			    "KVM_GET_SUPPORTED_HV_CPUID should return 7 entries"
-			    " when Enlightened VMCS is enabled (returned %d)",
-			    hv_cpuid_entries->nent);
+	if (evmcs_enabled)
+		nent += 1; /* 0x4000000A */
+
+	TEST_ASSERT(hv_cpuid_entries->nent == nent,
+		    "KVM_GET_SUPPORTED_HV_CPUID should return %d entries"
+		    " with evmcs=%d (returned %d)",
+		    nent, evmcs_enabled, hv_cpuid_entries->nent);
 
 	for (i = 0; i < hv_cpuid_entries->nent; i++) {
 		struct kvm_cpuid_entry2 *entry = &hv_cpuid_entries->entries[i];
 
 		TEST_ASSERT((entry->function >= 0x40000000) &&
-			    (entry->function <= 0x4000000A),
-			    "function %lx is our of supported range",
+			    (entry->function <= 0x40000082),
+			    "function %x is our of supported range",
 			    entry->function);
 
-		TEST_ASSERT(entry->index == 0,
-			    ".index field should be zero");
+		TEST_ASSERT(evmcs_enabled || (entry->function != 0x4000000A),
+			    "0x4000000A leaf should not be reported");
 
 		TEST_ASSERT(entry->index == 0,
 			    ".index field should be zero");
@@ -58,9 +77,27 @@ static void test_hv_cpuid(struct kvm_cpuid2 *hv_cpuid_entries,
 		TEST_ASSERT(entry->flags == 0,
 			    ".flags field should be zero");
 
-		TEST_ASSERT(entry->padding[0] == entry->padding[1]
-			    == entry->padding[2] == 0,
-			    ".index field should be zero");
+		TEST_ASSERT(!entry->padding[0] && !entry->padding[1] &&
+			    !entry->padding[2], "padding should be zero");
+
+		switch (entry->function) {
+		case 0x40000000:
+			test_val = 0x40000082;
+
+			TEST_ASSERT(entry->eax == test_val,
+				    "Wrong max leaf report in 0x40000000.EAX: %x"
+				    " (evmcs=%d)",
+				    entry->eax, evmcs_enabled
+				);
+			break;
+		case 0x40000004:
+			test_val = entry->eax & (1UL << 18);
+
+			TEST_ASSERT(!!test_val == !smt_possible(),
+				    "NoNonArchitecturalCoreSharing bit"
+				    " doesn't reflect SMT setting");
+			break;
+		}
 
 		/*
 		 * If needed for debug:
@@ -90,7 +127,6 @@ struct kvm_cpuid2 *kvm_get_supported_hv_cpuid(struct kvm_vm *vm)
 {
 	int nent = 20; /* should be enough */
 	static struct kvm_cpuid2 *cpuid;
-	int ret;
 
 	cpuid = malloc(sizeof(*cpuid) + nent * sizeof(struct kvm_cpuid_entry2));
 
@@ -110,48 +146,45 @@ struct kvm_cpuid2 *kvm_get_supported_hv_cpuid(struct kvm_vm *vm)
 int main(int argc, char *argv[])
 {
 	struct kvm_vm *vm;
-	int rv;
-	uint16_t evmcs_ver;
+	int rv, stage;
 	struct kvm_cpuid2 *hv_cpuid_entries;
-	struct kvm_enable_cap enable_evmcs_cap = {
-		.cap = KVM_CAP_HYPERV_ENLIGHTENED_VMCS,
-		 .args[0] = (unsigned long)&evmcs_ver
-	};
+	bool evmcs_enabled;
 
 	/* Tell stdout not to buffer its content */
 	setbuf(stdout, NULL);
 
 	rv = kvm_check_cap(KVM_CAP_HYPERV_CPUID);
 	if (!rv) {
-		fprintf(stderr,
-			"KVM_CAP_HYPERV_CPUID not supported, skip test\n");
+		print_skip("KVM_CAP_HYPERV_CPUID not supported");
 		exit(KSFT_SKIP);
 	}
 
-	/* Create VM */
-	vm = vm_create_default(VCPU_ID, 0, guest_code);
+	for (stage = 0; stage < 3; stage++) {
+		evmcs_enabled = false;
 
-	test_hv_cpuid_e2big(vm);
+		vm = vm_create_default(VCPU_ID, 0, guest_code);
+		switch (stage) {
+		case 0:
+			test_hv_cpuid_e2big(vm);
+			continue;
+		case 1:
+			break;
+		case 2:
+			if (!nested_vmx_supported() ||
+			    !kvm_check_cap(KVM_CAP_HYPERV_ENLIGHTENED_VMCS)) {
+				print_skip("Enlightened VMCS is unsupported");
+				continue;
+			}
+			vcpu_enable_evmcs(vm, VCPU_ID);
+			evmcs_enabled = true;
+			break;
+		}
 
-	hv_cpuid_entries = kvm_get_supported_hv_cpuid(vm);
-	if (!hv_cpuid_entries)
-		return 1;
-
-	test_hv_cpuid(hv_cpuid_entries, 0);
-
-	free(hv_cpuid_entries);
-
-	vcpu_ioctl(vm, VCPU_ID, KVM_ENABLE_CAP, &enable_evmcs_cap);
-
-	hv_cpuid_entries = kvm_get_supported_hv_cpuid(vm);
-	if (!hv_cpuid_entries)
-		return 1;
-
-	test_hv_cpuid(hv_cpuid_entries, 1);
-
-	free(hv_cpuid_entries);
-
-	kvm_vm_free(vm);
+		hv_cpuid_entries = kvm_get_supported_hv_cpuid(vm);
+		test_hv_cpuid(hv_cpuid_entries, evmcs_enabled);
+		free(hv_cpuid_entries);
+		kvm_vm_free(vm);
+	}
 
 	return 0;
 }

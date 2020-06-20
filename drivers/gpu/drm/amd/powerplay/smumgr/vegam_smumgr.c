@@ -356,7 +356,8 @@ static int vegam_update_uvd_smc_table(struct pp_hwmgr *hwmgr)
 			PHM_PlatformCaps_StablePState))
 		smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_UVDDPM_SetEnabledMask,
-				(uint32_t)(1 << smu_data->smc_state_table.UvdBootLevel));
+				(uint32_t)(1 << smu_data->smc_state_table.UvdBootLevel),
+				NULL);
 	return 0;
 }
 
@@ -388,7 +389,8 @@ static int vegam_update_vce_smc_table(struct pp_hwmgr *hwmgr)
 	if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps, PHM_PlatformCaps_StablePState))
 		smum_send_msg_to_smc_with_parameter(hwmgr,
 				PPSMC_MSG_VCEDPM_SetEnabledMask,
-				(uint32_t)1 << smu_data->smc_state_table.VceBootLevel);
+				(uint32_t)1 << smu_data->smc_state_table.VceBootLevel,
+				NULL);
 	return 0;
 }
 
@@ -456,7 +458,7 @@ static int vegam_populate_smc_mvdd_table(struct pp_hwmgr *hwmgr,
 			count = SMU_MAX_SMIO_LEVELS;
 		for (level = 0; level < count; level++) {
 			table->SmioTable2.Pattern[level].Voltage = PP_HOST_TO_SMC_US(
-					data->mvdd_voltage_table.entries[count].value * VOLTAGE_SCALE);
+					data->mvdd_voltage_table.entries[level].value * VOLTAGE_SCALE);
 			/* Index into DpmTable.Smio. Drive bits from Smio entry to get this voltage level.*/
 			table->SmioTable2.Pattern[level].Smio =
 				(uint8_t) level;
@@ -1114,7 +1116,6 @@ static int vegam_populate_smc_acpi_level(struct pp_hwmgr *hwmgr,
 			(struct phm_ppt_v1_information *)(hwmgr->pptable);
 	SMIO_Pattern vol_level;
 	uint32_t mvdd;
-	uint16_t us_mvdd;
 
 	table->ACPILevel.Flags &= ~PPSMC_SWSTATE_FLAG_DC;
 
@@ -1167,17 +1168,6 @@ static int vegam_populate_smc_acpi_level(struct pp_hwmgr *hwmgr,
 			"Cannot find ACPI VDDCI voltage value "
 			"in Clock Dependency Table",
 			);
-
-	us_mvdd = 0;
-	if ((SMU7_VOLTAGE_CONTROL_NONE == data->mvdd_control) ||
-			(data->mclk_dpm_key_disabled))
-		us_mvdd = data->vbios_boot_state.mvdd_bootup_value;
-	else {
-		if (!vegam_populate_mvdd_value(hwmgr,
-				data->dpm_table.mclk_table.dpm_levels[0].value,
-				&vol_level))
-			us_mvdd = vol_level.Voltage;
-	}
 
 	if (!vegam_populate_mvdd_value(hwmgr, 0, &vol_level))
 		table->MemoryACPILevel.MinMvdd = PP_HOST_TO_SMC_UL(vol_level.Voltage);
@@ -1383,10 +1373,15 @@ static int vegam_populate_smc_boot_level(struct pp_hwmgr *hwmgr,
 	result = phm_find_boot_level(&(data->dpm_table.sclk_table),
 			data->vbios_boot_state.sclk_bootup_value,
 			(uint32_t *)&(table->GraphicsBootLevel));
+	if (result)
+		return result;
 
 	result = phm_find_boot_level(&(data->dpm_table.mclk_table),
 			data->vbios_boot_state.mclk_bootup_value,
 			(uint32_t *)&(table->MemoryBootLevel));
+
+	if (result)
+		return result;
 
 	table->BootVddc  = data->vbios_boot_state.vddc_bootup_value *
 			VOLTAGE_SCALE;
@@ -1493,7 +1488,7 @@ static int vegam_populate_clock_stretcher_data_table(struct pp_hwmgr *hwmgr)
 	struct vegam_smumgr *smu_data =
 			(struct vegam_smumgr *)(hwmgr->smu_backend);
 
-	uint8_t i, stretch_amount, stretch_amount2, volt_offset = 0;
+	uint8_t i, stretch_amount, volt_offset = 0;
 	struct phm_ppt_v1_information *table_info =
 			(struct phm_ppt_v1_information *)(hwmgr->pptable);
 	struct phm_ppt_v1_clock_voltage_dependency_table *sclk_table =
@@ -1532,11 +1527,9 @@ static int vegam_populate_clock_stretcher_data_table(struct pp_hwmgr *hwmgr)
 			(table_info->cac_dtp_table->ucCKS_LDO_REFSEL != 0) ?
 			table_info->cac_dtp_table->ucCKS_LDO_REFSEL : 5;
 	/* Populate CKS Lookup Table */
-	if (stretch_amount == 1 || stretch_amount == 2 || stretch_amount == 5)
-		stretch_amount2 = 0;
-	else if (stretch_amount == 3 || stretch_amount == 4)
-		stretch_amount2 = 1;
-	else {
+	if (!(stretch_amount == 1 || stretch_amount == 2 ||
+	      stretch_amount == 5 || stretch_amount == 3 ||
+	      stretch_amount == 4)) {
 		phm_cap_unset(hwmgr->platform_descriptor.platformCaps,
 				PHM_PlatformCaps_ClockStretcher);
 		PP_ASSERT_WITH_CODE(false,
@@ -1915,7 +1908,8 @@ static int vegam_enable_reconfig_cus(struct pp_hwmgr *hwmgr)
 
 	smum_send_msg_to_smc_with_parameter(hwmgr,
 					    PPSMC_MSG_EnableModeSwitchRLCNotification,
-					    adev->gfx.cu_info.number);
+					    adev->gfx.cu_info.number,
+					    NULL);
 
 	return 0;
 }
@@ -2069,7 +2063,7 @@ static int vegam_init_smc_table(struct pp_hwmgr *hwmgr)
 		table->AcDcGpio = gpio_pin.uc_gpio_pin_bit_shift;
 		if (phm_cap_enabled(hwmgr->platform_descriptor.platformCaps,
 				PHM_PlatformCaps_AutomaticDCTransition) &&
-				!smum_send_msg_to_smc(hwmgr, PPSMC_MSG_UseNewGPIOScheme))
+				!smum_send_msg_to_smc(hwmgr, PPSMC_MSG_UseNewGPIOScheme, NULL))
 			phm_cap_set(hwmgr->platform_descriptor.platformCaps,
 					PHM_PlatformCaps_SMCtoPPLIBAcdcGpioScheme);
 	} else {
@@ -2167,6 +2161,8 @@ static uint32_t vegam_get_offsetof(uint32_t type, uint32_t member)
 			return offsetof(SMU75_SoftRegisters, VoltageChangeTimeout);
 		case AverageGraphicsActivity:
 			return offsetof(SMU75_SoftRegisters, AverageGraphicsActivity);
+		case AverageMemoryActivity:
+			return offsetof(SMU75_SoftRegisters, AverageMemoryActivity);
 		case PreVBlankGap:
 			return offsetof(SMU75_SoftRegisters, PreVBlankGap);
 		case VBlankTimeout:
@@ -2257,10 +2253,12 @@ int vegam_thermal_avfs_enable(struct pp_hwmgr *hwmgr)
 	if (!hwmgr->avfs_supported)
 		return 0;
 
-	ret = smum_send_msg_to_smc(hwmgr, PPSMC_MSG_EnableAvfs);
+	ret = smum_send_msg_to_smc(hwmgr, PPSMC_MSG_EnableAvfs, NULL);
 	if (!ret) {
 		if (data->apply_avfs_cks_off_voltage)
-			ret = smum_send_msg_to_smc(hwmgr, PPSMC_MSG_ApplyAvfsCksOffVoltage);
+			ret = smum_send_msg_to_smc(hwmgr,
+					PPSMC_MSG_ApplyAvfsCksOffVoltage,
+					NULL);
 	}
 
 	return ret;
@@ -2277,6 +2275,7 @@ static int vegam_thermal_setup_fan_table(struct pp_hwmgr *hwmgr)
 }
 
 const struct pp_smumgr_func vegam_smu_funcs = {
+	.name = "vegam_smu",
 	.smu_init = vegam_smu_init,
 	.smu_fini = smu7_smu_fini,
 	.start_smu = vegam_start_smu,
@@ -2285,6 +2284,7 @@ const struct pp_smumgr_func vegam_smu_funcs = {
 	.request_smu_load_specific_fw = NULL,
 	.send_msg_to_smc = smu7_send_msg_to_smc,
 	.send_msg_to_smc_with_parameter = smu7_send_msg_to_smc_with_parameter,
+	.get_argument = smu7_get_argument,
 	.process_firmware_header = vegam_process_firmware_header,
 	.is_dpm_running = vegam_is_dpm_running,
 	.get_mac_definition = vegam_get_mac_definition,

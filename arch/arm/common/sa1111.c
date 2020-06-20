@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/arch/arm/common/sa1111.c
  *
  * SA1111 support
  *
  * Original code by John Dorsey
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * This file contains all generic SA1111 support.
  *
@@ -32,7 +29,7 @@
 #include <mach/hardware.h>
 #include <asm/mach/irq.h>
 #include <asm/mach-types.h>
-#include <asm/sizes.h>
+#include <linux/sizes.h>
 
 #include <asm/hardware/sa1111.h>
 
@@ -305,10 +302,13 @@ static int sa1111_retrigger_irq(struct irq_data *d)
 			break;
 	}
 
-	if (i == 8)
+	if (i == 8) {
 		pr_err("Danger Will Robinson: failed to re-trigger IRQ%d\n",
 		       d->irq);
-	return i == 8 ? -1 : 0;
+		return 0;
+	}
+
+	return 1;
 }
 
 static int sa1111_type_irq(struct irq_data *d, unsigned int flags)

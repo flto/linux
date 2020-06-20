@@ -168,11 +168,17 @@ void copy_port_attr_to_resp(struct ib_port_attr *attr,
 static int UVERBS_HANDLER(UVERBS_METHOD_QUERY_PORT)(
 	struct uverbs_attr_bundle *attrs)
 {
-	struct ib_device *ib_dev = attrs->ufile->device->ib_dev;
+	struct ib_device *ib_dev;
 	struct ib_port_attr attr = {};
 	struct ib_uverbs_query_port_resp_ex resp = {};
+	struct ib_ucontext *ucontext;
 	int ret;
 	u8 port_num;
+
+	ucontext = ib_uverbs_get_ucontext(attrs);
+	if (IS_ERR(ucontext))
+		return PTR_ERR(ucontext);
+	ib_dev = ucontext->device;
 
 	/* FIXME: Extend the UAPI_DEF_OBJ_NEEDS_FN stuff.. */
 	if (!ib_dev->ops.query_port)
@@ -194,6 +200,43 @@ static int UVERBS_HANDLER(UVERBS_METHOD_QUERY_PORT)(
 					     &resp, sizeof(resp));
 }
 
+static int UVERBS_HANDLER(UVERBS_METHOD_GET_CONTEXT)(
+	struct uverbs_attr_bundle *attrs)
+{
+	u32 num_comp = attrs->ufile->device->num_comp_vectors;
+	u64 core_support = IB_UVERBS_CORE_SUPPORT_OPTIONAL_MR_ACCESS;
+	int ret;
+
+	ret = uverbs_copy_to(attrs, UVERBS_ATTR_GET_CONTEXT_NUM_COMP_VECTORS,
+			     &num_comp, sizeof(num_comp));
+	if (IS_UVERBS_COPY_ERR(ret))
+		return ret;
+
+	ret = uverbs_copy_to(attrs, UVERBS_ATTR_GET_CONTEXT_CORE_SUPPORT,
+			     &core_support, sizeof(core_support));
+	if (IS_UVERBS_COPY_ERR(ret))
+		return ret;
+
+	ret = ib_alloc_ucontext(attrs);
+	if (ret)
+		return ret;
+	ret = ib_init_ucontext(attrs);
+	if (ret) {
+		kfree(attrs->context);
+		attrs->context = NULL;
+		return ret;
+	}
+	return 0;
+}
+
+DECLARE_UVERBS_NAMED_METHOD(
+	UVERBS_METHOD_GET_CONTEXT,
+	UVERBS_ATTR_PTR_OUT(UVERBS_ATTR_GET_CONTEXT_NUM_COMP_VECTORS,
+			    UVERBS_ATTR_TYPE(u32), UA_OPTIONAL),
+	UVERBS_ATTR_PTR_OUT(UVERBS_ATTR_GET_CONTEXT_CORE_SUPPORT,
+			    UVERBS_ATTR_TYPE(u64), UA_OPTIONAL),
+	UVERBS_ATTR_UHW());
+
 DECLARE_UVERBS_NAMED_METHOD(
 	UVERBS_METHOD_INFO_HANDLES,
 	/* Also includes any device specific object ids */
@@ -214,6 +257,7 @@ DECLARE_UVERBS_NAMED_METHOD(
 		UA_MANDATORY));
 
 DECLARE_UVERBS_GLOBAL_METHODS(UVERBS_OBJECT_DEVICE,
+			      &UVERBS_METHOD(UVERBS_METHOD_GET_CONTEXT),
 			      &UVERBS_METHOD(UVERBS_METHOD_INVOKE_WRITE),
 			      &UVERBS_METHOD(UVERBS_METHOD_INFO_HANDLES),
 			      &UVERBS_METHOD(UVERBS_METHOD_QUERY_PORT));

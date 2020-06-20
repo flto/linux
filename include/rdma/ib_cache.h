@@ -39,6 +39,7 @@
 
 int rdma_query_gid(struct ib_device *device, u8 port_num, int index,
 		   union ib_gid *gid);
+void *rdma_read_gid_hw_context(const struct ib_gid_attr *attr);
 const struct ib_gid_attr *rdma_find_gid(struct ib_device *device,
 					const union ib_gid *gid,
 					enum ib_gid_type gid_type,
@@ -53,6 +54,10 @@ const struct ib_gid_attr *rdma_find_gid_by_filter(
 	bool (*filter)(const union ib_gid *gid, const struct ib_gid_attr *,
 		       void *),
 	void *context);
+
+int rdma_read_gid_l2_fields(const struct ib_gid_attr *attr,
+			    u16 *vlan_id, u8 *smac);
+struct net_device *rdma_read_gid_attr_ndev_rcu(const struct ib_gid_attr *attr);
 
 /**
  * ib_get_cached_pkey - Returns a cached PKey table entry

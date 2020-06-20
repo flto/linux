@@ -30,13 +30,16 @@
  * SOFTWARE.
  */
 
+#include "rdma_core.h"
 #include "uverbs.h"
 #include <rdma/uverbs_std_types.h>
 
 static int uverbs_free_mr(struct ib_uobject *uobject,
-			  enum rdma_remove_reason why)
+			  enum rdma_remove_reason why,
+			  struct uverbs_attr_bundle *attrs)
 {
-	return ib_dereg_mr((struct ib_mr *)uobject->object);
+	return ib_dereg_mr_user((struct ib_mr *)uobject->object,
+				&attrs->driver_udata);
 }
 
 static int UVERBS_HANDLER(UVERBS_METHOD_ADVISE_MR)(
@@ -125,6 +128,7 @@ static int UVERBS_HANDLER(UVERBS_METHOD_DM_MR_REG)(
 
 	mr->device  = pd->device;
 	mr->pd      = pd;
+	mr->type    = IB_MR_TYPE_DM;
 	mr->dm      = dm;
 	mr->uobject = uobj;
 	atomic_inc(&pd->usecnt);
@@ -132,21 +136,15 @@ static int UVERBS_HANDLER(UVERBS_METHOD_DM_MR_REG)(
 
 	uobj->object = mr;
 
+	uverbs_finalize_uobj_create(attrs, UVERBS_ATTR_REG_DM_MR_HANDLE);
+
 	ret = uverbs_copy_to(attrs, UVERBS_ATTR_REG_DM_MR_RESP_LKEY, &mr->lkey,
 			     sizeof(mr->lkey));
 	if (ret)
-		goto err_dereg;
+		return ret;
 
 	ret = uverbs_copy_to(attrs, UVERBS_ATTR_REG_DM_MR_RESP_RKEY,
 			     &mr->rkey, sizeof(mr->rkey));
-	if (ret)
-		goto err_dereg;
-
-	return 0;
-
-err_dereg:
-	ib_dereg_mr(mr);
-
 	return ret;
 }
 

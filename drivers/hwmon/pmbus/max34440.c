@@ -1,22 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Hardware monitoring driver for Maxim MAX34440/MAX34441
  *
  * Copyright (c) 2011 Ericsson AB.
  * Copyright (c) 2012 Guenter Roeck
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/bitops.h>
@@ -54,7 +41,8 @@ struct max34440_data {
 
 #define to_max34440_data(x)  container_of(x, struct max34440_data, info)
 
-static int max34440_read_word_data(struct i2c_client *client, int page, int reg)
+static int max34440_read_word_data(struct i2c_client *client, int page,
+				   int phase, int reg)
 {
 	int ret;
 	const struct pmbus_driver_info *info = pmbus_get_driver_info(client);
@@ -62,44 +50,44 @@ static int max34440_read_word_data(struct i2c_client *client, int page, int reg)
 
 	switch (reg) {
 	case PMBUS_VIRT_READ_VOUT_MIN:
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34440_MFR_VOUT_MIN);
 		break;
 	case PMBUS_VIRT_READ_VOUT_MAX:
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34440_MFR_VOUT_PEAK);
 		break;
 	case PMBUS_VIRT_READ_IOUT_AVG:
 		if (data->id != max34446 && data->id != max34451)
 			return -ENXIO;
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34446_MFR_IOUT_AVG);
 		break;
 	case PMBUS_VIRT_READ_IOUT_MAX:
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34440_MFR_IOUT_PEAK);
 		break;
 	case PMBUS_VIRT_READ_POUT_AVG:
 		if (data->id != max34446)
 			return -ENXIO;
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34446_MFR_POUT_AVG);
 		break;
 	case PMBUS_VIRT_READ_POUT_MAX:
 		if (data->id != max34446)
 			return -ENXIO;
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34446_MFR_POUT_PEAK);
 		break;
 	case PMBUS_VIRT_READ_TEMP_AVG:
 		if (data->id != max34446 && data->id != max34460 &&
 		    data->id != max34461)
 			return -ENXIO;
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34446_MFR_TEMPERATURE_AVG);
 		break;
 	case PMBUS_VIRT_READ_TEMP_MAX:
-		ret = pmbus_read_word_data(client, page,
+		ret = pmbus_read_word_data(client, page, phase,
 					   MAX34440_MFR_TEMPERATURE_PEAK);
 		break;
 	case PMBUS_VIRT_RESET_POUT_HISTORY:
@@ -172,14 +160,14 @@ static int max34440_read_byte_data(struct i2c_client *client, int page, int reg)
 	int mfg_status;
 
 	if (page >= 0) {
-		ret = pmbus_set_page(client, page);
+		ret = pmbus_set_page(client, page, 0xff);
 		if (ret < 0)
 			return ret;
 	}
 
 	switch (reg) {
 	case PMBUS_STATUS_IOUT:
-		mfg_status = pmbus_read_word_data(client, 0,
+		mfg_status = pmbus_read_word_data(client, 0, 0xff,
 						  PMBUS_STATUS_MFR_SPECIFIC);
 		if (mfg_status < 0)
 			return mfg_status;
@@ -189,7 +177,7 @@ static int max34440_read_byte_data(struct i2c_client *client, int page, int reg)
 			ret |= PB_IOUT_OC_FAULT;
 		break;
 	case PMBUS_STATUS_TEMPERATURE:
-		mfg_status = pmbus_read_word_data(client, 0,
+		mfg_status = pmbus_read_word_data(client, 0, 0xff,
 						  PMBUS_STATUS_MFR_SPECIFIC);
 		if (mfg_status < 0)
 			return mfg_status;

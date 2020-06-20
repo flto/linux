@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Resource Director Technology(RDT)
  * - Cache Allocation code.
@@ -7,15 +8,6 @@
  * Authors:
  *    Fenghua Yu <fenghua.yu@intel.com>
  *    Tony Luck <tony.luck@intel.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  *
  * More information about RDT be found in the Intel (R) x86 Architecture
  * Software Developer Manual June 2016, volume 3, section 17.17.
@@ -342,10 +334,10 @@ int update_domains(struct rdt_resource *r, int closid)
 	if (cpumask_empty(cpu_mask) || mba_sc)
 		goto done;
 	cpu = get_cpu();
-	/* Update CBM on this cpu if it's in cpu_mask. */
+	/* Update resource control msr on this CPU if it's in cpu_mask. */
 	if (cpumask_test_cpu(cpu, cpu_mask))
 		rdt_ctrl_update(&msr_param);
-	/* Update CBM on other cpus. */
+	/* Update resource control msr on other CPUs. */
 	smp_call_function_many(cpu_mask, rdt_ctrl_update, &msr_param, 1);
 	put_cpu();
 
@@ -503,14 +495,16 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 	return ret;
 }
 
-void mon_event_read(struct rmid_read *rr, struct rdt_domain *d,
-		    struct rdtgroup *rdtgrp, int evtid, int first)
+void mon_event_read(struct rmid_read *rr, struct rdt_resource *r,
+		    struct rdt_domain *d, struct rdtgroup *rdtgrp,
+		    int evtid, int first)
 {
 	/*
 	 * setup the parameters to send to the IPI to read the data.
 	 */
 	rr->rgrp = rdtgrp;
 	rr->evtid = evtid;
+	rr->r = r;
 	rr->d = d;
 	rr->val = 0;
 	rr->first = first;
@@ -530,6 +524,10 @@ int rdtgroup_mondata_show(struct seq_file *m, void *arg)
 	int ret = 0;
 
 	rdtgrp = rdtgroup_kn_lock_live(of->kn);
+	if (!rdtgrp) {
+		ret = -ENOENT;
+		goto out;
+	}
 
 	md.priv = of->kn->priv;
 	resid = md.u.rid;
@@ -543,7 +541,7 @@ int rdtgroup_mondata_show(struct seq_file *m, void *arg)
 		goto out;
 	}
 
-	mon_event_read(&rr, d, rdtgrp, evtid, false);
+	mon_event_read(&rr, r, d, rdtgrp, evtid, false);
 
 	if (rr.val & RMID_VAL_ERROR)
 		seq_puts(m, "Error\n");

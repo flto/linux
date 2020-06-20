@@ -23,6 +23,9 @@
  *
  */
 
+#include <linux/delay.h>
+#include <linux/slab.h>
+
 #include "reg_helper.h"
 
 #include "core_types.h"
@@ -115,7 +118,8 @@ static const struct link_encoder_funcs dce110_lnk_enc_funcs = {
 	.enable_hpd = dce110_link_encoder_enable_hpd,
 	.disable_hpd = dce110_link_encoder_disable_hpd,
 	.is_dig_enabled = dce110_is_dig_enabled,
-	.destroy = dce110_link_encoder_destroy
+	.destroy = dce110_link_encoder_destroy,
+	.get_max_link_cap = dce110_link_encoder_get_max_link_cap
 };
 
 static enum bp_result link_transmitter_control(
@@ -599,12 +603,12 @@ bool dce110_link_encoder_validate_dvi_output(
 	if ((connector_signal == SIGNAL_TYPE_DVI_SINGLE_LINK ||
 		connector_signal == SIGNAL_TYPE_HDMI_TYPE_A) &&
 		signal != SIGNAL_TYPE_HDMI_TYPE_A &&
-		crtc_timing->pix_clk_khz > TMDS_MAX_PIXEL_CLOCK)
+		crtc_timing->pix_clk_100hz > (TMDS_MAX_PIXEL_CLOCK * 10))
 		return false;
-	if (crtc_timing->pix_clk_khz < TMDS_MIN_PIXEL_CLOCK)
+	if (crtc_timing->pix_clk_100hz < (TMDS_MIN_PIXEL_CLOCK * 10))
 		return false;
 
-	if (crtc_timing->pix_clk_khz > max_pixel_clock)
+	if (crtc_timing->pix_clk_100hz > (max_pixel_clock * 10))
 		return false;
 
 	/* DVI supports 6/8bpp single-link and 10/16bpp dual-link */
@@ -788,7 +792,7 @@ bool dce110_link_encoder_validate_output_with_stream(
 	case SIGNAL_TYPE_DVI_DUAL_LINK:
 		is_valid = dce110_link_encoder_validate_dvi_output(
 			enc110,
-			stream->sink->link->connector_signal,
+			stream->link->connector_signal,
 			stream->signal,
 			&stream->timing);
 	break;
@@ -1385,4 +1389,21 @@ void dce110_link_encoder_disable_hpd(struct link_encoder *enc)
 	uint32_t value = dm_read_reg(ctx, addr);
 
 	set_reg_field_value(value, 0, DC_HPD_CONTROL, DC_HPD_EN);
+}
+
+void dce110_link_encoder_get_max_link_cap(struct link_encoder *enc,
+	struct dc_link_settings *link_settings)
+{
+	/* Set Default link settings */
+	struct dc_link_settings max_link_cap = {LANE_COUNT_FOUR, LINK_RATE_HIGH,
+			LINK_SPREAD_05_DOWNSPREAD_30KHZ, false, 0};
+
+	/* Higher link settings based on feature supported */
+	if (enc->features.flags.bits.IS_HBR2_CAPABLE)
+		max_link_cap.link_rate = LINK_RATE_HIGH2;
+
+	if (enc->features.flags.bits.IS_HBR3_CAPABLE)
+		max_link_cap.link_rate = LINK_RATE_HIGH3;
+
+	*link_settings = max_link_cap;
 }

@@ -83,6 +83,8 @@ struct mod_freesync_config {
 	bool btr;
 	unsigned int min_refresh_in_uhz;
 	unsigned int max_refresh_in_uhz;
+	unsigned int fixed_refresh_in_uhz;
+
 };
 
 struct mod_vrr_params_btr {
@@ -92,6 +94,7 @@ struct mod_vrr_params_btr {
 	uint32_t inserted_duration_in_us;
 	uint32_t frames_to_insert;
 	uint32_t frame_counter;
+	uint32_t margin_in_us;
 };
 
 struct mod_vrr_params_fixed_refresh {
@@ -104,13 +107,14 @@ struct mod_vrr_params_fixed_refresh {
 
 struct mod_vrr_params {
 	bool supported;
-	bool send_vsif;
+	bool send_info_frame;
 	enum mod_vrr_state state;
 
 	uint32_t min_refresh_in_uhz;
 	uint32_t max_duration_in_us;
 	uint32_t max_refresh_in_uhz;
 	uint32_t min_duration_in_us;
+	uint32_t fixed_refresh_in_uhz;
 
 	struct dc_crtc_timing_adjust adjust;
 
@@ -145,7 +149,7 @@ void mod_freesync_build_vrr_infopacket(struct mod_freesync *mod_freesync,
 		const struct dc_stream_state *stream,
 		const struct mod_vrr_params *vrr,
 		enum vrr_packet_type packet_type,
-		const enum color_transfer_func *app_tf,
+		enum color_transfer_func app_tf,
 		struct dc_info_packet *infopacket);
 
 void mod_freesync_build_vrr_params(struct mod_freesync *mod_freesync,
@@ -172,5 +176,7 @@ bool mod_freesync_is_valid_range(struct mod_freesync *mod_freesync,
 		uint32_t max_refresh_cap_in_uhz,
 		uint32_t min_refresh_request_in_uhz,
 		uint32_t max_refresh_request_in_uhz);
+
+
 
 #endif

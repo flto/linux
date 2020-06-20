@@ -220,6 +220,9 @@ int drm_universal_plane_init(struct drm_device *dev, struct drm_plane *plane,
 			format_modifier_count++;
 	}
 
+	if (format_modifier_count)
+		config->allow_fb_modifiers = true;
+
 	plane->modifier_count = format_modifier_count;
 	plane->modifiers = kmalloc_array(format_modifier_count,
 					 sizeof(format_modifiers[0]),
@@ -286,6 +289,8 @@ EXPORT_SYMBOL(drm_universal_plane_init);
 
 int drm_plane_register_all(struct drm_device *dev)
 {
+	unsigned int num_planes = 0;
+	unsigned int num_zpos = 0;
 	struct drm_plane *plane;
 	int ret = 0;
 
@@ -294,7 +299,14 @@ int drm_plane_register_all(struct drm_device *dev)
 			ret = plane->funcs->late_register(plane);
 		if (ret)
 			return ret;
+
+		if (plane->zpos_property)
+			num_zpos++;
+		num_planes++;
 	}
+
+	drm_WARN(dev, num_zpos && num_planes != num_zpos,
+		 "Mixing planes with and without zpos property is invalid\n");
 
 	return 0;
 }
@@ -957,6 +969,11 @@ retry:
 		if (ret)
 			goto out;
 
+		if (!drm_lease_held(file_priv, crtc->cursor->base.id)) {
+			ret = -EACCES;
+			goto out;
+		}
+
 		ret = drm_mode_cursor_universal(crtc, req, file_priv, &ctx);
 		goto out;
 	}
@@ -1058,6 +1075,9 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 		return -ENOENT;
 
 	plane = crtc->primary;
+
+	if (!drm_lease_held(file_priv, plane->base.id))
+		return -EACCES;
 
 	if (crtc->funcs->page_flip_target) {
 		u32 current_vblank;

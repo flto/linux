@@ -11,8 +11,6 @@
 int nl80211_init(void);
 void nl80211_exit(void);
 
-extern const struct nla_policy nl80211_policy[NUM_NL80211_ATTR];
-
 void *nl80211hdr_put(struct sk_buff *skb, u32 portid, u32 seq,
 		     int flags, u8 cmd);
 bool nl80211_put_sta_rate(struct sk_buff *msg, struct rate_info *info,
@@ -67,7 +65,8 @@ void nl80211_send_rx_auth(struct cfg80211_registered_device *rdev,
 void nl80211_send_rx_assoc(struct cfg80211_registered_device *rdev,
 			   struct net_device *netdev,
 			   const u8 *buf, size_t len, gfp_t gfp,
-			   int uapsd_queues);
+			   int uapsd_queues,
+			   const u8 *req_ies, size_t req_ies_len);
 void nl80211_send_deauth(struct cfg80211_registered_device *rdev,
 			 struct net_device *netdev,
 			 const u8 *buf, size_t len, gfp_t gfp);

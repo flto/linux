@@ -136,7 +136,7 @@ static int clk_branch2_enable(struct clk_hw *hw)
 
 static void clk_branch2_disable(struct clk_hw *hw)
 {
-	clk_branch_toggle(hw, false, clk_branch2_check_halt);
+	//clk_branch_toggle(hw, false, clk_branch2_check_halt);
 }
 
 const struct clk_ops clk_branch2_ops = {
@@ -145,6 +145,12 @@ const struct clk_ops clk_branch2_ops = {
 	.is_enabled = clk_is_enabled_regmap,
 };
 EXPORT_SYMBOL_GPL(clk_branch2_ops);
+
+const struct clk_ops clk_branch2_aon_ops = {
+	.enable = clk_branch2_enable,
+	.is_enabled = clk_is_enabled_regmap,
+};
+EXPORT_SYMBOL_GPL(clk_branch2_aon_ops);
 
 const struct clk_ops clk_branch_simple_ops = {
 	.enable = clk_enable_regmap,

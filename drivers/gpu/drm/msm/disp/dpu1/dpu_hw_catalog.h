@@ -1,13 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #ifndef _DPU_HW_CATALOG_H
@@ -17,7 +9,6 @@
 #include <linux/bug.h>
 #include <linux/bitmap.h>
 #include <linux/err.h>
-#include <drm/drmP.h>
 
 /**
  * Max hardware block count: For ex: max 12 SSPP pipes or
@@ -47,6 +38,7 @@
 #define DPU_HW_VER_401	DPU_HW_VER(4, 0, 1) /* sdm845 v2.0 */
 #define DPU_HW_VER_410	DPU_HW_VER(4, 1, 0) /* sdm670 v1.0 */
 #define DPU_HW_VER_500	DPU_HW_VER(5, 0, 0) /* sdm855 v1.0 */
+#define DPU_HW_VER_620	DPU_HW_VER(6, 2, 0) /* sc7180 v1.0 */
 
 
 #define IS_MSM8996_TARGET(rev) IS_DPU_MAJOR_MINOR_SAME((rev), DPU_HW_VER_170)
@@ -54,6 +46,7 @@
 #define IS_SDM845_TARGET(rev) IS_DPU_MAJOR_MINOR_SAME((rev), DPU_HW_VER_400)
 #define IS_SDM670_TARGET(rev) IS_DPU_MAJOR_MINOR_SAME((rev), DPU_HW_VER_410)
 #define IS_SDM855_TARGET(rev) IS_DPU_MAJOR_MINOR_SAME((rev), DPU_HW_VER_500)
+#define IS_SC7180_TARGET(rev) IS_DPU_MAJOR_MINOR_SAME((rev), DPU_HW_VER_620)
 
 
 #define DPU_HW_BLK_NAME_LEN	16
@@ -101,6 +94,7 @@ enum {
  * @DPU_SSPP_SRC             Src and fetch part of the pipes,
  * @DPU_SSPP_SCALER_QSEED2,  QSEED2 algorithm support
  * @DPU_SSPP_SCALER_QSEED3,  QSEED3 alogorithm support
+ * @DPU_SSPP_SCALER_QSEED4,  QSEED4 algorithm support
  * @DPU_SSPP_SCALER_RGB,     RGB Scaler, supported by RGB pipes
  * @DPU_SSPP_CSC,            Support of Color space converion
  * @DPU_SSPP_CSC_10BIT,      Support of 10-bit Color space conversion
@@ -119,6 +113,7 @@ enum {
 	DPU_SSPP_SRC = 0x1,
 	DPU_SSPP_SCALER_QSEED2,
 	DPU_SSPP_SCALER_QSEED3,
+	DPU_SSPP_SCALER_QSEED4,
 	DPU_SSPP_SCALER_RGB,
 	DPU_SSPP_CSC,
 	DPU_SSPP_CSC_10BIT,
@@ -151,6 +146,17 @@ enum {
 };
 
 /**
+ * DSPP sub-blocks
+ * @DPU_DSPP_PCC             Panel color correction block
+ * @DPU_DSPP_GC              Gamma correction block
+ */
+enum {
+	DPU_DSPP_PCC = 0x1,
+	DPU_DSPP_GC,
+	DPU_DSPP_MAX
+};
+
+/**
  * PINGPONG sub-blocks
  * @DPU_PINGPONG_TE         Tear check block
  * @DPU_PINGPONG_TE2        Additional tear check block for split pipes
@@ -175,6 +181,7 @@ enum {
  */
 enum {
 	DPU_CTL_SPLIT_DISPLAY = 0x1,
+	DPU_CTL_ACTIVE_CFG,
 	DPU_CTL_MAX
 };
 
@@ -252,17 +259,6 @@ struct dpu_pp_blk {
 };
 
 /**
- * struct dpu_format_extended - define dpu specific pixel format+modifier
- * @fourcc_format: Base FOURCC pixel format code
- * @modifier: 64-bit drm format modifier, same modifier must be applied to all
- *            framebuffer planes
- */
-struct dpu_format_extended {
-	uint32_t fourcc_format;
-	uint64_t modifier;
-};
-
-/**
  * enum dpu_qos_lut_usage - define QoS LUT use cases
  */
 enum dpu_qos_lut_usage {
@@ -289,7 +285,7 @@ struct dpu_qos_lut_entry {
  */
 struct dpu_qos_lut_tbl {
 	u32 nentry;
-	struct dpu_qos_lut_entry *entries;
+	const struct dpu_qos_lut_entry *entries;
 };
 
 /**
@@ -303,6 +299,7 @@ struct dpu_qos_lut_tbl {
  * @has_src_split      source split feature status
  * @has_dim_layer      dim layer feature status
  * @has_idle_pc        indicate if idle power collapse feature is supported
+ * @has_3d_merge       indicate if 3D merge is supported
  */
 struct dpu_caps {
 	u32 max_mixer_width;
@@ -313,6 +310,7 @@ struct dpu_caps {
 	bool has_src_split;
 	bool has_dim_layer;
 	bool has_idle_pc;
+	bool has_3d_merge;
 };
 
 /**
@@ -340,6 +338,7 @@ struct dpu_sspp_blks_common {
  * @maxupscale:  maxupscale ratio supported
  * @smart_dma_priority: hw priority of rect1 of multirect pipe
  * @max_per_pipe_bw: maximum allowable bandwidth of this pipe in kBps
+ * @qseed_ver: qseed version
  * @src_blk:
  * @scaler_blk:
  * @csc_blk:
@@ -348,7 +347,9 @@ struct dpu_sspp_blks_common {
  * @pcc_blk:
  * @igc_blk:
  * @format_list: Pointer to list of supported formats
+ * @num_formats: Number of supported formats
  * @virt_format_list: Pointer to list of supported formats for virtual planes
+ * @virt_num_formats: Number of supported formats for virtual planes
  */
 struct dpu_sspp_sub_blks {
 	const struct dpu_sspp_blks_common *common;
@@ -358,6 +359,7 @@ struct dpu_sspp_sub_blks {
 	u32 maxupscale;
 	u32 smart_dma_priority;
 	u32 max_per_pipe_bw;
+	u32 qseed_ver;
 	struct dpu_src_blk src_blk;
 	struct dpu_scaler_blk scaler_blk;
 	struct dpu_pp_blk csc_blk;
@@ -366,8 +368,10 @@ struct dpu_sspp_sub_blks {
 	struct dpu_pp_blk pcc_blk;
 	struct dpu_pp_blk igc_blk;
 
-	const struct dpu_format_extended *format_list;
-	const struct dpu_format_extended *virt_format_list;
+	const u32 *format_list;
+	u32 num_formats;
+	const u32 *virt_format_list;
+	u32 virt_num_formats;
 };
 
 /**
@@ -382,6 +386,16 @@ struct dpu_lm_sub_blks {
 	u32 maxblendstages;
 	u32 blendstage_base[MAX_BLOCKS];
 	struct dpu_pp_blk gc;
+};
+
+/**
+ * struct dpu_dspp_sub_blks: Information of DSPP block
+ * @gc : gamma correction block
+ * @pcc: pixel color correction block
+ */
+struct dpu_dspp_sub_blks {
+	struct dpu_pp_blk gc;
+	struct dpu_pp_blk pcc;
 };
 
 struct dpu_pingpong_sub_blks {
@@ -478,7 +492,21 @@ struct dpu_lm_cfg {
 	DPU_HW_BLK_INFO;
 	const struct dpu_lm_sub_blks *sblk;
 	u32 pingpong;
+	u32 dspp;
 	unsigned long lm_pair_mask;
+};
+
+/**
+ * struct dpu_dspp_cfg - information of DSPP blocks
+ * @id                 enum identifying this block
+ * @base               register offset of this block
+ * @features           bit mask identifying sub-blocks/features
+ *                     supported by this block
+ * @sblk               sub-blocks information
+ */
+struct dpu_dspp_cfg  {
+	DPU_HW_BLK_INFO;
+	const struct dpu_dspp_sub_blks *sblk;
 };
 
 /**
@@ -527,7 +555,7 @@ struct dpu_vbif_dynamic_ot_cfg {
  */
 struct dpu_vbif_dynamic_ot_tbl {
 	u32 count;
-	struct dpu_vbif_dynamic_ot_cfg *cfg;
+	const struct dpu_vbif_dynamic_ot_cfg *cfg;
 };
 
 /**
@@ -537,7 +565,7 @@ struct dpu_vbif_dynamic_ot_tbl {
  */
 struct dpu_vbif_qos_tbl {
 	u32 npriority_lvl;
-	u32 *priority_lvl;
+	const u32 *priority_lvl;
 };
 
 /**
@@ -662,6 +690,7 @@ struct dpu_perf_cfg {
  * @dma_formats        Supported formats for dma pipe
  * @cursor_formats     Supported formats for cursor pipe
  * @vig_formats        Supported formats for vig pipe
+ * @mdss_irqs:         Bitmap with the irqs supported by the target
  */
 struct dpu_mdss_cfg {
 	u32 hwversion;
@@ -669,37 +698,42 @@ struct dpu_mdss_cfg {
 	const struct dpu_caps *caps;
 
 	u32 mdp_count;
-	struct dpu_mdp_cfg *mdp;
+	const struct dpu_mdp_cfg *mdp;
 
 	u32 ctl_count;
-	struct dpu_ctl_cfg *ctl;
+	const struct dpu_ctl_cfg *ctl;
 
 	u32 sspp_count;
-	struct dpu_sspp_cfg *sspp;
+	const struct dpu_sspp_cfg *sspp;
 
 	u32 mixer_count;
-	struct dpu_lm_cfg *mixer;
+	const struct dpu_lm_cfg *mixer;
 
 	u32 pingpong_count;
-	struct dpu_pingpong_cfg *pingpong;
+	const struct dpu_pingpong_cfg *pingpong;
 
 	u32 intf_count;
-	struct dpu_intf_cfg *intf;
+	const struct dpu_intf_cfg *intf;
 
 	u32 vbif_count;
-	struct dpu_vbif_cfg *vbif;
+	const struct dpu_vbif_cfg *vbif;
 
 	u32 reg_dma_count;
 	struct dpu_reg_dma_cfg dma_cfg;
 
 	u32 ad_count;
 
+	u32 dspp_count;
+	const struct dpu_dspp_cfg *dspp;
+
 	/* Add additional block data structures here */
 
 	struct dpu_perf_cfg perf;
-	struct dpu_format_extended *dma_formats;
-	struct dpu_format_extended *cursor_formats;
-	struct dpu_format_extended *vig_formats;
+	const struct dpu_format_extended *dma_formats;
+	const struct dpu_format_extended *cursor_formats;
+	const struct dpu_format_extended *vig_formats;
+
+	unsigned long mdss_irqs;
 };
 
 struct dpu_mdss_hw_cfg_handler {
@@ -720,6 +754,7 @@ struct dpu_mdss_hw_cfg_handler {
 #define BLK_PINGPONG(s) ((s)->pingpong)
 #define BLK_INTF(s) ((s)->intf)
 #define BLK_AD(s) ((s)->ad)
+#define BLK_DSPP(s) ((s)->dspp)
 
 /**
  * dpu_hw_catalog_init - dpu hardware catalog init API retrieves

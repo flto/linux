@@ -45,7 +45,7 @@ struct wep_key {
  *	function prototypes
  */
 static int ks_wlan_open(struct net_device *dev);
-static void ks_wlan_tx_timeout(struct net_device *dev);
+static void ks_wlan_tx_timeout(struct net_device *dev, unsigned int txqueue);
 static int ks_wlan_start_xmit(struct sk_buff *skb, struct net_device *dev);
 static int ks_wlan_close(struct net_device *dev);
 static void ks_wlan_set_rx_mode(struct net_device *dev);
@@ -182,7 +182,7 @@ static int ks_wlan_set_freq(struct net_device *dev,
 	/* for SLEEP MODE */
 	/* If setting by frequency, convert to a channel */
 	if ((fwrq->freq.e == 1) &&
-	    (fwrq->freq.m >= (int)2.412e8) && (fwrq->freq.m <= (int)2.487e8)) {
+	    (fwrq->freq.m >= 241200000) && (fwrq->freq.m <= 248700000)) {
 		int f = fwrq->freq.m / 100000;
 		int c = 0;
 
@@ -2498,7 +2498,7 @@ int ks_wlan_set_mac_address(struct net_device *dev, void *addr)
 }
 
 static
-void ks_wlan_tx_timeout(struct net_device *dev)
+void ks_wlan_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct ks_wlan_private *priv = netdev_priv(dev);
 

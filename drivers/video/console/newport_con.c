@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * newport_con.c: Abscon for newport hardware
  * 
@@ -23,7 +24,6 @@
 #include <asm/io.h>
 #include <linux/uaccess.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/gio_device.h>
 
 #include <video/newport.h>

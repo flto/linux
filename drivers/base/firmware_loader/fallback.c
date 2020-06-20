@@ -9,6 +9,7 @@
 #include <linux/umh.h>
 #include <linux/sysctl.h>
 #include <linux/vmalloc.h>
+#include <linux/module.h>
 
 #include "fallback.h"
 #include "firmware.h"
@@ -16,6 +17,8 @@
 /*
  * firmware fallback mechanism
  */
+
+MODULE_IMPORT_NS(FIRMWARE_LOADER_PRIVATE);
 
 extern struct firmware_fallback_config fw_fallback_config;
 
@@ -219,20 +222,6 @@ static ssize_t firmware_loading_show(struct device *dev,
 	return sprintf(buf, "%d\n", loading);
 }
 
-/* one pages buffer should be mapped/unmapped only once */
-static int map_fw_priv_pages(struct fw_priv *fw_priv)
-{
-	if (!fw_priv->is_paged_buf)
-		return 0;
-
-	vunmap(fw_priv->data);
-	fw_priv->data = vmap(fw_priv->pages, fw_priv->nr_pages, 0,
-			     PAGE_KERNEL_RO);
-	if (!fw_priv->data)
-		return -ENOMEM;
-	return 0;
-}
-
 /**
  * firmware_loading_store() - set value in the 'loading' control file
  * @dev: device pointer
@@ -254,7 +243,6 @@ static ssize_t firmware_loading_store(struct device *dev,
 	struct fw_priv *fw_priv;
 	ssize_t written = count;
 	int loading = simple_strtol(buf, NULL, 10);
-	int i;
 
 	mutex_lock(&fw_lock);
 	fw_priv = fw_sysfs->fw_priv;
@@ -265,12 +253,7 @@ static ssize_t firmware_loading_store(struct device *dev,
 	case 1:
 		/* discarding any previous partial load */
 		if (!fw_sysfs_done(fw_priv)) {
-			for (i = 0; i < fw_priv->nr_pages; i++)
-				__free_page(fw_priv->pages[i]);
-			vfree(fw_priv->pages);
-			fw_priv->pages = NULL;
-			fw_priv->page_array_size = 0;
-			fw_priv->nr_pages = 0;
+			fw_free_paged_buf(fw_priv);
 			fw_state_start(fw_priv);
 		}
 		break;
@@ -284,7 +267,7 @@ static ssize_t firmware_loading_store(struct device *dev,
 			 * see the mapped 'buf->data' once the loading
 			 * is completed.
 			 * */
-			rc = map_fw_priv_pages(fw_priv);
+			rc = fw_map_paged_buf(fw_priv);
 			if (rc)
 				dev_err(dev, "%s: map pages failed\n",
 					__func__);
@@ -389,40 +372,13 @@ out:
 
 static int fw_realloc_pages(struct fw_sysfs *fw_sysfs, int min_size)
 {
-	struct fw_priv *fw_priv= fw_sysfs->fw_priv;
-	int pages_needed = PAGE_ALIGN(min_size) >> PAGE_SHIFT;
+	int err;
 
-	/* If the array of pages is too small, grow it... */
-	if (fw_priv->page_array_size < pages_needed) {
-		int new_array_size = max(pages_needed,
-					 fw_priv->page_array_size * 2);
-		struct page **new_pages;
-
-		new_pages = vmalloc(array_size(new_array_size, sizeof(void *)));
-		if (!new_pages) {
-			fw_load_abort(fw_sysfs);
-			return -ENOMEM;
-		}
-		memcpy(new_pages, fw_priv->pages,
-		       fw_priv->page_array_size * sizeof(void *));
-		memset(&new_pages[fw_priv->page_array_size], 0, sizeof(void *) *
-		       (new_array_size - fw_priv->page_array_size));
-		vfree(fw_priv->pages);
-		fw_priv->pages = new_pages;
-		fw_priv->page_array_size = new_array_size;
-	}
-
-	while (fw_priv->nr_pages < pages_needed) {
-		fw_priv->pages[fw_priv->nr_pages] =
-			alloc_page(GFP_KERNEL | __GFP_HIGHMEM);
-
-		if (!fw_priv->pages[fw_priv->nr_pages]) {
-			fw_load_abort(fw_sysfs);
-			return -ENOMEM;
-		}
-		fw_priv->nr_pages++;
-	}
-	return 0;
+	err = fw_grow_paged_buf(fw_sysfs->fw_priv,
+				PAGE_ALIGN(min_size) >> PAGE_SHIFT);
+	if (err)
+		fw_load_abort(fw_sysfs);
+	return err;
 }
 
 /**
@@ -507,7 +463,7 @@ static const struct attribute_group *fw_dev_attr_groups[] = {
 
 static struct fw_sysfs *
 fw_create_instance(struct firmware *firmware, const char *fw_name,
-		   struct device *device, enum fw_opt opt_flags)
+		   struct device *device, u32 opt_flags)
 {
 	struct fw_sysfs *fw_sysfs;
 	struct device *f_dev;
@@ -540,7 +496,7 @@ exit:
  * In charge of constructing a sysfs fallback interface for firmware loading.
  **/
 static int fw_load_sysfs_fallback(struct fw_sysfs *fw_sysfs,
-				  enum fw_opt opt_flags, long timeout)
+				  u32 opt_flags, long timeout)
 {
 	int retval = 0;
 	struct device *f_dev = &fw_sysfs->dev;
@@ -572,7 +528,7 @@ static int fw_load_sysfs_fallback(struct fw_sysfs *fw_sysfs,
 	}
 
 	retval = fw_sysfs_wait_timeout(fw_priv, timeout);
-	if (retval < 0) {
+	if (retval < 0 && retval != -ENOENT) {
 		mutex_lock(&fw_lock);
 		fw_load_abort(fw_sysfs);
 		mutex_unlock(&fw_lock);
@@ -594,7 +550,7 @@ err_put_dev:
 
 static int fw_load_from_user_helper(struct firmware *firmware,
 				    const char *name, struct device *device,
-				    enum fw_opt opt_flags)
+				    u32 opt_flags)
 {
 	struct fw_sysfs *fw_sysfs;
 	long timeout;
@@ -635,7 +591,7 @@ out_unlock:
 	return ret;
 }
 
-static bool fw_force_sysfs_fallback(enum fw_opt opt_flags)
+static bool fw_force_sysfs_fallback(u32 opt_flags)
 {
 	if (fw_fallback_config.force_sysfs_fallback)
 		return true;
@@ -644,7 +600,7 @@ static bool fw_force_sysfs_fallback(enum fw_opt opt_flags)
 	return true;
 }
 
-static bool fw_run_sysfs_fallback(enum fw_opt opt_flags)
+static bool fw_run_sysfs_fallback(u32 opt_flags)
 {
 	int ret;
 
@@ -653,13 +609,13 @@ static bool fw_run_sysfs_fallback(enum fw_opt opt_flags)
 		return false;
 	}
 
-	if ((opt_flags & FW_OPT_NOFALLBACK))
+	if ((opt_flags & FW_OPT_NOFALLBACK_SYSFS))
 		return false;
 
 	/* Also permit LSMs and IMA to fail firmware sysfs fallback */
 	ret = security_kernel_load_data(LOADING_FIRMWARE);
 	if (ret < 0)
-		return ret;
+		return false;
 
 	return fw_force_sysfs_fallback(opt_flags);
 }
@@ -674,26 +630,27 @@ static bool fw_run_sysfs_fallback(enum fw_opt opt_flags)
  *
  * This function is called if direct lookup for the firmware failed, it enables
  * a fallback mechanism through userspace by exposing a sysfs loading
- * interface. Userspace is in charge of loading the firmware through the syfs
- * loading interface. This syfs fallback mechanism may be disabled completely
+ * interface. Userspace is in charge of loading the firmware through the sysfs
+ * loading interface. This sysfs fallback mechanism may be disabled completely
  * on a system by setting the proc sysctl value ignore_sysfs_fallback to true.
- * If this false we check if the internal API caller set the @FW_OPT_NOFALLBACK
- * flag, if so it would also disable the fallback mechanism. A system may want
- * to enfoce the sysfs fallback mechanism at all times, it can do this by
- * setting ignore_sysfs_fallback to false and force_sysfs_fallback to true.
+ * If this is false we check if the internal API caller set the
+ * @FW_OPT_NOFALLBACK_SYSFS flag, if so it would also disable the fallback
+ * mechanism. A system may want to enforce the sysfs fallback mechanism at all
+ * times, it can do this by setting ignore_sysfs_fallback to false and
+ * force_sysfs_fallback to true.
  * Enabling force_sysfs_fallback is functionally equivalent to build a kernel
  * with CONFIG_FW_LOADER_USER_HELPER_FALLBACK.
  **/
 int firmware_fallback_sysfs(struct firmware *fw, const char *name,
 			    struct device *device,
-			    enum fw_opt opt_flags,
+			    u32 opt_flags,
 			    int ret)
 {
 	if (!fw_run_sysfs_fallback(opt_flags))
 		return ret;
 
 	if (!(opt_flags & FW_OPT_NO_WARN))
-		dev_warn(device, "Falling back to syfs fallback for: %s\n",
+		dev_warn(device, "Falling back to sysfs fallback for: %s\n",
 				 name);
 	else
 		dev_dbg(device, "Falling back to sysfs fallback for: %s\n",

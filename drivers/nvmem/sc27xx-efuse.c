@@ -106,10 +106,12 @@ static int sc27xx_efuse_poll_status(struct sc27xx_efuse *efuse, u32 bits)
 static int sc27xx_efuse_read(void *context, u32 offset, void *val, size_t bytes)
 {
 	struct sc27xx_efuse *efuse = context;
-	u32 buf;
+	u32 buf, blk_index = offset / SC27XX_EFUSE_BLOCK_WIDTH;
+	u32 blk_offset = (offset % SC27XX_EFUSE_BLOCK_WIDTH) * BITS_PER_BYTE;
 	int ret;
 
-	if (offset > SC27XX_EFUSE_BLOCK_MAX || bytes > SC27XX_EFUSE_BLOCK_WIDTH)
+	if (blk_index > SC27XX_EFUSE_BLOCK_MAX ||
+	    bytes > SC27XX_EFUSE_BLOCK_WIDTH)
 		return -EINVAL;
 
 	ret = sc27xx_efuse_lock(efuse);
@@ -133,7 +135,7 @@ static int sc27xx_efuse_read(void *context, u32 offset, void *val, size_t bytes)
 	/* Set the block address to be read. */
 	ret = regmap_write(efuse->regmap,
 			   efuse->base + SC27XX_EFUSE_BLOCK_INDEX,
-			   offset & SC27XX_EFUSE_BLOCK_MASK);
+			   blk_index & SC27XX_EFUSE_BLOCK_MASK);
 	if (ret)
 		goto disable_efuse;
 
@@ -171,8 +173,10 @@ disable_efuse:
 unlock_efuse:
 	sc27xx_efuse_unlock(efuse);
 
-	if (!ret)
+	if (!ret) {
+		buf >>= blk_offset;
 		memcpy(val, &buf, bytes);
+	}
 
 	return ret;
 }
@@ -207,7 +211,7 @@ static int sc27xx_efuse_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	efuse->hwlock = hwspin_lock_request_specific(ret);
+	efuse->hwlock = devm_hwspin_lock_request_specific(&pdev->dev, ret);
 	if (!efuse->hwlock) {
 		dev_err(&pdev->dev, "failed to request hwspinlock\n");
 		return -ENXIO;
@@ -215,7 +219,6 @@ static int sc27xx_efuse_probe(struct platform_device *pdev)
 
 	mutex_init(&efuse->mutex);
 	efuse->dev = &pdev->dev;
-	platform_set_drvdata(pdev, efuse);
 
 	econfig.stride = 1;
 	econfig.word_size = 1;
@@ -228,18 +231,9 @@ static int sc27xx_efuse_probe(struct platform_device *pdev)
 	nvmem = devm_nvmem_register(&pdev->dev, &econfig);
 	if (IS_ERR(nvmem)) {
 		dev_err(&pdev->dev, "failed to register nvmem config\n");
-		hwspin_lock_free(efuse->hwlock);
 		return PTR_ERR(nvmem);
 	}
 
-	return 0;
-}
-
-static int sc27xx_efuse_remove(struct platform_device *pdev)
-{
-	struct sc27xx_efuse *efuse = platform_get_drvdata(pdev);
-
-	hwspin_lock_free(efuse->hwlock);
 	return 0;
 }
 
@@ -250,7 +244,6 @@ static const struct of_device_id sc27xx_efuse_of_match[] = {
 
 static struct platform_driver sc27xx_efuse_driver = {
 	.probe = sc27xx_efuse_probe,
-	.remove = sc27xx_efuse_remove,
 	.driver = {
 		.name = "sc27xx-efuse",
 		.of_match_table = sc27xx_efuse_of_match,

@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright © 2004 Texas Instruments, Jian Zhang <jzhang@ti.com>
  * Copyright © 2004 Micron Technology Inc.
  * Copyright © 2004 David Brownell
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/platform_device.h>
@@ -994,12 +991,9 @@ static int omap_wait(struct nand_chip *this)
 {
 	struct omap_nand_info *info = mtd_to_omap(nand_to_mtd(this));
 	unsigned long timeo = jiffies;
-	int status, state = this->state;
+	int status;
 
-	if (state == FL_ERASING)
-		timeo += msecs_to_jiffies(400);
-	else
-		timeo += msecs_to_jiffies(20);
+	timeo += msecs_to_jiffies(400);
 
 	writeb(NAND_CMD_STATUS & 0xFF, info->reg.gpmc_nand_command);
 	while (time_before(jiffies, timeo)) {
@@ -1507,7 +1501,7 @@ static int omap_elm_correct_data(struct nand_chip *chip, u_char *data,
 		}
 
 		/* Update number of correctable errors */
-		stat += err_vec[i].error_count;
+		stat = max_t(unsigned int, stat, err_vec[i].error_count);
 
 		/* Update page data with sector size */
 		data += ecc->size;
@@ -1728,9 +1722,9 @@ static bool omap2_nand_ecc_check(struct omap_nand_info *info)
 		break;
 	}
 
-	if (ecc_needs_bch && !IS_ENABLED(CONFIG_MTD_NAND_ECC_BCH)) {
+	if (ecc_needs_bch && !IS_ENABLED(CONFIG_MTD_NAND_ECC_SW_BCH)) {
 		dev_err(&info->pdev->dev,
-			"CONFIG_MTD_NAND_ECC_BCH not enabled\n");
+			"CONFIG_MTD_NAND_ECC_SW_BCH not enabled\n");
 		return false;
 	}
 	if (ecc_needs_omap_bch && !IS_ENABLED(CONFIG_MTD_NAND_OMAP_BCH)) {
@@ -1973,10 +1967,8 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 
 	case NAND_OMAP_PREFETCH_IRQ:
 		info->gpmc_irq_fifo = platform_get_irq(info->pdev, 0);
-		if (info->gpmc_irq_fifo <= 0) {
-			dev_err(dev, "Error getting fifo IRQ\n");
+		if (info->gpmc_irq_fifo <= 0)
 			return -ENODEV;
-		}
 		err = devm_request_irq(dev, info->gpmc_irq_fifo,
 				       omap_nand_irq, IRQF_SHARED,
 				       "gpmc-nand-fifo", info);
@@ -1988,10 +1980,8 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 		}
 
 		info->gpmc_irq_count = platform_get_irq(info->pdev, 1);
-		if (info->gpmc_irq_count <= 0) {
-			dev_err(dev, "Error getting IRQ count\n");
+		if (info->gpmc_irq_count <= 0)
 			return -ENODEV;
-		}
 		err = devm_request_irq(dev, info->gpmc_irq_count,
 				       omap_nand_irq, IRQF_SHARED,
 				       "gpmc-nand-count", info);
@@ -2173,11 +2163,8 @@ static const struct nand_controller_ops omap_nand_controller_ops = {
 };
 
 /* Shared among all NAND instances to synchronize access to the ECC Engine */
-static struct nand_controller omap_gpmc_controller = {
-	.lock = __SPIN_LOCK_UNLOCKED(omap_gpmc_controller.lock),
-	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(omap_gpmc_controller.wq),
-	.ops = &omap_nand_controller_ops,
-};
+static struct nand_controller omap_gpmc_controller;
+static bool omap_gpmc_controller_initialized;
 
 static int omap_nand_probe(struct platform_device *pdev)
 {
@@ -2226,6 +2213,12 @@ static int omap_nand_probe(struct platform_device *pdev)
 		return PTR_ERR(nand_chip->legacy.IO_ADDR_R);
 
 	info->phys_base = res->start;
+
+	if (!omap_gpmc_controller_initialized) {
+		omap_gpmc_controller.ops = &omap_nand_controller_ops;
+		nand_controller_init(&omap_gpmc_controller);
+		omap_gpmc_controller_initialized = true;
+	}
 
 	nand_chip->controller = &omap_gpmc_controller;
 
@@ -2290,14 +2283,18 @@ static int omap_nand_remove(struct platform_device *pdev)
 	struct mtd_info *mtd = platform_get_drvdata(pdev);
 	struct nand_chip *nand_chip = mtd_to_nand(mtd);
 	struct omap_nand_info *info = mtd_to_omap(mtd);
+	int ret;
+
 	if (nand_chip->ecc.priv) {
 		nand_bch_free(nand_chip->ecc.priv);
 		nand_chip->ecc.priv = NULL;
 	}
 	if (info->dma)
 		dma_release_channel(info->dma);
-	nand_release(nand_chip);
-	return 0;
+	ret = mtd_device_unregister(mtd);
+	WARN_ON(ret);
+	nand_cleanup(nand_chip);
+	return ret;
 }
 
 static const struct of_device_id omap_nand_ids[] = {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (C) 2018 Hangzhou C-SKY Microsystems co.,ltd.
 
+#include <linux/audit.h>
 #include <linux/elf.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -8,18 +9,22 @@
 #include <linux/ptrace.h>
 #include <linux/regset.h>
 #include <linux/sched.h>
+#include <linux/sched/task_stack.h>
 #include <linux/signal.h>
 #include <linux/smp.h>
+#include <linux/tracehook.h>
 #include <linux/uaccess.h>
 #include <linux/user.h>
 
 #include <asm/thread_info.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/asm-offsets.h>
 
 #include <abi/regdef.h>
+
+#define CREATE_TRACE_POINTS
+#include <trace/events/syscalls.h>
 
 /* sets the trace bits. */
 #define TRACE_MODE_SI      (1 << 14)
@@ -35,6 +40,9 @@ static void singlestep_disable(struct task_struct *tsk)
 
 	regs = task_pt_regs(tsk);
 	regs->sr = (regs->sr & TRACE_MODE_MASK) | TRACE_MODE_RUN;
+
+	/* Enable irq */
+	regs->sr |= BIT(6);
 }
 
 static void singlestep_enable(struct task_struct *tsk)
@@ -43,6 +51,9 @@ static void singlestep_enable(struct task_struct *tsk)
 
 	regs = task_pt_regs(tsk);
 	regs->sr = (regs->sr & TRACE_MODE_MASK) | TRACE_MODE_SI;
+
+	/* Disable irq */
+	regs->sr &= ~BIT(6);
 }
 
 /*
@@ -159,7 +170,7 @@ static int fpr_set(struct task_struct *target,
 static const struct user_regset csky_regsets[] = {
 	[REGSET_GPR] = {
 		.core_note_type = NT_PRSTATUS,
-		.n = ELF_NGREG,
+		.n = sizeof(struct pt_regs) / sizeof(u32),
 		.size = sizeof(u32),
 		.align = sizeof(u32),
 		.get = &gpr_get,
@@ -187,6 +198,109 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 	return &user_csky_view;
 }
 
+struct pt_regs_offset {
+	const char *name;
+	int offset;
+};
+
+#define REG_OFFSET_NAME(r) {.name = #r, .offset = offsetof(struct pt_regs, r)}
+#define REG_OFFSET_END {.name = NULL, .offset = 0}
+
+static const struct pt_regs_offset regoffset_table[] = {
+	REG_OFFSET_NAME(tls),
+	REG_OFFSET_NAME(lr),
+	REG_OFFSET_NAME(pc),
+	REG_OFFSET_NAME(sr),
+	REG_OFFSET_NAME(usp),
+	REG_OFFSET_NAME(orig_a0),
+	REG_OFFSET_NAME(a0),
+	REG_OFFSET_NAME(a1),
+	REG_OFFSET_NAME(a2),
+	REG_OFFSET_NAME(a3),
+	REG_OFFSET_NAME(regs[0]),
+	REG_OFFSET_NAME(regs[1]),
+	REG_OFFSET_NAME(regs[2]),
+	REG_OFFSET_NAME(regs[3]),
+	REG_OFFSET_NAME(regs[4]),
+	REG_OFFSET_NAME(regs[5]),
+	REG_OFFSET_NAME(regs[6]),
+	REG_OFFSET_NAME(regs[7]),
+	REG_OFFSET_NAME(regs[8]),
+	REG_OFFSET_NAME(regs[9]),
+#if defined(__CSKYABIV2__)
+	REG_OFFSET_NAME(exregs[0]),
+	REG_OFFSET_NAME(exregs[1]),
+	REG_OFFSET_NAME(exregs[2]),
+	REG_OFFSET_NAME(exregs[3]),
+	REG_OFFSET_NAME(exregs[4]),
+	REG_OFFSET_NAME(exregs[5]),
+	REG_OFFSET_NAME(exregs[6]),
+	REG_OFFSET_NAME(exregs[7]),
+	REG_OFFSET_NAME(exregs[8]),
+	REG_OFFSET_NAME(exregs[9]),
+	REG_OFFSET_NAME(exregs[10]),
+	REG_OFFSET_NAME(exregs[11]),
+	REG_OFFSET_NAME(exregs[12]),
+	REG_OFFSET_NAME(exregs[13]),
+	REG_OFFSET_NAME(exregs[14]),
+	REG_OFFSET_NAME(rhi),
+	REG_OFFSET_NAME(rlo),
+	REG_OFFSET_NAME(dcsr),
+#endif
+	REG_OFFSET_END,
+};
+
+/**
+ * regs_query_register_offset() - query register offset from its name
+ * @name:	the name of a register
+ *
+ * regs_query_register_offset() returns the offset of a register in struct
+ * pt_regs from its name. If the name is invalid, this returns -EINVAL;
+ */
+int regs_query_register_offset(const char *name)
+{
+	const struct pt_regs_offset *roff;
+
+	for (roff = regoffset_table; roff->name != NULL; roff++)
+		if (!strcmp(roff->name, name))
+			return roff->offset;
+	return -EINVAL;
+}
+
+/**
+ * regs_within_kernel_stack() - check the address in the stack
+ * @regs:      pt_regs which contains kernel stack pointer.
+ * @addr:      address which is checked.
+ *
+ * regs_within_kernel_stack() checks @addr is within the kernel stack page(s).
+ * If @addr is within the kernel stack, it returns true. If not, returns false.
+ */
+static bool regs_within_kernel_stack(struct pt_regs *regs, unsigned long addr)
+{
+	return (addr & ~(THREAD_SIZE - 1))  ==
+		(kernel_stack_pointer(regs) & ~(THREAD_SIZE - 1));
+}
+
+/**
+ * regs_get_kernel_stack_nth() - get Nth entry of the stack
+ * @regs:	pt_regs which contains kernel stack pointer.
+ * @n:		stack entry number.
+ *
+ * regs_get_kernel_stack_nth() returns @n th entry of the kernel stack which
+ * is specified by @regs. If the @n th entry is NOT in the kernel stack,
+ * this returns 0.
+ */
+unsigned long regs_get_kernel_stack_nth(struct pt_regs *regs, unsigned int n)
+{
+	unsigned long *addr = (unsigned long *)kernel_stack_pointer(regs);
+
+	addr += n;
+	if (regs_within_kernel_stack(regs, (unsigned long)addr))
+		return *addr;
+	else
+		return 0;
+}
+
 void ptrace_disable(struct task_struct *child)
 {
 	singlestep_disable(child);
@@ -206,38 +320,30 @@ long arch_ptrace(struct task_struct *child, long request,
 	return ret;
 }
 
-/*
- * If process's system calls is traces, do some corresponding handles in this
- * function before entering system call function and after exiting system call
- * function.
- */
-asmlinkage void syscall_trace(int why, struct pt_regs *regs)
+asmlinkage void syscall_trace_enter(struct pt_regs *regs)
 {
-	long saved_why;
-	/*
-	 * Save saved_why, why is used to denote syscall entry/exit;
-	 * why = 0:entry, why = 1: exit
-	 */
-	saved_why = regs->regs[SYSTRACE_SAVENUM];
-	regs->regs[SYSTRACE_SAVENUM] = why;
+	if (test_thread_flag(TIF_SYSCALL_TRACE))
+		if (tracehook_report_syscall_entry(regs))
+			syscall_set_nr(current, regs, -1);
 
-	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
-					? 0x80 : 0));
+	if (test_thread_flag(TIF_SYSCALL_TRACEPOINT))
+		trace_sys_enter(regs, syscall_get_nr(current, regs));
 
-	/*
-	 * this isn't the same as continuing with a signal, but it will do
-	 * for normal use.  strace only continues with a signal if the
-	 * stopping signal is not SIGTRAP.  -brl
-	 */
-	if (current->exit_code) {
-		send_sig(current->exit_code, current, 1);
-		current->exit_code = 0;
-	}
-
-	regs->regs[SYSTRACE_SAVENUM] = saved_why;
+	audit_syscall_entry(regs_syscallid(regs), regs->a0, regs->a1, regs->a2, regs->a3);
 }
 
-extern void show_stack(struct task_struct *task, unsigned long *stack);
+asmlinkage void syscall_trace_exit(struct pt_regs *regs)
+{
+	audit_syscall_exit(regs);
+
+	if (test_thread_flag(TIF_SYSCALL_TRACE))
+		tracehook_report_syscall_exit(regs, 0);
+
+	if (test_thread_flag(TIF_SYSCALL_TRACEPOINT))
+		trace_sys_exit(regs, syscall_get_return_value(current, regs));
+}
+
+extern void show_stack(struct task_struct *task, unsigned long *stack, const char *loglvl);
 void show_regs(struct pt_regs *fp)
 {
 	unsigned long   *sp;
@@ -313,6 +419,6 @@ void show_regs(struct pt_regs *fp)
 	}
 	pr_cont("\n");
 
-	show_stack(NULL, (unsigned long *)fp->regs[4]);
+	show_stack(NULL, (unsigned long *)fp->regs[4], KERN_INFO);
 	return;
 }

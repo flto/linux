@@ -16,11 +16,11 @@ The rules-ng-ng source files this header was generated from are:
 - /home/robclark/src/envytools/rnndb/adreno/a3xx.xml          (  83840 bytes, from 2018-07-03 19:37:13)
 - /home/robclark/src/envytools/rnndb/adreno/a4xx.xml          ( 112086 bytes, from 2018-07-03 19:37:13)
 - /home/robclark/src/envytools/rnndb/adreno/a5xx.xml          ( 147240 bytes, from 2018-12-02 17:29:54)
-- /home/robclark/src/envytools/rnndb/adreno/a6xx.xml          ( 140790 bytes, from 2018-12-02 17:29:54)
+- /home/smasetty/playarea/envytools/rnndb/adreno/a6xx.xml     ( 161969 bytes, from 2019-11-29 07:18:16)
 - /home/robclark/src/envytools/rnndb/adreno/a6xx_gmu.xml      (  10431 bytes, from 2018-09-14 13:03:07)
 - /home/robclark/src/envytools/rnndb/adreno/ocmem.xml         (   1773 bytes, from 2018-07-03 19:37:13)
 
-Copyright (C) 2013-2018 by the following authors:
+Copyright (C) 2013-2019 by the following authors:
 - Rob Clark <robdclark@gmail.com> (robclark)
 - Ilia Mirkin <imirkin@alum.mit.edu> (imirkin)
 
@@ -1047,6 +1047,8 @@ enum a6xx_tex_type {
 
 #define REG_A6XX_CP_MISC_CNTL					0x00000840
 
+#define REG_A6XX_CP_APRIV_CNTL					0x00000844
+
 #define REG_A6XX_CP_ROQ_THRESHOLDS_1				0x000008c1
 
 #define REG_A6XX_CP_ROQ_THRESHOLDS_2				0x000008c2
@@ -1764,6 +1766,8 @@ static inline uint32_t A6XX_CP_PROTECT_REG_MASK_LEN(uint32_t val)
 
 #define REG_A6XX_RBBM_VBIF_CLIENT_QOS_CNTL			0x00000010
 
+#define REG_A6XX_RBBM_GBIF_CLIENT_QOS_CNTL			0x00000011
+
 #define REG_A6XX_RBBM_INTERFACE_HANG_INT_CNTL			0x0000001f
 
 #define REG_A6XX_RBBM_INT_CLEAR_CMD				0x00000037
@@ -2418,6 +2422,16 @@ static inline uint32_t A6XX_UCHE_CLIENT_PF_PERFSEL(uint32_t val)
 
 #define REG_A6XX_TPL1_NC_MODE_CNTL				0x0000b604
 
+#define REG_A6XX_TPL1_BICUBIC_WEIGHTS_TABLE_0			0x0000b608
+
+#define REG_A6XX_TPL1_BICUBIC_WEIGHTS_TABLE_1			0x0000b609
+
+#define REG_A6XX_TPL1_BICUBIC_WEIGHTS_TABLE_2			0x0000b60a
+
+#define REG_A6XX_TPL1_BICUBIC_WEIGHTS_TABLE_3			0x0000b60b
+
+#define REG_A6XX_TPL1_BICUBIC_WEIGHTS_TABLE_4			0x0000b60c
+
 #define REG_A6XX_TPL1_PERFCTR_TP_SEL_0				0x0000b610
 
 #define REG_A6XX_TPL1_PERFCTR_TP_SEL_1				0x0000b611
@@ -2518,6 +2532,54 @@ static inline uint32_t A6XX_VBIF_TEST_BUS2_CTRL1_DATA_SEL(uint32_t val)
 #define REG_A6XX_VBIF_PERF_PWR_CNT_HIGH1			0x00003119
 
 #define REG_A6XX_VBIF_PERF_PWR_CNT_HIGH2			0x0000311a
+
+#define REG_A6XX_GBIF_SCACHE_CNTL1				0x00003c02
+
+#define REG_A6XX_GBIF_QSB_SIDE0					0x00003c03
+
+#define REG_A6XX_GBIF_QSB_SIDE1					0x00003c04
+
+#define REG_A6XX_GBIF_QSB_SIDE2					0x00003c05
+
+#define REG_A6XX_GBIF_QSB_SIDE3					0x00003c06
+
+#define REG_A6XX_GBIF_HALT					0x00003c45
+
+#define REG_A6XX_GBIF_HALT_ACK					0x00003c46
+
+#define REG_A6XX_GBIF_PERF_PWR_CNT_EN				0x00003cc0
+
+#define REG_A6XX_GBIF_PERF_CNT_SEL				0x00003cc2
+
+#define REG_A6XX_GBIF_PERF_PWR_CNT_SEL				0x00003cc3
+
+#define REG_A6XX_GBIF_PERF_CNT_LOW0				0x00003cc4
+
+#define REG_A6XX_GBIF_PERF_CNT_LOW1				0x00003cc5
+
+#define REG_A6XX_GBIF_PERF_CNT_LOW2				0x00003cc6
+
+#define REG_A6XX_GBIF_PERF_CNT_LOW3				0x00003cc7
+
+#define REG_A6XX_GBIF_PERF_CNT_HIGH0				0x00003cc8
+
+#define REG_A6XX_GBIF_PERF_CNT_HIGH1				0x00003cc9
+
+#define REG_A6XX_GBIF_PERF_CNT_HIGH2				0x00003cca
+
+#define REG_A6XX_GBIF_PERF_CNT_HIGH3				0x00003ccb
+
+#define REG_A6XX_GBIF_PWR_CNT_LOW0				0x00003ccc
+
+#define REG_A6XX_GBIF_PWR_CNT_LOW1				0x00003ccd
+
+#define REG_A6XX_GBIF_PWR_CNT_LOW2				0x00003cce
+
+#define REG_A6XX_GBIF_PWR_CNT_HIGH0				0x00003ccf
+
+#define REG_A6XX_GBIF_PWR_CNT_HIGH1				0x00003cd0
+
+#define REG_A6XX_GBIF_PWR_CNT_HIGH2				0x00003cd1
 
 #define REG_A6XX_RB_WINDOW_OFFSET2				0x000088d4
 #define A6XX_RB_WINDOW_OFFSET2_WINDOW_OFFSET_DISABLE		0x80000000

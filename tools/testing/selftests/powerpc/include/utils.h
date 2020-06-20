@@ -1,6 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright 2013, Michael Ellerman, IBM Corp.
- * Licensed under GPLv2.
  */
 
 #ifndef _SELFTESTS_POWERPC_UTILS_H
@@ -34,6 +34,7 @@ int pick_online_cpu(void);
 
 int read_debugfs_file(char *debugfs_file, int *result);
 int write_debugfs_file(char *debugfs_file, int result);
+int read_sysfs_file(char *debugfs_file, char *result, size_t result_size);
 void set_dscr(unsigned long val);
 int perf_event_open_counter(unsigned int type,
 			    unsigned long config, int group_fd);
@@ -102,8 +103,10 @@ do {								\
 
 #if defined(__powerpc64__)
 #define UCONTEXT_NIA(UC)	(UC)->uc_mcontext.gp_regs[PT_NIP]
+#define UCONTEXT_MSR(UC)	(UC)->uc_mcontext.gp_regs[PT_MSR]
 #elif defined(__powerpc__)
 #define UCONTEXT_NIA(UC)	(UC)->uc_mcontext.uc_regs->gregs[PT_NIP]
+#define UCONTEXT_MSR(UC)	(UC)->uc_mcontext.uc_regs->gregs[PT_MSR]
 #else
 #error implement UCONTEXT_NIA
 #endif

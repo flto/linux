@@ -40,7 +40,6 @@
 #include <asm/processor.h>
 #include <asm/oplib.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/traps.h>
 #include <asm/vaddrs.h>
 #include <asm/mbus.h>
@@ -331,10 +330,6 @@ void __init setup_arch(char **cmdline_p)
 		pr_info("ARCH: UNKNOWN!\n");
 		break;
 	}
-
-#ifdef CONFIG_DUMMY_CONSOLE
-	conswitchp = &dummy_con;
-#endif
 
 	idprom_init();
 	load_mmu();

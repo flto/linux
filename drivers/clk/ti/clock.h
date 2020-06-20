@@ -20,9 +20,11 @@ struct clk_omap_divider {
 	struct clk_hw		hw;
 	struct clk_omap_reg	reg;
 	u8			shift;
-	u8			width;
 	u8			flags;
 	s8			latch;
+	u16			min;
+	u16			max;
+	u16			mask;
 	const struct clk_div_table	*table;
 	u32		context;
 };
@@ -82,6 +84,13 @@ enum {
 #define CLKF_SW_SUP			BIT(5)
 #define CLKF_HW_SUP			BIT(6)
 #define CLKF_NO_IDLEST			BIT(7)
+
+#define CLKF_SOC_MASK			GENMASK(11, 8)
+
+#define CLKF_SOC_NONSEC			BIT(8)
+#define CLKF_SOC_DRA72			BIT(9)
+#define CLKF_SOC_DRA74			BIT(10)
+#define CLKF_SOC_DRA76			BIT(11)
 
 #define CLK(dev, con, ck)		\
 	{				\
@@ -203,6 +212,8 @@ typedef void (*ti_of_clk_init_cb_t)(void *, struct device_node *);
 
 struct clk *ti_clk_register(struct device *dev, struct clk_hw *hw,
 			    const char *con);
+struct clk *ti_clk_register_omap_hw(struct device *dev, struct clk_hw *hw,
+				    const char *con);
 int ti_clk_add_alias(struct device *dev, struct clk *clk, const char *con);
 void ti_clk_add_aliases(void);
 
@@ -211,8 +222,7 @@ void ti_clk_latch(struct clk_omap_reg *reg, s8 shift);
 struct clk_hw *ti_clk_build_component_mux(struct ti_clk_mux *setup);
 
 int ti_clk_parse_divider_data(int *div_table, int num_dividers, int max_div,
-			      u8 flags, u8 *width,
-			      const struct clk_div_table **table);
+			      u8 flags, struct clk_omap_divider *div);
 
 int ti_clk_get_reg_addr(struct device_node *node, int index,
 			struct clk_omap_reg *reg);
@@ -221,7 +231,6 @@ int ti_clk_retry_init(struct device_node *node, void *user,
 		      ti_of_clk_init_cb_t func);
 int ti_clk_add_component(struct device_node *node, struct clk_hw *hw, int type);
 
-void omap2_init_clk_hw_omap_clocks(struct clk_hw *hw);
 int of_ti_clk_autoidle_setup(struct device_node *node);
 void omap2_clk_enable_init_clocks(const char **clk_names, u8 num_clocks);
 
@@ -244,7 +253,7 @@ extern const struct clk_ops omap_gate_clk_ops;
 
 extern struct ti_clk_features ti_clk_features;
 
-void omap2_init_clk_clkdm(struct clk_hw *hw);
+int omap2_init_clk_clkdm(struct clk_hw *hw);
 int omap2_clkops_enable_clkdm(struct clk_hw *hw);
 void omap2_clkops_disable_clkdm(struct clk_hw *hw);
 
@@ -301,6 +310,7 @@ long omap4_dpll_regm4xen_round_rate(struct clk_hw *hw,
 				    unsigned long *parent_rate);
 int omap4_dpll_regm4xen_determine_rate(struct clk_hw *hw,
 				       struct clk_rate_request *req);
+int omap2_clk_for_each(int (*fn)(struct clk_hw_omap *hw));
 
 extern struct ti_clk_ll_ops *ti_clk_ll_ops;
 

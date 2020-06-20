@@ -4,7 +4,7 @@
  *
  * Copyright 2018 Qtechnology A/S
  *
- * Ricardo Ribalda <ricardo.ribalda@gmail.com>
+ * Ricardo Ribalda <ribalda@kernel.org>
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -47,6 +47,7 @@ struct imx214 {
 	struct v4l2_ctrl *pixel_rate;
 	struct v4l2_ctrl *link_freq;
 	struct v4l2_ctrl *exposure;
+	struct v4l2_ctrl *unit_size;
 
 	struct regulator_bulk_data	supplies[IMX214_NUM_SUPPLIES];
 
@@ -377,7 +378,7 @@ static const struct reg_8 mode_table_common[] = {
 	/* Moire reduction */
 	{0x6957, 0x01},
 
-	/* image enhancment */
+	/* image enhancement */
 	{0x6987, 0x17},
 	{0x698A, 0x03},
 	{0x698B, 0x03},
@@ -588,12 +589,10 @@ static int imx214_set_format(struct v4l2_subdev *sd,
 
 	__crop = __imx214_get_pad_crop(imx214, cfg, format->pad, format->which);
 
-	if (format)
-		mode = v4l2_find_nearest_size(imx214_modes,
-				ARRAY_SIZE(imx214_modes), width, height,
-				format->format.width, format->format.height);
-	else
-		mode = &imx214_modes[0];
+	mode = v4l2_find_nearest_size(imx214_modes,
+				      ARRAY_SIZE(imx214_modes), width, height,
+				      format->format.width,
+				      format->format.height);
 
 	__crop->width = mode->width;
 	__crop->height = mode->height;
@@ -804,7 +803,6 @@ err_rpm_put:
 static int imx214_g_frame_interval(struct v4l2_subdev *subdev,
 				   struct v4l2_subdev_frame_interval *fival)
 {
-	fival->pad = 0;
 	fival->interval.numerator = 1;
 	fival->interval.denominator = IMX214_FPS;
 
@@ -950,6 +948,10 @@ static int imx214_probe(struct i2c_client *client)
 	static const s64 link_freq[] = {
 		IMX214_DEFAULT_LINK_FREQ,
 	};
+	static const struct v4l2_area unit_size = {
+		.width = 1120,
+		.height = 1120,
+	};
 	int ret;
 
 	ret = imx214_parse_fwnode(dev);
@@ -1031,6 +1033,10 @@ static int imx214_probe(struct i2c_client *client)
 					     V4L2_CID_EXPOSURE,
 					     0, 3184, 1, 0x0c70);
 
+	imx214->unit_size = v4l2_ctrl_new_std_compound(&imx214->ctrls,
+				NULL,
+				V4L2_CID_UNIT_CELL_SIZE,
+				v4l2_ctrl_ptr_create((void *)&unit_size));
 	ret = imx214->ctrls.error;
 	if (ret) {
 		dev_err(&client->dev, "%s control init failed (%d)\n",
@@ -1113,6 +1119,6 @@ static struct i2c_driver imx214_i2c_driver = {
 
 module_i2c_driver(imx214_i2c_driver);
 
-MODULE_DESCRIPTION("Sony IMX214 Camera drier");
-MODULE_AUTHOR("Ricardo Ribalda <ricardo.ribalda@gmail.com>");
+MODULE_DESCRIPTION("Sony IMX214 Camera driver");
+MODULE_AUTHOR("Ricardo Ribalda <ribalda@kernel.org>");
 MODULE_LICENSE("GPL v2");

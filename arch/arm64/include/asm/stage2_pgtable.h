@@ -1,26 +1,15 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2016 - ARM Ltd
  *
  * stage2 page table helpers
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef __ARM64_S2_PGTABLE_H_
 #define __ARM64_S2_PGTABLE_H_
 
 #include <linux/hugetlb.h>
-#include <asm/pgtable.h>
+#include <linux/pgtable.h>
 
 /*
  * PGDIR_SHIFT determines the size a top-level page table entry can map
@@ -79,47 +68,73 @@ static inline bool kvm_stage2_has_pud(struct kvm *kvm)
 #define S2_PUD_SIZE			(1UL << S2_PUD_SHIFT)
 #define S2_PUD_MASK			(~(S2_PUD_SIZE - 1))
 
-static inline bool stage2_pgd_none(struct kvm *kvm, pgd_t pgd)
+#define stage2_pgd_none(kvm, pgd)		pgd_none(pgd)
+#define stage2_pgd_clear(kvm, pgd)		pgd_clear(pgd)
+#define stage2_pgd_present(kvm, pgd)		pgd_present(pgd)
+#define stage2_pgd_populate(kvm, pgd, p4d)	pgd_populate(NULL, pgd, p4d)
+
+static inline p4d_t *stage2_p4d_offset(struct kvm *kvm,
+				       pgd_t *pgd, unsigned long address)
+{
+	return p4d_offset(pgd, address);
+}
+
+static inline void stage2_p4d_free(struct kvm *kvm, p4d_t *p4d)
+{
+}
+
+static inline bool stage2_p4d_table_empty(struct kvm *kvm, p4d_t *p4dp)
+{
+	return false;
+}
+
+static inline phys_addr_t stage2_p4d_addr_end(struct kvm *kvm,
+					      phys_addr_t addr, phys_addr_t end)
+{
+	return end;
+}
+
+static inline bool stage2_p4d_none(struct kvm *kvm, p4d_t p4d)
 {
 	if (kvm_stage2_has_pud(kvm))
-		return pgd_none(pgd);
+		return p4d_none(p4d);
 	else
 		return 0;
 }
 
-static inline void stage2_pgd_clear(struct kvm *kvm, pgd_t *pgdp)
+static inline void stage2_p4d_clear(struct kvm *kvm, p4d_t *p4dp)
 {
 	if (kvm_stage2_has_pud(kvm))
-		pgd_clear(pgdp);
+		p4d_clear(p4dp);
 }
 
-static inline bool stage2_pgd_present(struct kvm *kvm, pgd_t pgd)
+static inline bool stage2_p4d_present(struct kvm *kvm, p4d_t p4d)
 {
 	if (kvm_stage2_has_pud(kvm))
-		return pgd_present(pgd);
+		return p4d_present(p4d);
 	else
 		return 1;
 }
 
-static inline void stage2_pgd_populate(struct kvm *kvm, pgd_t *pgd, pud_t *pud)
+static inline void stage2_p4d_populate(struct kvm *kvm, p4d_t *p4d, pud_t *pud)
 {
 	if (kvm_stage2_has_pud(kvm))
-		pgd_populate(NULL, pgd, pud);
+		p4d_populate(NULL, p4d, pud);
 }
 
 static inline pud_t *stage2_pud_offset(struct kvm *kvm,
-				       pgd_t *pgd, unsigned long address)
+				       p4d_t *p4d, unsigned long address)
 {
 	if (kvm_stage2_has_pud(kvm))
-		return pud_offset(pgd, address);
+		return pud_offset(p4d, address);
 	else
-		return (pud_t *)pgd;
+		return (pud_t *)p4d;
 }
 
 static inline void stage2_pud_free(struct kvm *kvm, pud_t *pud)
 {
 	if (kvm_stage2_has_pud(kvm))
-		pud_free(NULL, pud);
+		free_page((unsigned long)pud);
 }
 
 static inline bool stage2_pud_table_empty(struct kvm *kvm, pud_t *pudp)
@@ -192,7 +207,7 @@ static inline pmd_t *stage2_pmd_offset(struct kvm *kvm,
 static inline void stage2_pmd_free(struct kvm *kvm, pmd_t *pmd)
 {
 	if (kvm_stage2_has_pmd(kvm))
-		pmd_free(NULL, pmd);
+		free_page((unsigned long)pmd);
 }
 
 static inline bool stage2_pud_huge(struct kvm *kvm, pud_t pud)

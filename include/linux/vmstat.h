@@ -16,8 +16,8 @@ extern int sysctl_stat_interval;
 #define DISABLE_NUMA_STAT   0
 extern int sysctl_vm_numa_stat;
 DECLARE_STATIC_KEY_TRUE(vm_numa_stat_key);
-extern int sysctl_vm_numa_stat_handler(struct ctl_table *table,
-		int write, void __user *buffer, size_t *length, loff_t *ppos);
+int sysctl_vm_numa_stat_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *length, loff_t *ppos);
 #endif
 
 struct reclaim_stat {
@@ -26,9 +26,17 @@ struct reclaim_stat {
 	unsigned nr_congested;
 	unsigned nr_writeback;
 	unsigned nr_immediate;
-	unsigned nr_activate;
+	unsigned nr_pageout;
+	unsigned nr_activate[2];
 	unsigned nr_ref_keep;
 	unsigned nr_unmap_fail;
+	unsigned nr_lazyfree_fail;
+};
+
+enum writeback_stat_item {
+	NR_DIRTY_THRESHOLD,
+	NR_DIRTY_BG_THRESHOLD,
+	NR_VM_WRITEBACK_STAT_ITEMS,
 };
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
@@ -268,8 +276,8 @@ void cpu_vm_stats_fold(int cpu);
 void refresh_zone_stat_thresholds(void);
 
 struct ctl_table;
-int vmstat_refresh(struct ctl_table *, int write,
-		   void __user *buffer, size_t *lenp, loff_t *ppos);
+int vmstat_refresh(struct ctl_table *, int write, void *buffer, size_t *lenp,
+		loff_t *ppos);
 
 void drain_zonestat(struct zone *zone, struct per_cpu_pageset *);
 
@@ -380,5 +388,49 @@ static inline void __mod_zone_freepage_state(struct zone *zone, int nr_pages,
 }
 
 extern const char * const vmstat_text[];
+
+static inline const char *zone_stat_name(enum zone_stat_item item)
+{
+	return vmstat_text[item];
+}
+
+#ifdef CONFIG_NUMA
+static inline const char *numa_stat_name(enum numa_stat_item item)
+{
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+			   item];
+}
+#endif /* CONFIG_NUMA */
+
+static inline const char *node_stat_name(enum node_stat_item item)
+{
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+			   NR_VM_NUMA_STAT_ITEMS +
+			   item];
+}
+
+static inline const char *lru_list_name(enum lru_list lru)
+{
+	return node_stat_name(NR_LRU_BASE + lru) + 3; // skip "nr_"
+}
+
+static inline const char *writeback_stat_name(enum writeback_stat_item item)
+{
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+			   NR_VM_NUMA_STAT_ITEMS +
+			   NR_VM_NODE_STAT_ITEMS +
+			   item];
+}
+
+#if defined(CONFIG_VM_EVENT_COUNTERS) || defined(CONFIG_MEMCG)
+static inline const char *vm_event_name(enum vm_event_item item)
+{
+	return vmstat_text[NR_VM_ZONE_STAT_ITEMS +
+			   NR_VM_NUMA_STAT_ITEMS +
+			   NR_VM_NODE_STAT_ITEMS +
+			   NR_VM_WRITEBACK_STAT_ITEMS +
+			   item];
+}
+#endif /* CONFIG_VM_EVENT_COUNTERS || CONFIG_MEMCG */
 
 #endif /* _LINUX_VMSTAT_H */

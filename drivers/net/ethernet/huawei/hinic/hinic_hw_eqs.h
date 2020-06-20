@@ -1,16 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Huawei HiNIC PCI Express Linux driver
  * Copyright(c) 2017 Huawei Technologies Co., Ltd
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * for more details.
- *
  */
 
 #ifndef HINIC_HW_EQS_H
@@ -152,8 +143,9 @@ enum hinic_eq_type {
 };
 
 enum hinic_aeq_type {
+	HINIC_MBX_FROM_FUNC = 1,
 	HINIC_MSG_FROM_MGMT_CPU = 2,
-
+	HINIC_MBX_SEND_RSLT = 5,
 	HINIC_MAX_AEQ_EVENTS,
 };
 
@@ -180,7 +172,7 @@ struct hinic_eq_work {
 
 struct hinic_eq {
 	struct hinic_hwif       *hwif;
-
+	struct hinic_hwdev      *hwdev;
 	enum hinic_eq_type      type;
 	int                     q_id;
 	u32                     q_len;
@@ -228,7 +220,7 @@ struct hinic_ceq_cb {
 
 struct hinic_ceqs {
 	struct hinic_hwif       *hwif;
-
+	struct hinic_hwdev		*hwdev;
 	struct hinic_eq         ceq[HINIC_MAX_CEQS];
 	int                     num_ceqs;
 

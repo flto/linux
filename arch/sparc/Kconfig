@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 config 64BIT
 	bool "64-bit kernel" if "$(ARCH)" = "sparc"
 	default "$(ARCH)" = "sparc64"
@@ -16,6 +17,7 @@ config SPARC
 	select ARCH_MIGHT_HAVE_PC_SERIO
 	select OF
 	select OF_PROMTREE
+	select HAVE_ASM_MODVERSIONS
 	select HAVE_IDE
 	select HAVE_OPROFILE
 	select HAVE_ARCH_KGDB if !SMP || SPARC64
@@ -49,6 +51,7 @@ config SPARC
 
 config SPARC32
 	def_bool !64BIT
+	select ARCH_32BIT_OFF_T
 	select ARCH_HAS_SYNC_DMA_FOR_CPU
 	select GENERIC_ATOMIC64
 	select CLZ_TAB
@@ -61,13 +64,13 @@ config SPARC64
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_KRETPROBES
 	select HAVE_KPROBES
-	select HAVE_RCU_TABLE_FREE if SMP
-	select HAVE_MEMBLOCK_NODE_MAP
+	select MMU_GATHER_RCU_TABLE_FREE if SMP
 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
 	select HAVE_DYNAMIC_FTRACE
 	select HAVE_FTRACE_MCOUNT_RECORD
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_CONTEXT_TRACKING
+	select HAVE_TIF_NOHZ
 	select HAVE_DEBUG_KMEMLEAK
 	select IOMMU_HELPER
 	select SPARSE_IRQ
@@ -90,11 +93,7 @@ config SPARC64
 	select ARCH_CLOCKSOURCE_DATA
 	select ARCH_HAS_PTE_SPECIAL
 	select PCI_DOMAINS if PCI
-
-config ARCH_DEFCONFIG
-	string
-	default "arch/sparc/configs/sparc32_defconfig" if SPARC32
-	default "arch/sparc/configs/sparc64_defconfig" if SPARC64
+	select ARCH_HAS_GIGANTIC_PAGE
 
 config ARCH_PROC_KCORE_TEXT
 	def_bool y
@@ -160,7 +159,7 @@ menu "Processor type and features"
 
 config SMP
 	bool "Symmetric multi-processing support"
-	---help---
+	help
 	  This enables support for systems with more than one CPU. If you have
 	  a system with only one CPU, say N. If you have a system with more
 	  than one CPU, say Y.
@@ -175,7 +174,7 @@ config SMP
 	  Y to "Enhanced Real Time Clock Support", below. The "Advanced Power
 	  Management" code will be disabled if you say Y here.
 
-	  See also <file:Documentation/lockup-watchdogs.txt> and the SMP-HOWTO
+	  See also <file:Documentation/admin-guide/lockup-watchdogs.rst> and the SMP-HOWTO
 	  available at <http://www.tldp.org/docs.html#howto>.
 
 	  If you don't know what to do here, say N.
@@ -189,14 +188,6 @@ config NR_CPUS
 	default 4096 if SPARC64
 
 source "kernel/Kconfig.hz"
-
-config RWSEM_GENERIC_SPINLOCK
-	bool
-	default y if SPARC32
-
-config RWSEM_XCHGADD_ALGORITHM
-	bool
-	default y if SPARC64
 
 config GENERIC_HWEIGHT
 	bool
@@ -280,7 +271,7 @@ config US3_MC
 config GENERIC_LOCKBREAK
 	bool
 	default y
-	depends on SPARC64 && SMP && PREEMPT
+	depends on SPARC64 && SMP && PREEMPTION
 
 config NUMA
 	bool "NUMA support"
@@ -294,18 +285,6 @@ config NODES_SHIFT
 	help
 	  Specify the maximum number of NUMA Nodes available on the target
 	  system.  Increases memory reserved to accommodate various tables.
-
-# Some NUMA nodes have memory ranges that span
-# other nodes.  Even though a pfn is valid and
-# between a node's start and end pfns, it may not
-# reside on that node.  See memmap_init_zone()
-# for details.
-config NODES_SPAN_OTHER_NODES
-	def_bool y
-	depends on NEED_MULTIPLE_NODES
-
-config ARCH_SELECT_MEMORY_MODEL
-	def_bool y if SPARC64
 
 config ARCH_SPARSEMEM_ENABLE
 	def_bool y if SPARC64
@@ -387,7 +366,7 @@ config SERIAL_CONSOLE
 	bool
 	depends on SPARC32
 	default y
-	---help---
+	help
 	  If you say Y here, it will be possible to use a serial port as the
 	  system console (the system console is the device which receives all
 	  kernel messages and warnings and which allows logins in single user
@@ -414,7 +393,7 @@ config SPARC_LEON
 	select USB_EHCI_BIG_ENDIAN_DESC
 	select USB_UHCI_BIG_ENDIAN_MMIO
 	select USB_UHCI_BIG_ENDIAN_DESC
-	---help---
+	help
 	  If you say Y here if you are running on a SPARC-LEON processor.
 	  The LEON processor is a synthesizable VHDL model of the
 	  SPARC-v8 standard. LEON is  part of the GRLIB collection of
@@ -428,7 +407,7 @@ menu "U-Boot options"
 config UBOOT_LOAD_ADDR
 	hex "uImage Load Address"
 	default 0x40004000
-	---help---
+	help
 	 U-Boot kernel load address, the address in physical address space
 	 where u-boot will place the Linux kernel before booting it.
 	 This address is normally the base address of main memory + 0x4000.
@@ -436,7 +415,7 @@ config UBOOT_LOAD_ADDR
 config UBOOT_FLASH_ADDR
 	hex "uImage.o Load Address"
 	default 0x00080000
-	---help---
+	help
 	 Optional setting only affecting the uImage.o ELF-image used to
 	 download the uImage file to the target using a ELF-loader other than
 	 U-Boot. It may for example be used to download an uImage to FLASH with
@@ -445,7 +424,7 @@ config UBOOT_FLASH_ADDR
 config UBOOT_ENTRY_ADDR
 	hex "uImage Entry Address"
 	default 0xf0004000
-	---help---
+	help
 	 Do not change this unless you know what you're doing. This is
 	 hardcoded by the SPARC32 and LEON port.
 

@@ -1,9 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018 Chelsio Communications, Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Written by: Atul Gupta (atul.gupta@chelsio.com)
  */
@@ -16,6 +13,8 @@
 #include <linux/net.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <net/ipv6.h>
+#include <net/transp_v6.h>
 #include <net/tcp.h>
 #include <net/tls.h>
 
@@ -30,12 +29,11 @@
  */
 static LIST_HEAD(cdev_list);
 static DEFINE_MUTEX(cdev_mutex);
-static DEFINE_MUTEX(cdev_list_lock);
 
 static DEFINE_MUTEX(notify_mutex);
 static RAW_NOTIFIER_HEAD(listen_notify_list);
-static struct proto chtls_cpl_prot;
-struct request_sock_ops chtls_rsk_ops;
+static struct proto chtls_cpl_prot, chtls_cpl_protv6;
+struct request_sock_ops chtls_rsk_ops, chtls_rsk_opsv6;
 static uint send_page_order = (14 - PAGE_SHIFT < 0) ? 0 : 14 - PAGE_SHIFT;
 
 static void register_listen_notifier(struct notifier_block *nb)
@@ -88,7 +86,6 @@ static int listen_backlog_rcv(struct sock *sk, struct sk_buff *skb)
 static int chtls_start_listen(struct chtls_dev *cdev, struct sock *sk)
 {
 	struct chtls_listen *clisten;
-	int err;
 
 	if (sk->sk_protocol != IPPROTO_TCP)
 		return -EPROTONOSUPPORT;
@@ -104,10 +101,10 @@ static int chtls_start_listen(struct chtls_dev *cdev, struct sock *sk)
 	clisten->cdev = cdev;
 	clisten->sk = sk;
 	mutex_lock(&notify_mutex);
-	err = raw_notifier_call_chain(&listen_notify_list,
+	raw_notifier_call_chain(&listen_notify_list,
 				      CHTLS_LISTEN_START, clisten);
 	mutex_unlock(&notify_mutex);
-	return err;
+	return 0;
 }
 
 static void chtls_stop_listen(struct chtls_dev *cdev, struct sock *sk)
@@ -128,7 +125,7 @@ static void chtls_stop_listen(struct chtls_dev *cdev, struct sock *sk)
 	mutex_unlock(&notify_mutex);
 }
 
-static int chtls_inline_feature(struct tls_device *dev)
+static int chtls_inline_feature(struct tls_toe_device *dev)
 {
 	struct net_device *netdev;
 	struct chtls_dev *cdev;
@@ -144,7 +141,7 @@ static int chtls_inline_feature(struct tls_device *dev)
 	return 0;
 }
 
-static int chtls_create_hash(struct tls_device *dev, struct sock *sk)
+static int chtls_create_hash(struct tls_toe_device *dev, struct sock *sk)
 {
 	struct chtls_dev *cdev = to_chtls_dev(dev);
 
@@ -153,7 +150,7 @@ static int chtls_create_hash(struct tls_device *dev, struct sock *sk)
 	return 0;
 }
 
-static void chtls_destroy_hash(struct tls_device *dev, struct sock *sk)
+static void chtls_destroy_hash(struct tls_toe_device *dev, struct sock *sk)
 {
 	struct chtls_dev *cdev = to_chtls_dev(dev);
 
@@ -165,7 +162,7 @@ static void chtls_free_uld(struct chtls_dev *cdev)
 {
 	int i;
 
-	tls_unregister_device(&cdev->tlsdev);
+	tls_toe_unregister_device(&cdev->tlsdev);
 	kvfree(cdev->kmap.addr);
 	idr_destroy(&cdev->hwtid_idr);
 	for (i = 0; i < (1 << RSPQ_HASH_BITS); i++)
@@ -177,27 +174,34 @@ static void chtls_free_uld(struct chtls_dev *cdev)
 
 static inline void chtls_dev_release(struct kref *kref)
 {
+	struct tls_toe_device *dev;
 	struct chtls_dev *cdev;
-	struct tls_device *dev;
+	struct adapter *adap;
 
-	dev = container_of(kref, struct tls_device, kref);
+	dev = container_of(kref, struct tls_toe_device, kref);
 	cdev = to_chtls_dev(dev);
+
+	/* Reset tls rx/tx stats */
+	adap = pci_get_drvdata(cdev->pdev);
+	atomic_set(&adap->chcr_stats.tls_pdu_tx, 0);
+	atomic_set(&adap->chcr_stats.tls_pdu_rx, 0);
+
 	chtls_free_uld(cdev);
 }
 
 static void chtls_register_dev(struct chtls_dev *cdev)
 {
-	struct tls_device *tlsdev = &cdev->tlsdev;
+	struct tls_toe_device *tlsdev = &cdev->tlsdev;
 
-	strlcpy(tlsdev->name, "chtls", TLS_DEVICE_NAME_MAX);
+	strlcpy(tlsdev->name, "chtls", TLS_TOE_DEVICE_NAME_MAX);
 	strlcat(tlsdev->name, cdev->lldi->ports[0]->name,
-		TLS_DEVICE_NAME_MAX);
+		TLS_TOE_DEVICE_NAME_MAX);
 	tlsdev->feature = chtls_inline_feature;
 	tlsdev->hash = chtls_create_hash;
 	tlsdev->unhash = chtls_destroy_hash;
 	tlsdev->release = chtls_dev_release;
 	kref_init(&tlsdev->kref);
-	tls_register_device(tlsdev);
+	tls_toe_register_device(tlsdev);
 	cdev->cdev_state = CHTLS_CDEV_STATE_UP;
 }
 
@@ -234,8 +238,7 @@ static void *chtls_uld_add(const struct cxgb4_lld_info *info)
 	struct chtls_dev *cdev;
 	int i, j;
 
-	cdev = kzalloc(sizeof(*cdev) + info->nports *
-		      (sizeof(struct net_device *)), GFP_KERNEL);
+	cdev = kzalloc(sizeof(*cdev), GFP_KERNEL);
 	if (!cdev)
 		goto out;
 
@@ -478,7 +481,8 @@ static int chtls_getsockopt(struct sock *sk, int level, int optname,
 	struct tls_context *ctx = tls_get_ctx(sk);
 
 	if (level != SOL_TLS)
-		return ctx->getsockopt(sk, level, optname, optval, optlen);
+		return ctx->sk_proto->getsockopt(sk, level,
+						 optname, optval, optlen);
 
 	return do_chtls_getsockopt(sk, optval, optlen);
 }
@@ -489,6 +493,7 @@ static int do_chtls_setsockopt(struct sock *sk, int optname,
 	struct tls_crypto_info *crypto_info, tmp_crypto_info;
 	struct chtls_sock *csk;
 	int keylen;
+	int cipher_type;
 	int rc = 0;
 
 	csk = rcu_dereference_sk_user_data(sk);
@@ -512,6 +517,9 @@ static int do_chtls_setsockopt(struct sock *sk, int optname,
 
 	crypto_info = (struct tls_crypto_info *)&csk->tlshws.crypto_info;
 
+	/* GCM mode of AES supports 128 and 256 bit encryption, so
+	 * copy keys from user based on GCM cipher type.
+	 */
 	switch (tmp_crypto_info.cipher_type) {
 	case TLS_CIPHER_AES_GCM_128: {
 		/* Obtain version and type from previous copy */
@@ -528,13 +536,30 @@ static int do_chtls_setsockopt(struct sock *sk, int optname,
 		}
 
 		keylen = TLS_CIPHER_AES_GCM_128_KEY_SIZE;
-		rc = chtls_setkey(csk, keylen, optname);
+		cipher_type = TLS_CIPHER_AES_GCM_128;
+		break;
+	}
+	case TLS_CIPHER_AES_GCM_256: {
+		crypto_info[0] = tmp_crypto_info;
+		rc = copy_from_user((char *)crypto_info + sizeof(*crypto_info),
+				    optval + sizeof(*crypto_info),
+				sizeof(struct tls12_crypto_info_aes_gcm_256)
+				- sizeof(*crypto_info));
+
+		if (rc) {
+			rc = -EFAULT;
+			goto out;
+		}
+
+		keylen = TLS_CIPHER_AES_GCM_256_KEY_SIZE;
+		cipher_type = TLS_CIPHER_AES_GCM_256;
 		break;
 	}
 	default:
 		rc = -EINVAL;
 		goto out;
 	}
+	rc = chtls_setkey(csk, keylen, optname, cipher_type);
 out:
 	return rc;
 }
@@ -545,7 +570,8 @@ static int chtls_setsockopt(struct sock *sk, int level, int optname,
 	struct tls_context *ctx = tls_get_ctx(sk);
 
 	if (level != SOL_TLS)
-		return ctx->setsockopt(sk, level, optname, optval, optlen);
+		return ctx->sk_proto->setsockopt(sk, level,
+						 optname, optval, optlen);
 
 	return do_chtls_setsockopt(sk, optname, optval, optlen);
 }
@@ -562,7 +588,10 @@ static struct cxgb4_uld_info chtls_uld_info = {
 
 void chtls_install_cpl_ops(struct sock *sk)
 {
-	sk->sk_prot = &chtls_cpl_prot;
+	if (sk->sk_family == AF_INET)
+		sk->sk_prot = &chtls_cpl_prot;
+	else
+		sk->sk_prot = &chtls_cpl_protv6;
 }
 
 static void __init chtls_init_ulp_ops(void)
@@ -579,6 +608,11 @@ static void __init chtls_init_ulp_ops(void)
 	chtls_cpl_prot.recvmsg		= chtls_recvmsg;
 	chtls_cpl_prot.setsockopt	= chtls_setsockopt;
 	chtls_cpl_prot.getsockopt	= chtls_getsockopt;
+#if IS_ENABLED(CONFIG_IPV6)
+	chtls_cpl_protv6		= chtls_cpl_prot;
+	chtls_init_rsk_ops(&chtls_cpl_protv6, &chtls_rsk_opsv6,
+			   &tcpv6_prot, PF_INET6);
+#endif
 }
 
 static int __init chtls_register(void)

@@ -1,21 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Common code for the NVMe target.
  * Copyright (c) 2015-2016 HGST, a Western Digital Company.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/module.h>
 #include <linux/random.h>
 #include <linux/rculist.h>
 #include <linux/pci-p2pdma.h>
+#include <linux/scatterlist.h>
+
+#define CREATE_TRACE_POINTS
+#include "trace.h"
 
 #include "nvmet.h"
 
@@ -50,6 +46,9 @@ inline u16 errno_to_nvme_status(struct nvmet_req *req, int errno)
 	u16 status;
 
 	switch (errno) {
+	case 0:
+		status = NVME_SC_SUCCESS;
+		break;
 	case -ENOSPC:
 		req->error_loc = offsetof(struct nvme_rw_command, length);
 		status = NVME_SC_CAP_EXCEEDED | NVME_SC_DNR;
@@ -130,39 +129,30 @@ static u32 nvmet_async_event_result(struct nvmet_async_event *aen)
 	return aen->event_type | (aen->event_info << 8) | (aen->log_page << 16);
 }
 
-static void nvmet_async_events_free(struct nvmet_ctrl *ctrl)
+static void nvmet_async_events_failall(struct nvmet_ctrl *ctrl)
 {
+	u16 status = NVME_SC_INTERNAL | NVME_SC_DNR;
 	struct nvmet_req *req;
 
-	while (1) {
-		mutex_lock(&ctrl->lock);
-		if (!ctrl->nr_async_event_cmds) {
-			mutex_unlock(&ctrl->lock);
-			return;
-		}
-
+	mutex_lock(&ctrl->lock);
+	while (ctrl->nr_async_event_cmds) {
 		req = ctrl->async_event_cmds[--ctrl->nr_async_event_cmds];
 		mutex_unlock(&ctrl->lock);
-		nvmet_req_complete(req, NVME_SC_INTERNAL | NVME_SC_DNR);
+		nvmet_req_complete(req, status);
+		mutex_lock(&ctrl->lock);
 	}
+	mutex_unlock(&ctrl->lock);
 }
 
-static void nvmet_async_event_work(struct work_struct *work)
+static void nvmet_async_events_process(struct nvmet_ctrl *ctrl)
 {
-	struct nvmet_ctrl *ctrl =
-		container_of(work, struct nvmet_ctrl, async_event_work);
 	struct nvmet_async_event *aen;
 	struct nvmet_req *req;
 
-	while (1) {
-		mutex_lock(&ctrl->lock);
-		aen = list_first_entry_or_null(&ctrl->async_events,
-				struct nvmet_async_event, entry);
-		if (!aen || !ctrl->nr_async_event_cmds) {
-			mutex_unlock(&ctrl->lock);
-			return;
-		}
-
+	mutex_lock(&ctrl->lock);
+	while (ctrl->nr_async_event_cmds && !list_empty(&ctrl->async_events)) {
+		aen = list_first_entry(&ctrl->async_events,
+				       struct nvmet_async_event, entry);
 		req = ctrl->async_event_cmds[--ctrl->nr_async_event_cmds];
 		nvmet_set_result(req, nvmet_async_event_result(aen));
 
@@ -170,8 +160,31 @@ static void nvmet_async_event_work(struct work_struct *work)
 		kfree(aen);
 
 		mutex_unlock(&ctrl->lock);
+		trace_nvmet_async_event(ctrl, req->cqe->result.u32);
 		nvmet_req_complete(req, 0);
+		mutex_lock(&ctrl->lock);
 	}
+	mutex_unlock(&ctrl->lock);
+}
+
+static void nvmet_async_events_free(struct nvmet_ctrl *ctrl)
+{
+	struct nvmet_async_event *aen, *tmp;
+
+	mutex_lock(&ctrl->lock);
+	list_for_each_entry_safe(aen, tmp, &ctrl->async_events, entry) {
+		list_del(&aen->entry);
+		kfree(aen);
+	}
+	mutex_unlock(&ctrl->lock);
+}
+
+static void nvmet_async_event_work(struct work_struct *work)
+{
+	struct nvmet_ctrl *ctrl =
+		container_of(work, struct nvmet_ctrl, async_event_work);
+
+	nvmet_async_events_process(ctrl);
 }
 
 void nvmet_add_async_event(struct nvmet_ctrl *ctrl, u8 event_type,
@@ -221,6 +234,8 @@ out_unlock:
 void nvmet_ns_changed(struct nvmet_subsys *subsys, u32 nsid)
 {
 	struct nvmet_ctrl *ctrl;
+
+	lockdep_assert_held(&subsys->lock);
 
 	list_for_each_entry(ctrl, &subsys->ctrls, subsys_entry) {
 		nvmet_add_to_changed_ns_log(ctrl, cpu_to_le32(nsid));
@@ -282,6 +297,18 @@ void nvmet_unregister_transport(const struct nvmet_fabrics_ops *ops)
 }
 EXPORT_SYMBOL_GPL(nvmet_unregister_transport);
 
+void nvmet_port_del_ctrls(struct nvmet_port *port, struct nvmet_subsys *subsys)
+{
+	struct nvmet_ctrl *ctrl;
+
+	mutex_lock(&subsys->lock);
+	list_for_each_entry(ctrl, &subsys->ctrls, subsys_entry) {
+		if (ctrl->port == port)
+			ctrl->ops->delete_ctrl(ctrl);
+	}
+	mutex_unlock(&subsys->lock);
+}
+
 int nvmet_enable_port(struct nvmet_port *port)
 {
 	const struct nvmet_fabrics_ops *ops;
@@ -305,18 +332,32 @@ int nvmet_enable_port(struct nvmet_port *port)
 	if (!try_module_get(ops->owner))
 		return -EINVAL;
 
-	ret = ops->add_port(port);
-	if (ret) {
-		module_put(ops->owner);
-		return ret;
+	/*
+	 * If the user requested PI support and the transport isn't pi capable,
+	 * don't enable the port.
+	 */
+	if (port->pi_enable && !ops->metadata_support) {
+		pr_err("T10-PI is not supported by transport type %d\n",
+		       port->disc_addr.trtype);
+		ret = -EINVAL;
+		goto out_put;
 	}
+
+	ret = ops->add_port(port);
+	if (ret)
+		goto out_put;
 
 	/* If the transport didn't set inline_data_size, then disable it. */
 	if (port->inline_data_size < 0)
 		port->inline_data_size = 0;
 
 	port->enabled = true;
+	port->tr_ops = ops;
 	return 0;
+
+out_put:
+	module_put(ops->owner);
+	return ret;
 }
 
 void nvmet_disable_port(struct nvmet_port *port)
@@ -326,6 +367,7 @@ void nvmet_disable_port(struct nvmet_port *port)
 	lockdep_assert_held(&nvmet_config_sem);
 
 	port->enabled = false;
+	port->tr_ops = NULL;
 
 	ops = nvmet_transports[port->disc_addr.trtype];
 	ops->remove_port(port);
@@ -495,6 +537,19 @@ static void nvmet_p2pmem_ns_add_p2p(struct nvmet_ctrl *ctrl,
 		ns->nsid);
 }
 
+void nvmet_ns_revalidate(struct nvmet_ns *ns)
+{
+	loff_t oldsize = ns->size;
+
+	if (ns->bdev)
+		nvmet_bdev_ns_revalidate(ns);
+	else
+		nvmet_file_ns_revalidate(ns);
+
+	if (oldsize != ns->size)
+		nvmet_ns_changed(ns->subsys, ns->nsid);
+}
+
 int nvmet_ns_enable(struct nvmet_ns *ns)
 {
 	struct nvmet_subsys *subsys = ns->subsys;
@@ -502,11 +557,12 @@ int nvmet_ns_enable(struct nvmet_ns *ns)
 	int ret;
 
 	mutex_lock(&subsys->lock);
-	ret = -EMFILE;
-	if (subsys->nr_namespaces == NVMET_MAX_NAMESPACES)
-		goto out_unlock;
 	ret = 0;
 	if (ns->enabled)
+		goto out_unlock;
+
+	ret = -EMFILE;
+	if (subsys->nr_namespaces == NVMET_MAX_NAMESPACES)
 		goto out_unlock;
 
 	ret = nvmet_bdev_ns_enable(ns);
@@ -517,7 +573,7 @@ int nvmet_ns_enable(struct nvmet_ns *ns)
 
 	ret = nvmet_p2pmem_ns_enable(ns);
 	if (ret)
-		goto out_unlock;
+		goto out_dev_disable;
 
 	list_for_each_entry(ctrl, &subsys->ctrls, subsys_entry)
 		nvmet_p2pmem_ns_add_p2p(ctrl, ns);
@@ -539,7 +595,8 @@ int nvmet_ns_enable(struct nvmet_ns *ns)
 	} else {
 		struct nvmet_ns *old;
 
-		list_for_each_entry_rcu(old, &subsys->namespaces, dev_link) {
+		list_for_each_entry_rcu(old, &subsys->namespaces, dev_link,
+					lockdep_is_held(&subsys->lock)) {
 			BUG_ON(ns->nsid == old->nsid);
 			if (ns->nsid < old->nsid)
 				break;
@@ -558,7 +615,7 @@ out_unlock:
 out_dev_put:
 	list_for_each_entry(ctrl, &subsys->ctrls, subsys_entry)
 		pci_dev_put(radix_tree_delete(&ctrl->p2p_ns_map, ns->nsid));
-
+out_dev_disable:
 	nvmet_ns_dev_disable(ns);
 	goto out_unlock;
 }
@@ -652,7 +709,7 @@ static void nvmet_update_sq_head(struct nvmet_req *req)
 		} while (cmpxchg(&req->sq->sqhd, old_sqhd, new_sqhd) !=
 					old_sqhd);
 	}
-	req->rsp->sq_head = cpu_to_le16(req->sq->sqhd & 0x0000FFFF);
+	req->cqe->sq_head = cpu_to_le16(req->sq->sqhd & 0x0000FFFF);
 }
 
 static void nvmet_set_error(struct nvmet_req *req, u16 status)
@@ -661,7 +718,7 @@ static void nvmet_set_error(struct nvmet_req *req, u16 status)
 	struct nvme_error_slot *new_error_slot;
 	unsigned long flags;
 
-	req->rsp->status = cpu_to_le16(status << 1);
+	req->cqe->status = cpu_to_le16(status << 1);
 
 	if (!ctrl || req->error_loc == NVMET_NO_ERROR_LOC)
 		return;
@@ -681,18 +738,21 @@ static void nvmet_set_error(struct nvmet_req *req, u16 status)
 	spin_unlock_irqrestore(&ctrl->error_lock, flags);
 
 	/* set the more bit for this request */
-	req->rsp->status |= cpu_to_le16(1 << 14);
+	req->cqe->status |= cpu_to_le16(1 << 14);
 }
 
 static void __nvmet_req_complete(struct nvmet_req *req, u16 status)
 {
 	if (!req->sq->sqhd_disabled)
 		nvmet_update_sq_head(req);
-	req->rsp->sq_id = cpu_to_le16(req->sq->qid);
-	req->rsp->command_id = req->cmd->common.command_id;
+	req->cqe->sq_id = cpu_to_le16(req->sq->qid);
+	req->cqe->command_id = req->cmd->common.command_id;
 
 	if (unlikely(status))
 		nvmet_set_error(req, status);
+
+	trace_nvmet_req_complete(req);
+
 	if (req->ns)
 		nvmet_put_namespace(req->ns);
 	req->ops->queue_response(req);
@@ -733,19 +793,21 @@ static void nvmet_confirm_sq(struct percpu_ref *ref)
 
 void nvmet_sq_destroy(struct nvmet_sq *sq)
 {
+	struct nvmet_ctrl *ctrl = sq->ctrl;
+
 	/*
 	 * If this is the admin queue, complete all AERs so that our
 	 * queue doesn't have outstanding requests on it.
 	 */
-	if (sq->ctrl && sq->ctrl->sqs && sq->ctrl->sqs[0] == sq)
-		nvmet_async_events_free(sq->ctrl);
+	if (ctrl && ctrl->sqs && ctrl->sqs[0] == sq)
+		nvmet_async_events_failall(ctrl);
 	percpu_ref_kill_and_confirm(&sq->ref, nvmet_confirm_sq);
 	wait_for_completion(&sq->confirm_done);
 	wait_for_completion(&sq->free_done);
 	percpu_ref_exit(&sq->ref);
 
-	if (sq->ctrl) {
-		nvmet_ctrl_put(sq->ctrl);
+	if (ctrl) {
+		nvmet_ctrl_put(ctrl);
 		sq->ctrl = NULL; /* allows reusing the queue later */
 	}
 }
@@ -844,13 +906,18 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
 	req->sq = sq;
 	req->ops = ops;
 	req->sg = NULL;
+	req->metadata_sg = NULL;
 	req->sg_cnt = 0;
+	req->metadata_sg_cnt = 0;
 	req->transfer_len = 0;
-	req->rsp->status = 0;
-	req->rsp->sq_head = 0;
+	req->metadata_len = 0;
+	req->cqe->status = 0;
+	req->cqe->sq_head = 0;
 	req->ns = NULL;
 	req->error_loc = NVMET_NO_ERROR_LOC;
 	req->error_slba = 0;
+
+	trace_nvmet_req_init(req, req->cmd);
 
 	/* no support for fused commands yet */
 	if (unlikely(flags & (NVME_CMD_FUSE_FIRST | NVME_CMD_FUSE_SECOND))) {
@@ -871,14 +938,10 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
 	}
 
 	if (unlikely(!req->sq->ctrl))
-		/* will return an error for any Non-connect command: */
+		/* will return an error for any non-connect command: */
 		status = nvmet_parse_connect_cmd(req);
 	else if (likely(req->sq->qid != 0))
 		status = nvmet_parse_io_cmd(req);
-	else if (req->cmd->common.opcode == nvme_fabrics_command)
-		status = nvmet_parse_fabrics_cmd(req);
-	else if (req->sq->ctrl->subsys->type == NVME_NQN_DISC)
-		status = nvmet_parse_discovery_cmd(req);
 	else
 		status = nvmet_parse_admin_cmd(req);
 
@@ -909,60 +972,113 @@ void nvmet_req_uninit(struct nvmet_req *req)
 }
 EXPORT_SYMBOL_GPL(nvmet_req_uninit);
 
-void nvmet_req_execute(struct nvmet_req *req)
+bool nvmet_check_transfer_len(struct nvmet_req *req, size_t len)
 {
-	if (unlikely(req->data_len != req->transfer_len)) {
+	if (unlikely(len != req->transfer_len)) {
 		req->error_loc = offsetof(struct nvme_common_command, dptr);
 		nvmet_req_complete(req, NVME_SC_SGL_INVALID_DATA | NVME_SC_DNR);
-	} else
-		req->execute(req);
-}
-EXPORT_SYMBOL_GPL(nvmet_req_execute);
-
-int nvmet_req_alloc_sgl(struct nvmet_req *req)
-{
-	struct pci_dev *p2p_dev = NULL;
-
-	if (IS_ENABLED(CONFIG_PCI_P2PDMA)) {
-		if (req->sq->ctrl && req->ns)
-			p2p_dev = radix_tree_lookup(&req->sq->ctrl->p2p_ns_map,
-						    req->ns->nsid);
-
-		req->p2p_dev = NULL;
-		if (req->sq->qid && p2p_dev) {
-			req->sg = pci_p2pmem_alloc_sgl(p2p_dev, &req->sg_cnt,
-						       req->transfer_len);
-			if (req->sg) {
-				req->p2p_dev = p2p_dev;
-				return 0;
-			}
-		}
-
-		/*
-		 * If no P2P memory was available we fallback to using
-		 * regular memory
-		 */
+		return false;
 	}
 
-	req->sg = sgl_alloc(req->transfer_len, GFP_KERNEL, &req->sg_cnt);
+	return true;
+}
+EXPORT_SYMBOL_GPL(nvmet_check_transfer_len);
+
+bool nvmet_check_data_len_lte(struct nvmet_req *req, size_t data_len)
+{
+	if (unlikely(data_len > req->transfer_len)) {
+		req->error_loc = offsetof(struct nvme_common_command, dptr);
+		nvmet_req_complete(req, NVME_SC_SGL_INVALID_DATA | NVME_SC_DNR);
+		return false;
+	}
+
+	return true;
+}
+
+static unsigned int nvmet_data_transfer_len(struct nvmet_req *req)
+{
+	return req->transfer_len - req->metadata_len;
+}
+
+static int nvmet_req_alloc_p2pmem_sgls(struct nvmet_req *req)
+{
+	req->sg = pci_p2pmem_alloc_sgl(req->p2p_dev, &req->sg_cnt,
+			nvmet_data_transfer_len(req));
 	if (!req->sg)
-		return -ENOMEM;
+		goto out_err;
+
+	if (req->metadata_len) {
+		req->metadata_sg = pci_p2pmem_alloc_sgl(req->p2p_dev,
+				&req->metadata_sg_cnt, req->metadata_len);
+		if (!req->metadata_sg)
+			goto out_free_sg;
+	}
+	return 0;
+out_free_sg:
+	pci_p2pmem_free_sgl(req->p2p_dev, req->sg);
+out_err:
+	return -ENOMEM;
+}
+
+static bool nvmet_req_find_p2p_dev(struct nvmet_req *req)
+{
+	if (!IS_ENABLED(CONFIG_PCI_P2PDMA))
+		return false;
+
+	if (req->sq->ctrl && req->sq->qid && req->ns) {
+		req->p2p_dev = radix_tree_lookup(&req->sq->ctrl->p2p_ns_map,
+						 req->ns->nsid);
+		if (req->p2p_dev)
+			return true;
+	}
+
+	req->p2p_dev = NULL;
+	return false;
+}
+
+int nvmet_req_alloc_sgls(struct nvmet_req *req)
+{
+	if (nvmet_req_find_p2p_dev(req) && !nvmet_req_alloc_p2pmem_sgls(req))
+		return 0;
+
+	req->sg = sgl_alloc(nvmet_data_transfer_len(req), GFP_KERNEL,
+			    &req->sg_cnt);
+	if (unlikely(!req->sg))
+		goto out;
+
+	if (req->metadata_len) {
+		req->metadata_sg = sgl_alloc(req->metadata_len, GFP_KERNEL,
+					     &req->metadata_sg_cnt);
+		if (unlikely(!req->metadata_sg))
+			goto out_free;
+	}
 
 	return 0;
+out_free:
+	sgl_free(req->sg);
+out:
+	return -ENOMEM;
 }
-EXPORT_SYMBOL_GPL(nvmet_req_alloc_sgl);
+EXPORT_SYMBOL_GPL(nvmet_req_alloc_sgls);
 
-void nvmet_req_free_sgl(struct nvmet_req *req)
+void nvmet_req_free_sgls(struct nvmet_req *req)
 {
-	if (req->p2p_dev)
+	if (req->p2p_dev) {
 		pci_p2pmem_free_sgl(req->p2p_dev, req->sg);
-	else
+		if (req->metadata_sg)
+			pci_p2pmem_free_sgl(req->p2p_dev, req->metadata_sg);
+	} else {
 		sgl_free(req->sg);
+		if (req->metadata_sg)
+			sgl_free(req->metadata_sg);
+	}
 
 	req->sg = NULL;
+	req->metadata_sg = NULL;
 	req->sg_cnt = 0;
+	req->metadata_sg_cnt = 0;
 }
-EXPORT_SYMBOL_GPL(nvmet_req_free_sgl);
+EXPORT_SYMBOL_GPL(nvmet_req_free_sgls);
 
 static inline bool nvmet_cc_en(u32 cc)
 {
@@ -1074,7 +1190,7 @@ u16 nvmet_ctrl_find_get(const char *subsysnqn, const char *hostnqn, u16 cntlid,
 	if (!subsys) {
 		pr_warn("connect request for invalid subsystem %s!\n",
 			subsysnqn);
-		req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
+		req->cqe->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
 		return NVME_SC_CONNECT_INVALID_PARAM | NVME_SC_DNR;
 	}
 
@@ -1095,7 +1211,7 @@ u16 nvmet_ctrl_find_get(const char *subsysnqn, const char *hostnqn, u16 cntlid,
 
 	pr_warn("could not find controller %d for subsys %s / host %s\n",
 		cntlid, subsysnqn, hostnqn);
-	req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(cntlid);
+	req->cqe->result.u32 = IPO_IATTR_CONNECT_DATA(cntlid);
 	status = NVME_SC_CONNECT_INVALID_PARAM | NVME_SC_DNR;
 
 out:
@@ -1153,7 +1269,8 @@ static void nvmet_setup_p2p_ns_map(struct nvmet_ctrl *ctrl,
 
 	ctrl->p2p_client = get_device(req->p2p_client);
 
-	list_for_each_entry_rcu(ns, &ctrl->subsys->namespaces, dev_link)
+	list_for_each_entry_rcu(ns, &ctrl->subsys->namespaces, dev_link,
+				lockdep_is_held(&ctrl->subsys->lock))
 		nvmet_p2pmem_ns_add_p2p(ctrl, ns);
 }
 
@@ -1171,6 +1288,15 @@ static void nvmet_release_p2p_ns_map(struct nvmet_ctrl *ctrl)
 	put_device(ctrl->p2p_client);
 }
 
+static void nvmet_fatal_error_handler(struct work_struct *work)
+{
+	struct nvmet_ctrl *ctrl =
+			container_of(work, struct nvmet_ctrl, fatal_err_work);
+
+	pr_err("ctrl %d fatal error occurred!\n", ctrl->cntlid);
+	ctrl->ops->delete_ctrl(ctrl);
+}
+
 u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 		struct nvmet_req *req, u32 kato, struct nvmet_ctrl **ctrlp)
 {
@@ -1184,7 +1310,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	if (!subsys) {
 		pr_warn("connect request for invalid subsystem %s!\n",
 			subsysnqn);
-		req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
+		req->cqe->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
 		goto out;
 	}
 
@@ -1193,7 +1319,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	if (!nvmet_host_allowed(subsys, hostnqn)) {
 		pr_info("connect by host %s for subsystem %s not allowed\n",
 			hostnqn, subsysnqn);
-		req->rsp->result.u32 = IPO_IATTR_CONNECT_DATA(hostnqn);
+		req->cqe->result.u32 = IPO_IATTR_CONNECT_DATA(hostnqn);
 		up_read(&nvmet_config_sem);
 		status = NVME_SC_CONNECT_INVALID_HOST | NVME_SC_DNR;
 		goto out_put_subsystem;
@@ -1213,6 +1339,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	INIT_WORK(&ctrl->async_event_work, nvmet_async_event_work);
 	INIT_LIST_HEAD(&ctrl->async_events);
 	INIT_RADIX_TREE(&ctrl->p2p_ns_map, GFP_KERNEL);
+	INIT_WORK(&ctrl->fatal_err_work, nvmet_fatal_error_handler);
 
 	memcpy(ctrl->subsysnqn, subsysnqn, NVMF_NQN_SIZE);
 	memcpy(ctrl->hostnqn, hostnqn, NVMF_NQN_SIZE);
@@ -1238,8 +1365,11 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
 	if (!ctrl->sqs)
 		goto out_free_cqs;
 
+	if (subsys->cntlid_min > subsys->cntlid_max)
+		goto out_free_cqs;
+
 	ret = ida_simple_get(&cntlid_ida,
-			     NVME_CNTLID_MIN, NVME_CNTLID_MAX,
+			     subsys->cntlid_min, subsys->cntlid_max,
 			     GFP_KERNEL);
 	if (ret < 0) {
 		status = NVME_SC_CONNECT_CTRL_BUSY | NVME_SC_DNR;
@@ -1303,6 +1433,7 @@ static void nvmet_ctrl_free(struct kref *ref)
 
 	ida_simple_remove(&cntlid_ida, ctrl->cntlid);
 
+	nvmet_async_events_free(ctrl);
 	kfree(ctrl->sqs);
 	kfree(ctrl->cqs);
 	kfree(ctrl->changed_ns_list);
@@ -1316,21 +1447,11 @@ void nvmet_ctrl_put(struct nvmet_ctrl *ctrl)
 	kref_put(&ctrl->ref, nvmet_ctrl_free);
 }
 
-static void nvmet_fatal_error_handler(struct work_struct *work)
-{
-	struct nvmet_ctrl *ctrl =
-			container_of(work, struct nvmet_ctrl, fatal_err_work);
-
-	pr_err("ctrl %d fatal error occurred!\n", ctrl->cntlid);
-	ctrl->ops->delete_ctrl(ctrl);
-}
-
 void nvmet_ctrl_fatal_error(struct nvmet_ctrl *ctrl)
 {
 	mutex_lock(&ctrl->lock);
 	if (!(ctrl->csts & NVME_CSTS_CFS)) {
 		ctrl->csts |= NVME_CSTS_CFS;
-		INIT_WORK(&ctrl->fatal_err_work, nvmet_fatal_error_handler);
 		schedule_work(&ctrl->fatal_err_work);
 	}
 	mutex_unlock(&ctrl->lock);
@@ -1372,7 +1493,7 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
 
 	subsys = kzalloc(sizeof(*subsys), GFP_KERNEL);
 	if (!subsys)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	subsys->ver = NVME_VS(1, 3, 0); /* NVMe 1.3.0 */
 	/* generate a random serial number as our controllers are ephemeral: */
@@ -1388,16 +1509,17 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
 	default:
 		pr_err("%s: Unknown Subsystem type - %d\n", __func__, type);
 		kfree(subsys);
-		return NULL;
+		return ERR_PTR(-EINVAL);
 	}
 	subsys->type = type;
 	subsys->subsysnqn = kstrndup(subsysnqn, NVMF_NQN_SIZE,
 			GFP_KERNEL);
 	if (!subsys->subsysnqn) {
 		kfree(subsys);
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 	}
-
+	subsys->cntlid_min = NVME_CNTLID_MIN;
+	subsys->cntlid_max = NVME_CNTLID_MAX;
 	kref_init(&subsys->ref);
 
 	mutex_init(&subsys->lock);
@@ -1416,6 +1538,7 @@ static void nvmet_subsys_free(struct kref *ref)
 	WARN_ON_ONCE(!list_empty(&subsys->namespaces));
 
 	kfree(subsys->subsysnqn);
+	kfree_rcu(subsys->model, rcuhead);
 	kfree(subsys);
 }
 

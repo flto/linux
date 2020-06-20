@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * drivers/hwmon/applesmc.c - driver for Apple's SMC (accelerometer, temperature
  * sensors, fan control, keyboard backlight control) used in Intel-based Apple
@@ -12,26 +13,13 @@
  *
  * Fan control based on smcFanControl:
  * Copyright (C) 2006 Hendrik Holtmann <holtmann@mac.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License v2 as published by the
- * Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/delay.h>
 #include <linux/platform_device.h>
-#include <linux/input-polldev.h>
+#include <linux/input.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -152,7 +140,7 @@ static s16 rest_y;
 static u8 backlight_state[2];
 
 static struct device *hwmon_dev;
-static struct input_polled_dev *applesmc_idev;
+static struct input_dev *applesmc_idev;
 
 /*
  * Last index written to key_at_index sysfs file, and value to use for all other
@@ -168,14 +156,19 @@ static struct workqueue_struct *applesmc_led_wq;
  */
 static int wait_read(void)
 {
+	unsigned long end = jiffies + (APPLESMC_MAX_WAIT * HZ) / USEC_PER_SEC;
 	u8 status;
 	int us;
+
 	for (us = APPLESMC_MIN_WAIT; us < APPLESMC_MAX_WAIT; us <<= 1) {
-		udelay(us);
+		usleep_range(us, us * 16);
 		status = inb(APPLESMC_CMD_PORT);
 		/* read: wait for smc to settle */
 		if (status & 0x01)
 			return 0;
+		/* timeout: give up */
+		if (time_after(jiffies, end))
+			break;
 	}
 
 	pr_warn("wait_read() fail: 0x%02x\n", status);
@@ -190,10 +183,11 @@ static int send_byte(u8 cmd, u16 port)
 {
 	u8 status;
 	int us;
+	unsigned long end = jiffies + (APPLESMC_MAX_WAIT * HZ) / USEC_PER_SEC;
 
 	outb(cmd, port);
 	for (us = APPLESMC_MIN_WAIT; us < APPLESMC_MAX_WAIT; us <<= 1) {
-		udelay(us);
+		usleep_range(us, us * 16);
 		status = inb(APPLESMC_CMD_PORT);
 		/* write: wait for smc to settle */
 		if (status & 0x02)
@@ -202,7 +196,7 @@ static int send_byte(u8 cmd, u16 port)
 		if (status & 0x04)
 			return 0;
 		/* timeout: give up */
-		if (us << 1 == APPLESMC_MAX_WAIT)
+		if (time_after(jiffies, end))
 			break;
 		/* busy: long wait and resend */
 		udelay(APPLESMC_RETRY_WAIT);
@@ -693,9 +687,8 @@ static void applesmc_calibrate(void)
 	rest_x = -rest_x;
 }
 
-static void applesmc_idev_poll(struct input_polled_dev *dev)
+static void applesmc_idev_poll(struct input_dev *idev)
 {
-	struct input_dev *idev = dev->input;
 	s16 x, y;
 
 	if (applesmc_read_s16(MOTION_SENSOR_X_KEY, &x))
@@ -1146,7 +1139,6 @@ out:
 /* Create accelerometer resources */
 static int applesmc_create_accelerometer(void)
 {
-	struct input_dev *idev;
 	int ret;
 
 	if (!smcreg.has_accelerometer)
@@ -1156,37 +1148,38 @@ static int applesmc_create_accelerometer(void)
 	if (ret)
 		goto out;
 
-	applesmc_idev = input_allocate_polled_device();
+	applesmc_idev = input_allocate_device();
 	if (!applesmc_idev) {
 		ret = -ENOMEM;
 		goto out_sysfs;
 	}
 
-	applesmc_idev->poll = applesmc_idev_poll;
-	applesmc_idev->poll_interval = APPLESMC_POLL_INTERVAL;
-
 	/* initial calibrate for the input device */
 	applesmc_calibrate();
 
 	/* initialize the input device */
-	idev = applesmc_idev->input;
-	idev->name = "applesmc";
-	idev->id.bustype = BUS_HOST;
-	idev->dev.parent = &pdev->dev;
-	idev->evbit[0] = BIT_MASK(EV_ABS);
-	input_set_abs_params(idev, ABS_X,
+	applesmc_idev->name = "applesmc";
+	applesmc_idev->id.bustype = BUS_HOST;
+	applesmc_idev->dev.parent = &pdev->dev;
+	input_set_abs_params(applesmc_idev, ABS_X,
 			-256, 256, APPLESMC_INPUT_FUZZ, APPLESMC_INPUT_FLAT);
-	input_set_abs_params(idev, ABS_Y,
+	input_set_abs_params(applesmc_idev, ABS_Y,
 			-256, 256, APPLESMC_INPUT_FUZZ, APPLESMC_INPUT_FLAT);
 
-	ret = input_register_polled_device(applesmc_idev);
+	ret = input_setup_polling(applesmc_idev, applesmc_idev_poll);
+	if (ret)
+		goto out_idev;
+
+	input_set_poll_interval(applesmc_idev, APPLESMC_POLL_INTERVAL);
+
+	ret = input_register_device(applesmc_idev);
 	if (ret)
 		goto out_idev;
 
 	return 0;
 
 out_idev:
-	input_free_polled_device(applesmc_idev);
+	input_free_device(applesmc_idev);
 
 out_sysfs:
 	applesmc_destroy_nodes(accelerometer_group);
@@ -1201,8 +1194,7 @@ static void applesmc_release_accelerometer(void)
 {
 	if (!smcreg.has_accelerometer)
 		return;
-	input_unregister_polled_device(applesmc_idev);
-	input_free_polled_device(applesmc_idev);
+	input_unregister_device(applesmc_idev);
 	applesmc_destroy_nodes(accelerometer_group);
 }
 

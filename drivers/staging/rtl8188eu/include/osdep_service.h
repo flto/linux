@@ -50,7 +50,7 @@ struct	__queue	{
 
 static inline struct list_head *get_list_head(struct __queue *queue)
 {
-	return &(queue->queue);
+	return &queue->queue;
 }
 
 static inline int rtw_netif_queue_stopped(struct net_device *pnetdev)
@@ -79,8 +79,6 @@ void rtw_free_netdev(struct net_device *netdev);
 #define FUNC_NDEV_ARG(ndev) __func__, ndev->name
 #define FUNC_ADPT_FMT "%s(%s)"
 #define FUNC_ADPT_ARG(adapter) __func__, adapter->pnetdev->name
-
-u64 rtw_modular64(u64 x, u64 y);
 
 /* Macros for handling unaligned memory accesses */
 

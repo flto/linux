@@ -301,6 +301,9 @@ static ssize_t qib_portattr_show(struct kobject *kobj,
 	struct qib_pportdata *ppd =
 		container_of(kobj, struct qib_pportdata, pport_kobj);
 
+	if (!pattr->show)
+		return -EIO;
+
 	return pattr->show(ppd, buf);
 }
 
@@ -311,6 +314,9 @@ static ssize_t qib_portattr_store(struct kobject *kobj,
 		container_of(attr, struct qib_port_attr, attr);
 	struct qib_pportdata *ppd =
 		container_of(kobj, struct qib_pportdata, pport_kobj);
+
+	if (!pattr->store)
+		return -EIO;
 
 	return pattr->store(ppd, buf, len);
 }
@@ -436,6 +442,7 @@ QIB_DIAGC_ATTR(dmawait);
 QIB_DIAGC_ATTR(unaligned);
 QIB_DIAGC_ATTR(rc_dupreq);
 QIB_DIAGC_ATTR(rc_seqnak);
+QIB_DIAGC_ATTR(rc_crwaits);
 
 static struct attribute *diagc_default_attributes[] = {
 	&qib_diagc_attr_rc_resends.attr,
@@ -453,6 +460,7 @@ static struct attribute *diagc_default_attributes[] = {
 	&qib_diagc_attr_unaligned.attr,
 	&qib_diagc_attr_rc_dupreq.attr,
 	&qib_diagc_attr_rc_seqnak.attr,
+	&qib_diagc_attr_rc_crwaits.attr,
 	NULL
 };
 
@@ -555,7 +563,7 @@ static ssize_t hw_rev_show(struct device *device, struct device_attribute *attr,
 			   char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 
 	return sprintf(buf, "%x\n", dd_from_dev(dev)->minrev);
 }
@@ -565,7 +573,7 @@ static ssize_t hca_type_show(struct device *device,
 			     struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 	int ret;
 
@@ -590,7 +598,7 @@ static ssize_t boardversion_show(struct device *device,
 				 struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
 	/* The string printed here is already newline-terminated. */
@@ -602,7 +610,7 @@ static ssize_t localbus_info_show(struct device *device,
 				  struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
 	/* The string printed here is already newline-terminated. */
@@ -614,7 +622,7 @@ static ssize_t nctxts_show(struct device *device,
 			   struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
 	/* Return the number of user ports (contexts) available. */
@@ -630,7 +638,7 @@ static ssize_t nfreectxts_show(struct device *device,
 			       struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
 	/* Return the number of free user ports (contexts) available. */
@@ -642,7 +650,7 @@ static ssize_t serial_show(struct device *device,
 			   struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
 	buf[sizeof(dd->serial)] = '\0';
@@ -657,7 +665,7 @@ static ssize_t chip_reset_store(struct device *device,
 				size_t count)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 	int ret;
 
@@ -679,7 +687,7 @@ static ssize_t tempsense_show(struct device *device,
 			      struct device_attribute *attr, char *buf)
 {
 	struct qib_ibdev *dev =
-		container_of(device, struct qib_ibdev, rdi.ibdev.dev);
+		rdma_device_to_drv_device(device, struct qib_ibdev, rdi.ibdev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 	int ret;
 	int idx;
@@ -752,7 +760,7 @@ int qib_create_port_files(struct ib_device *ibdev, u8 port_num,
 		qib_dev_err(dd,
 			"Skipping linkcontrol sysfs info, (err %d) port %u\n",
 			ret, port_num);
-		goto bail;
+		goto bail_link;
 	}
 	kobject_uevent(&ppd->pport_kobj, KOBJ_ADD);
 
@@ -762,7 +770,7 @@ int qib_create_port_files(struct ib_device *ibdev, u8 port_num,
 		qib_dev_err(dd,
 			"Skipping sl2vl sysfs info, (err %d) port %u\n",
 			ret, port_num);
-		goto bail_link;
+		goto bail_sl;
 	}
 	kobject_uevent(&ppd->sl2vl_kobj, KOBJ_ADD);
 
@@ -772,7 +780,7 @@ int qib_create_port_files(struct ib_device *ibdev, u8 port_num,
 		qib_dev_err(dd,
 			"Skipping diag_counters sysfs info, (err %d) port %u\n",
 			ret, port_num);
-		goto bail_sl;
+		goto bail_diagc;
 	}
 	kobject_uevent(&ppd->diagc_kobj, KOBJ_ADD);
 
@@ -785,7 +793,7 @@ int qib_create_port_files(struct ib_device *ibdev, u8 port_num,
 		qib_dev_err(dd,
 		 "Skipping Congestion Control sysfs info, (err %d) port %u\n",
 		 ret, port_num);
-		goto bail_diagc;
+		goto bail_cc;
 	}
 
 	kobject_uevent(&ppd->pport_cc_kobj, KOBJ_ADD);
@@ -846,6 +854,7 @@ void qib_verbs_unregister_sysfs(struct qib_devdata *dd)
 				&cc_table_bin_attr);
 			kobject_put(&ppd->pport_cc_kobj);
 		}
+		kobject_put(&ppd->diagc_kobj);
 		kobject_put(&ppd->sl2vl_kobj);
 		kobject_put(&ppd->pport_kobj);
 	}

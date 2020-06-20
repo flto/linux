@@ -5,6 +5,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/pgtable.h>
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -34,7 +35,6 @@
 #include <asm/io.h>
 #include <asm/openprom.h>
 #include <asm/oplib.h>
-#include <asm/pgtable.h>
 
 #include "sunbmac.h"
 
@@ -781,7 +781,7 @@ static void bigmac_tx(struct bigmac *bp)
 
 		DTX(("skb(%p) ", skb));
 		bp->tx_skbs[elem] = NULL;
-		dev_kfree_skb_irq(skb);
+		dev_consume_skb_irq(skb);
 
 		elem = NEXT_TX(elem);
 	}
@@ -941,7 +941,7 @@ static int bigmac_close(struct net_device *dev)
 	return 0;
 }
 
-static void bigmac_tx_timeout(struct net_device *dev)
+static void bigmac_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct bigmac *bp = netdev_priv(dev);
 

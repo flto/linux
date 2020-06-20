@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -8,7 +9,6 @@
 #include <linux/module.h>
 
 #include <asm/page.h>
-#include <asm/pgtable.h>
 #include <asm/amigaints.h>
 #include <asm/amigahw.h>
 

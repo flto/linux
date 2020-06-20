@@ -34,8 +34,8 @@ the names, the ``net`` tree is for fixes to existing code already in the
 mainline tree from Linus, and ``net-next`` is where the new code goes
 for the future release.  You can find the trees here:
 
-- https://git.kernel.org/pub/scm/linux/kernel/git/davem/net.git
-- https://git.kernel.org/pub/scm/linux/kernel/git/davem/net-next.git
+- https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net.git
+- https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git
 
 Q: How often do changes from these trees make it to the mainline Linus tree?
 ----------------------------------------------------------------------------
@@ -130,6 +130,19 @@ A: No, please don't interfere with the patch status on patchwork, leave
 it to the maintainer to figure out what is the most recent and current
 version that should be applied. If there is any doubt, the maintainer
 will reply and ask what should be done.
+
+Q: I made changes to only a few patches in a patch series should I resend only those changed?
+---------------------------------------------------------------------------------------------
+A: No, please resend the entire patch series and make sure you do number your
+patches such that it is clear this is the latest and greatest set of patches
+that can be applied.
+
+Q: I submitted multiple versions of a patch series and it looks like a version other than the last one has been accepted, what should I do?
+-------------------------------------------------------------------------------------------------------------------------------------------
+A: There is no revert possible, once it is pushed out, it stays like that.
+Please send incremental versions on top of what has been merged in order to fix
+the patches the way they would look like if your latest patch series was to be
+merged.
 
 Q: How can I tell what patches are queued up for backporting to the various stable releases?
 --------------------------------------------------------------------------------------------

@@ -1,13 +1,9 @@
-/*
- * Regulators driver for Dialog Semiconductor DA903x
- *
- * Copyright (C) 2006-2008 Marvell International Ltd.
- * Copyright (C) 2008 Compulab Ltd.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0
+//
+// Regulators driver for Dialog Semiconductor DA903x
+//
+// Copyright (C) 2006-2008 Marvell International Ltd.
+// Copyright (C) 2008 Compulab Ltd.
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -252,7 +248,7 @@ static int da9034_set_dvc_voltage_sel(struct regulator_dev *rdev,
 	return ret;
 }
 
-static const struct regulator_linear_range da9034_ldo12_ranges[] = {
+static const struct linear_range da9034_ldo12_ranges[] = {
 	REGULATOR_LINEAR_RANGE(1700000, 0, 7, 50000),
 	REGULATOR_LINEAR_RANGE(2700000, 8, 15, 50000),
 };

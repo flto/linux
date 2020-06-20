@@ -49,6 +49,8 @@ Accelerometers:
 - st,lis2dw12
 - st,lis3dhh
 - st,lis3de
+- st,lis2de12
+- st,lis2hh12
 
 Gyroscopes:
 - st,l3g4200d-gyro
@@ -77,3 +79,4 @@ Pressure sensors:
 - st,lps22hb-press
 - st,lps33hw
 - st,lps35hw
+- st,lps22hh

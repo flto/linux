@@ -1,16 +1,76 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Handling of a master device, switching frames via its switch fabric CPU port
  *
  * Copyright (c) 2017 Savoir-faire Linux Inc.
  *	Vivien Didelot <vivien.didelot@savoirfairelinux.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include "dsa_priv.h"
+
+static int dsa_master_get_regs_len(struct net_device *dev)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+	const struct ethtool_ops *ops = cpu_dp->orig_ethtool_ops;
+	struct dsa_switch *ds = cpu_dp->ds;
+	int port = cpu_dp->index;
+	int ret = 0;
+	int len;
+
+	if (ops->get_regs_len) {
+		len = ops->get_regs_len(dev);
+		if (len < 0)
+			return len;
+		ret += len;
+	}
+
+	ret += sizeof(struct ethtool_drvinfo);
+	ret += sizeof(struct ethtool_regs);
+
+	if (ds->ops->get_regs_len) {
+		len = ds->ops->get_regs_len(ds, port);
+		if (len < 0)
+			return len;
+		ret += len;
+	}
+
+	return ret;
+}
+
+static void dsa_master_get_regs(struct net_device *dev,
+				struct ethtool_regs *regs, void *data)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+	const struct ethtool_ops *ops = cpu_dp->orig_ethtool_ops;
+	struct dsa_switch *ds = cpu_dp->ds;
+	struct ethtool_drvinfo *cpu_info;
+	struct ethtool_regs *cpu_regs;
+	int port = cpu_dp->index;
+	int len;
+
+	if (ops->get_regs_len && ops->get_regs) {
+		len = ops->get_regs_len(dev);
+		if (len < 0)
+			return;
+		regs->len = len;
+		ops->get_regs(dev, regs, data);
+		data += regs->len;
+	}
+
+	cpu_info = (struct ethtool_drvinfo *)data;
+	strlcpy(cpu_info->driver, "dsa", sizeof(cpu_info->driver));
+	data += sizeof(*cpu_info);
+	cpu_regs = (struct ethtool_regs *)data;
+	data += sizeof(*cpu_regs);
+
+	if (ds->ops->get_regs_len && ds->ops->get_regs) {
+		len = ds->ops->get_regs_len(ds, port);
+		if (len < 0)
+			return;
+		cpu_regs->len = len;
+		ds->ops->get_regs(ds, port, cpu_regs, data);
+	}
+}
 
 static void dsa_master_get_ethtool_stats(struct net_device *dev,
 					 struct ethtool_stats *stats,
@@ -126,6 +186,46 @@ static void dsa_master_get_strings(struct net_device *dev, uint32_t stringset,
 	}
 }
 
+static int dsa_master_get_phys_port_name(struct net_device *dev,
+					 char *name, size_t len)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+
+	if (snprintf(name, len, "p%d", cpu_dp->index) >= len)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int dsa_master_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+	struct dsa_switch *ds = cpu_dp->ds;
+	struct dsa_switch_tree *dst;
+	int err = -EOPNOTSUPP;
+	struct dsa_port *dp;
+
+	dst = ds->dst;
+
+	switch (cmd) {
+	case SIOCGHWTSTAMP:
+	case SIOCSHWTSTAMP:
+		/* Deny PTP operations on master if there is at least one
+		 * switch in the tree that is PTP capable.
+		 */
+		list_for_each_entry(dp, &dst->ports, list)
+			if (dp->ds->ops->port_hwtstamp_get ||
+			    dp->ds->ops->port_hwtstamp_set)
+				return -EBUSY;
+		break;
+	}
+
+	if (cpu_dp->orig_ndo_ops && cpu_dp->orig_ndo_ops->ndo_do_ioctl)
+		err = cpu_dp->orig_ndo_ops->ndo_do_ioctl(dev, ifr, cmd);
+
+	return err;
+}
+
 static int dsa_master_ethtool_setup(struct net_device *dev)
 {
 	struct dsa_port *cpu_dp = dev->dsa_ptr;
@@ -140,6 +240,8 @@ static int dsa_master_ethtool_setup(struct net_device *dev)
 	if (cpu_dp->orig_ethtool_ops)
 		memcpy(ops, cpu_dp->orig_ethtool_ops, sizeof(*ops));
 
+	ops->get_regs_len = dsa_master_get_regs_len;
+	ops->get_regs = dsa_master_get_regs;
 	ops->get_sset_count = dsa_master_get_sset_count;
 	ops->get_ethtool_stats = dsa_master_get_ethtool_stats;
 	ops->get_strings = dsa_master_get_strings;
@@ -156,6 +258,40 @@ static void dsa_master_ethtool_teardown(struct net_device *dev)
 
 	dev->ethtool_ops = cpu_dp->orig_ethtool_ops;
 	cpu_dp->orig_ethtool_ops = NULL;
+}
+
+static int dsa_master_ndo_setup(struct net_device *dev)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+	struct dsa_switch *ds = cpu_dp->ds;
+	struct net_device_ops *ops;
+
+	if (dev->netdev_ops->ndo_get_phys_port_name)
+		return 0;
+
+	ops = devm_kzalloc(ds->dev, sizeof(*ops), GFP_KERNEL);
+	if (!ops)
+		return -ENOMEM;
+
+	cpu_dp->orig_ndo_ops = dev->netdev_ops;
+	if (cpu_dp->orig_ndo_ops)
+		memcpy(ops, cpu_dp->orig_ndo_ops, sizeof(*ops));
+
+	ops->ndo_get_phys_port_name = dsa_master_get_phys_port_name;
+	ops->ndo_do_ioctl = dsa_master_ioctl;
+
+	dev->netdev_ops  = ops;
+
+	return 0;
+}
+
+static void dsa_master_ndo_teardown(struct net_device *dev)
+{
+	struct dsa_port *cpu_dp = dev->dsa_ptr;
+
+	if (cpu_dp->orig_ndo_ops)
+		dev->netdev_ops = cpu_dp->orig_ndo_ops;
+	cpu_dp->orig_ndo_ops = NULL;
 }
 
 static ssize_t tagging_show(struct device *d, struct device_attribute *attr,
@@ -179,20 +315,6 @@ static const struct attribute_group dsa_group = {
 	.attrs	= dsa_slave_attrs,
 };
 
-static void dsa_master_set_mtu(struct net_device *dev, struct dsa_port *cpu_dp)
-{
-	unsigned int mtu = ETH_DATA_LEN + cpu_dp->tag_ops->overhead;
-	int err;
-
-	rtnl_lock();
-	if (mtu <= dev->max_mtu) {
-		err = dev_set_mtu(dev, mtu);
-		if (err)
-			netdev_dbg(dev, "Unable to set MTU to include for DSA overheads\n");
-	}
-	rtnl_unlock();
-}
-
 static void dsa_master_reset_mtu(struct net_device *dev)
 {
 	int err;
@@ -205,11 +327,18 @@ static void dsa_master_reset_mtu(struct net_device *dev)
 	rtnl_unlock();
 }
 
+static struct lock_class_key dsa_master_addr_list_lock_key;
+
 int dsa_master_setup(struct net_device *dev, struct dsa_port *cpu_dp)
 {
 	int ret;
 
-	dsa_master_set_mtu(dev,  cpu_dp);
+	rtnl_lock();
+	ret = dev_set_mtu(dev, ETH_DATA_LEN + cpu_dp->tag_ops->overhead);
+	rtnl_unlock();
+	if (ret)
+		netdev_warn(dev, "error %d setting MTU to include DSA overhead\n",
+			    ret);
 
 	/* If we use a tagging format that doesn't have an ethertype
 	 * field, make sure that all packets from this point on get
@@ -218,21 +347,33 @@ int dsa_master_setup(struct net_device *dev, struct dsa_port *cpu_dp)
 	wmb();
 
 	dev->dsa_ptr = cpu_dp;
-
+	lockdep_set_class(&dev->addr_list_lock,
+			  &dsa_master_addr_list_lock_key);
 	ret = dsa_master_ethtool_setup(dev);
 	if (ret)
 		return ret;
 
+	ret = dsa_master_ndo_setup(dev);
+	if (ret)
+		goto out_err_ethtool_teardown;
+
 	ret = sysfs_create_group(&dev->dev.kobj, &dsa_group);
 	if (ret)
-		dsa_master_ethtool_teardown(dev);
+		goto out_err_ndo_teardown;
 
+	return ret;
+
+out_err_ndo_teardown:
+	dsa_master_ndo_teardown(dev);
+out_err_ethtool_teardown:
+	dsa_master_ethtool_teardown(dev);
 	return ret;
 }
 
 void dsa_master_teardown(struct net_device *dev)
 {
 	sysfs_remove_group(&dev->dev.kobj, &dsa_group);
+	dsa_master_ndo_teardown(dev);
 	dsa_master_ethtool_teardown(dev);
 	dsa_master_reset_mtu(dev);
 

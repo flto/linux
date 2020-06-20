@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * tascam-hwdep.c - a part of driver for TASCAM FireWire series
  *
  * Copyright (c) 2015 Takashi Sakamoto
- *
- * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 /*
@@ -18,6 +17,7 @@
 
 static long tscm_hwdep_read_locked(struct snd_tscm *tscm, char __user *buf,
 				   long count, loff_t *offset)
+	__releases(&tscm->lock)
 {
 	struct snd_firewire_event_lock_status event = {
 		.type = SNDRV_FIREWIRE_EVENT_LOCK_STATUS,
@@ -37,6 +37,7 @@ static long tscm_hwdep_read_locked(struct snd_tscm *tscm, char __user *buf,
 
 static long tscm_hwdep_read_queue(struct snd_tscm *tscm, char __user *buf,
 				  long remained, loff_t *offset)
+	__releases(&tscm->lock)
 {
 	char __user *pos = buf;
 	unsigned int type = SNDRV_FIREWIRE_EVENT_TASCAM_CONTROL;

@@ -28,7 +28,7 @@ static int __init no_initrd(char *str)
 
 __setup("noinitrd", no_initrd);
 
-static int __init early_initrd(char *p)
+static int __init early_initrdmem(char *p)
 {
 	phys_addr_t start;
 	unsigned long size;
@@ -43,18 +43,26 @@ static int __init early_initrd(char *p)
 	}
 	return 0;
 }
+early_param("initrdmem", early_initrdmem);
+
+/*
+ * This is here as the initrd keyword has been in use since 11/2018
+ * on ARM, PowerPC, and MIPS.
+ * It should not be; it is reserved for bootloaders.
+ */
+static int __init early_initrd(char *p)
+{
+	return early_initrdmem(p);
+}
 early_param("initrd", early_initrd);
 
 static int init_linuxrc(struct subprocess_info *info, struct cred *new)
 {
 	ksys_unshare(CLONE_FS | CLONE_FILES);
-	/* stdin/stdout/stderr for /linuxrc */
-	ksys_open("/dev/console", O_RDWR, 0);
-	ksys_dup(0);
-	ksys_dup(0);
+	console_on_rootfs();
 	/* move initrd over / and chdir/chroot in initrd root */
 	ksys_chdir("/root");
-	ksys_mount(".", "/", NULL, MS_MOVE, NULL);
+	do_mount(".", "/", NULL, MS_MOVE, NULL);
 	ksys_chroot(".");
 	ksys_setsid();
 	return 0;
@@ -89,7 +97,7 @@ static void __init handle_initrd(void)
 	current->flags &= ~PF_FREEZER_SKIP;
 
 	/* move initrd to rootfs' /old */
-	ksys_mount("..", ".", NULL, MS_MOVE, NULL);
+	do_mount("..", ".", NULL, MS_MOVE, NULL);
 	/* switch root and cwd back to / of rootfs */
 	ksys_chroot("..");
 
@@ -103,7 +111,7 @@ static void __init handle_initrd(void)
 	mount_root();
 
 	printk(KERN_NOTICE "Trying to move old root to /initrd ... ");
-	error = ksys_mount("/old", "/root/initrd", NULL, MS_MOVE, NULL);
+	error = do_mount("/old", "/root/initrd", NULL, MS_MOVE, NULL);
 	if (!error)
 		printk("okay\n");
 	else {

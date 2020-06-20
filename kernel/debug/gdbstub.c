@@ -247,7 +247,7 @@ char *kgdb_mem2hex(char *mem, char *buf, int count)
 	 */
 	tmp = buf + count;
 
-	err = probe_kernel_read(tmp, mem, count);
+	err = copy_from_kernel_nofault(tmp, mem, count);
 	if (err)
 		return NULL;
 	while (count > 0) {
@@ -283,7 +283,7 @@ int kgdb_hex2mem(char *buf, char *mem, int count)
 		*tmp_raw |= hex_to_bin(*tmp_hex--) << 4;
 	}
 
-	return probe_kernel_write(mem, tmp_raw, count);
+	return copy_to_kernel_nofault(mem, tmp_raw, count);
 }
 
 /*
@@ -335,7 +335,7 @@ static int kgdb_ebin2mem(char *buf, char *mem, int count)
 		size++;
 	}
 
-	return probe_kernel_write(mem, c, size);
+	return copy_to_kernel_nofault(mem, c, size);
 }
 
 #if DBG_MAX_REG_NUM > 0
@@ -1033,13 +1033,14 @@ int gdb_serial_stub(struct kgdb_state *ks)
 				return DBG_PASS_EVENT;
 			}
 #endif
+			/* Fall through */
 		case 'C': /* Exception passing */
 			tmp = gdb_cmd_exception_pass(ks);
 			if (tmp > 0)
 				goto default_handle;
 			if (tmp == 0)
 				break;
-			/* Fall through on tmp < 0 */
+			/* Fall through - on tmp < 0 */
 		case 'c': /* Continue packet */
 		case 's': /* Single step packet */
 			if (kgdb_contthread && kgdb_contthread != current) {
@@ -1048,7 +1049,7 @@ int gdb_serial_stub(struct kgdb_state *ks)
 				break;
 			}
 			dbg_activate_sw_breakpoints();
-			/* Fall through to default processing */
+			/* Fall through - to default processing */
 		default:
 default_handle:
 			error = kgdb_arch_handle_exception(ks->ex_vector,
@@ -1094,10 +1095,10 @@ int gdbstub_state(struct kgdb_state *ks, char *cmd)
 		return error;
 	case 's':
 	case 'c':
-		strcpy(remcom_in_buffer, cmd);
+		strscpy(remcom_in_buffer, cmd, sizeof(remcom_in_buffer));
 		return 0;
 	case '$':
-		strcpy(remcom_in_buffer, cmd);
+		strscpy(remcom_in_buffer, cmd, sizeof(remcom_in_buffer));
 		gdbstub_use_prev_in_buf = strlen(remcom_in_buffer);
 		gdbstub_prev_in_buf_pos = 0;
 		return 0;

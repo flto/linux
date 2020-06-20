@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2008 Advanced Micro Devices, Inc.
  *
  * Author: Joerg Roedel <joerg.roedel@amd.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
 #define pr_fmt(fmt)	"DMA-API: " fmt
@@ -39,7 +27,7 @@
 
 #include <asm/sections.h>
 
-#define HASH_SIZE       1024ULL
+#define HASH_SIZE       16384ULL
 #define HASH_FN_SHIFT   13
 #define HASH_FN_MASK    (HASH_SIZE - 1)
 
@@ -66,40 +54,40 @@ enum map_err_types {
  * struct dma_debug_entry - track a dma_map* or dma_alloc_coherent mapping
  * @list: node on pre-allocated free_entries list
  * @dev: 'dev' argument to dma_map_{page|single|sg} or dma_alloc_coherent
- * @type: single, page, sg, coherent
- * @pfn: page frame of the start address
- * @offset: offset of mapping relative to pfn
  * @size: length of the mapping
+ * @type: single, page, sg, coherent
  * @direction: enum dma_data_direction
  * @sg_call_ents: 'nents' from dma_map_sg
  * @sg_mapped_ents: 'mapped_ents' from dma_map_sg
+ * @pfn: page frame of the start address
+ * @offset: offset of mapping relative to pfn
  * @map_err_type: track whether dma_mapping_error() was checked
  * @stacktrace: support backtraces when a violation is detected
  */
 struct dma_debug_entry {
 	struct list_head list;
 	struct device    *dev;
-	int              type;
-	unsigned long	 pfn;
-	size_t		 offset;
 	u64              dev_addr;
 	u64              size;
+	int              type;
 	int              direction;
 	int		 sg_call_ents;
 	int		 sg_mapped_ents;
+	unsigned long	 pfn;
+	size_t		 offset;
 	enum map_err_types  map_err_type;
 #ifdef CONFIG_STACKTRACE
-	struct		 stack_trace stacktrace;
-	unsigned long	 st_entries[DMA_DEBUG_STACKTRACE_ENTRIES];
+	unsigned int	stack_len;
+	unsigned long	stack_entries[DMA_DEBUG_STACKTRACE_ENTRIES];
 #endif
-};
+} ____cacheline_aligned_in_smp;
 
 typedef bool (*match_fn)(struct dma_debug_entry *, struct dma_debug_entry *);
 
 struct hash_bucket {
 	struct list_head list;
 	spinlock_t lock;
-} ____cacheline_aligned_in_smp;
+};
 
 /* Hash list to save the allocated dma addresses */
 static struct hash_bucket dma_entry_hash[HASH_SIZE];
@@ -134,17 +122,6 @@ static u32 nr_total_entries;
 /* number of preallocated entries requested by kernel cmdline */
 static u32 nr_prealloc_entries = PREALLOC_DMA_DEBUG_ENTRIES;
 
-/* debugfs dentry's for the stuff above */
-static struct dentry *dma_debug_dent        __read_mostly;
-static struct dentry *global_disable_dent   __read_mostly;
-static struct dentry *error_count_dent      __read_mostly;
-static struct dentry *show_all_errors_dent  __read_mostly;
-static struct dentry *show_num_errors_dent  __read_mostly;
-static struct dentry *num_free_entries_dent __read_mostly;
-static struct dentry *min_free_entries_dent __read_mostly;
-static struct dentry *nr_total_entries_dent __read_mostly;
-static struct dentry *filter_dent           __read_mostly;
-
 /* per-driver filter related state */
 
 #define NAME_MAX_LEN	64
@@ -160,9 +137,12 @@ static const char *const maperr2str[] = {
 	[MAP_ERR_CHECKED] = "dma map error checked",
 };
 
-static const char *type2name[5] = { "single", "page",
-				    "scather-gather", "coherent",
-				    "resource" };
+static const char *type2name[] = {
+	[dma_debug_single] = "single",
+	[dma_debug_sg] = "scather-gather",
+	[dma_debug_coherent] = "coherent",
+	[dma_debug_resource] = "resource",
+};
 
 static const char *dir2name[4] = { "DMA_BIDIRECTIONAL", "DMA_TO_DEVICE",
 				   "DMA_FROM_DEVICE", "DMA_NONE" };
@@ -184,8 +164,8 @@ static inline void dump_entry_trace(struct dma_debug_entry *entry)
 {
 #ifdef CONFIG_STACKTRACE
 	if (entry) {
-		pr_warning("Mapped at:\n");
-		print_stack_trace(&entry->stacktrace, 0);
+		pr_warn("Mapped at:\n");
+		stack_trace_print(entry->stack_entries, entry->stack_len, 0);
 	}
 #endif
 }
@@ -278,12 +258,10 @@ static struct hash_bucket *get_hash_bucket(struct dma_debug_entry *entry,
  * Give up exclusive access to the hash bucket
  */
 static void put_hash_bucket(struct hash_bucket *bucket,
-			    unsigned long *flags)
+			    unsigned long flags)
 	__releases(&bucket->lock)
 {
-	unsigned long __flags = *flags;
-
-	spin_unlock_irqrestore(&bucket->lock, __flags);
+	spin_unlock_irqrestore(&bucket->lock, flags);
 }
 
 static bool exact_match(struct dma_debug_entry *a, struct dma_debug_entry *b)
@@ -382,7 +360,7 @@ static struct dma_debug_entry *bucket_find_contain(struct hash_bucket **bucket,
 		/*
 		 * Nothing found, go back a hash bucket
 		 */
-		put_hash_bucket(*bucket, flags);
+		put_hash_bucket(*bucket, *flags);
 		range          += (1 << HASH_FN_SHIFT);
 		index.dev_addr -= (1 << HASH_FN_SHIFT);
 		*bucket = get_hash_bucket(&index, flags);
@@ -443,6 +421,7 @@ void debug_dma_dump_mappings(struct device *dev)
 		}
 
 		spin_unlock_irqrestore(&bucket->lock, flags);
+		cond_resched();
 	}
 }
 
@@ -631,7 +610,7 @@ static void add_dma_entry(struct dma_debug_entry *entry)
 
 	bucket = get_hash_bucket(entry, &flags);
 	hash_bucket_add(bucket, entry);
-	put_hash_bucket(bucket, &flags);
+	put_hash_bucket(bucket, flags);
 
 	rc = active_cacheline_insert(entry);
 	if (rc == -ENOMEM) {
@@ -677,7 +656,7 @@ static struct dma_debug_entry *__dma_entry_alloc(void)
 	return entry;
 }
 
-void __dma_entry_alloc_check_leak(void)
+static void __dma_entry_alloc_check_leak(void)
 {
 	u32 tmp = nr_total_entries % nr_prealloc_entries;
 
@@ -715,12 +694,10 @@ static struct dma_debug_entry *dma_entry_alloc(void)
 	spin_unlock_irqrestore(&free_entries_lock, flags);
 
 #ifdef CONFIG_STACKTRACE
-	entry->stacktrace.max_entries = DMA_DEBUG_STACKTRACE_ENTRIES;
-	entry->stacktrace.entries = entry->st_entries;
-	entry->stacktrace.skip = 2;
-	save_stack_trace(&entry->stacktrace);
+	entry->stack_len = stack_trace_save(entry->stack_entries,
+					    ARRAY_SIZE(entry->stack_entries),
+					    1);
 #endif
-
 	return entry;
 }
 
@@ -840,66 +817,46 @@ static const struct file_operations filter_fops = {
 	.llseek = default_llseek,
 };
 
-static int dma_debug_fs_init(void)
+static int dump_show(struct seq_file *seq, void *v)
 {
-	dma_debug_dent = debugfs_create_dir("dma-api", NULL);
-	if (!dma_debug_dent) {
-		pr_err("can not create debugfs directory\n");
-		return -ENOMEM;
+	int idx;
+
+	for (idx = 0; idx < HASH_SIZE; idx++) {
+		struct hash_bucket *bucket = &dma_entry_hash[idx];
+		struct dma_debug_entry *entry;
+		unsigned long flags;
+
+		spin_lock_irqsave(&bucket->lock, flags);
+		list_for_each_entry(entry, &bucket->list, list) {
+			seq_printf(seq,
+				   "%s %s %s idx %d P=%llx N=%lx D=%llx L=%llx %s %s\n",
+				   dev_name(entry->dev),
+				   dev_driver_string(entry->dev),
+				   type2name[entry->type], idx,
+				   phys_addr(entry), entry->pfn,
+				   entry->dev_addr, entry->size,
+				   dir2name[entry->direction],
+				   maperr2str[entry->map_err_type]);
+		}
+		spin_unlock_irqrestore(&bucket->lock, flags);
 	}
-
-	global_disable_dent = debugfs_create_bool("disabled", 0444,
-			dma_debug_dent,
-			&global_disable);
-	if (!global_disable_dent)
-		goto out_err;
-
-	error_count_dent = debugfs_create_u32("error_count", 0444,
-			dma_debug_dent, &error_count);
-	if (!error_count_dent)
-		goto out_err;
-
-	show_all_errors_dent = debugfs_create_u32("all_errors", 0644,
-			dma_debug_dent,
-			&show_all_errors);
-	if (!show_all_errors_dent)
-		goto out_err;
-
-	show_num_errors_dent = debugfs_create_u32("num_errors", 0644,
-			dma_debug_dent,
-			&show_num_errors);
-	if (!show_num_errors_dent)
-		goto out_err;
-
-	num_free_entries_dent = debugfs_create_u32("num_free_entries", 0444,
-			dma_debug_dent,
-			&num_free_entries);
-	if (!num_free_entries_dent)
-		goto out_err;
-
-	min_free_entries_dent = debugfs_create_u32("min_free_entries", 0444,
-			dma_debug_dent,
-			&min_free_entries);
-	if (!min_free_entries_dent)
-		goto out_err;
-
-	nr_total_entries_dent = debugfs_create_u32("nr_total_entries", 0444,
-			dma_debug_dent,
-			&nr_total_entries);
-	if (!nr_total_entries_dent)
-		goto out_err;
-
-	filter_dent = debugfs_create_file("driver_filter", 0644,
-					  dma_debug_dent, NULL, &filter_fops);
-	if (!filter_dent)
-		goto out_err;
-
 	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(dump);
 
-out_err:
-	debugfs_remove_recursive(dma_debug_dent);
+static void dma_debug_fs_init(void)
+{
+	struct dentry *dentry = debugfs_create_dir("dma-api", NULL);
 
-	return -ENOMEM;
+	debugfs_create_bool("disabled", 0444, dentry, &global_disable);
+	debugfs_create_u32("error_count", 0444, dentry, &error_count);
+	debugfs_create_u32("all_errors", 0644, dentry, &show_all_errors);
+	debugfs_create_u32("num_errors", 0644, dentry, &show_num_errors);
+	debugfs_create_u32("num_free_entries", 0444, dentry, &num_free_entries);
+	debugfs_create_u32("min_free_entries", 0444, dentry, &min_free_entries);
+	debugfs_create_u32("nr_total_entries", 0444, dentry, &nr_total_entries);
+	debugfs_create_file("driver_filter", 0644, dentry, NULL, &filter_fops);
+	debugfs_create_file("dump", 0444, dentry, NULL, &dump_fops);
 }
 
 static int device_dma_allocations(struct device *dev, struct dma_debug_entry **out_entry)
@@ -985,12 +942,7 @@ static int dma_debug_init(void)
 		spin_lock_init(&dma_entry_hash[i].lock);
 	}
 
-	if (dma_debug_fs_init() != 0) {
-		pr_err("error creating debugfs entries - disabling\n");
-		global_disable = true;
-
-		return 0;
-	}
+	dma_debug_fs_init();
 
 	nr_pages = DIV_ROUND_UP(nr_prealloc_entries, DMA_DEBUG_DYNAMIC_ENTRIES);
 	for (i = 0; i < nr_pages; ++i)
@@ -1051,7 +1003,7 @@ static void check_unmap(struct dma_debug_entry *ref)
 
 	if (!entry) {
 		/* must drop lock before calling dma_mapping_error */
-		put_hash_bucket(bucket, &flags);
+		put_hash_bucket(bucket, flags);
 
 		if (dma_mapping_error(ref->dev, ref->dev_addr)) {
 			err_printk(ref->dev, NULL,
@@ -1133,7 +1085,7 @@ static void check_unmap(struct dma_debug_entry *ref)
 	hash_bucket_del(entry);
 	dma_entry_free(entry);
 
-	put_hash_bucket(bucket, &flags);
+	put_hash_bucket(bucket, flags);
 }
 
 static void check_for_stack(struct device *dev,
@@ -1253,7 +1205,7 @@ static void check_sync(struct device *dev,
 	}
 
 out:
-	put_hash_bucket(bucket, &flags);
+	put_hash_bucket(bucket, flags);
 }
 
 static void check_sg_segment(struct device *dev, struct scatterlist *sg)
@@ -1368,7 +1320,7 @@ void debug_dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 		}
 	}
 
-	put_hash_bucket(bucket, &flags);
+	put_hash_bucket(bucket, flags);
 }
 EXPORT_SYMBOL(debug_dma_mapping_error);
 
@@ -1441,7 +1393,7 @@ static int get_nr_mapped_entries(struct device *dev,
 
 	if (entry)
 		mapped_ents = entry->sg_mapped_ents;
-	put_hash_bucket(bucket, &flags);
+	put_hash_bucket(bucket, flags);
 
 	return mapped_ents;
 }

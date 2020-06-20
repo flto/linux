@@ -27,11 +27,12 @@
 #define __DAL_DCCG_H__
 
 #include "dc_types.h"
+#include "hw_shared.h"
 
 struct dccg {
 	struct dc_context *ctx;
 	const struct dccg_funcs *funcs;
-
+	int pipe_dppclk_khz[MAX_PIPES];
 	int ref_dppclk;
 };
 
@@ -39,6 +40,10 @@ struct dccg_funcs {
 	void (*update_dpp_dto)(struct dccg *dccg,
 			int dpp_inst,
 			int req_dppclk);
+	void (*get_dccg_ref_freq)(struct dccg *dccg,
+			unsigned int xtalin_freq_inKhz,
+			unsigned int *dccg_ref_freq_inKhz);
+	void (*dccg_init)(struct dccg *dccg);
 };
 
 #endif //__DAL_DCCG_H__

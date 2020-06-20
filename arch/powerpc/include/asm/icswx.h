@@ -1,12 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * ICSWX api
  *
  * Copyright (C) 2015 IBM Corp.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  *
  * This provides the Initiate Coprocessor Store Word Indexed (ICSWX)
  * instruction.  This instruction is used to communicate with PowerPC
@@ -112,6 +108,17 @@ struct data_descriptor_entry {
 	__be64 address;
 } __packed __aligned(DDE_ALIGN);
 
+/* 4.3.2 NX-stamped Fault CRB */
+
+#define NX_STAMP_ALIGN          (0x10)
+
+struct nx_fault_stamp {
+	__be64 fault_storage_addr;
+	__be16 reserved;
+	__u8   flags;
+	__u8   fault_status;
+	__be32 pswid;
+} __packed __aligned(NX_STAMP_ALIGN);
 
 /* Chapter 6.5.2 Coprocessor-Request Block (CRB) */
 
@@ -139,10 +146,15 @@ struct coprocessor_request_block {
 
 	struct coprocessor_completion_block ccb;
 
-	u8 reserved[48];
+	union {
+		struct nx_fault_stamp nx;
+		u8 reserved[16];
+	} stamp;
+
+	u8 reserved[32];
 
 	struct coprocessor_status_block csb;
-} __packed __aligned(CRB_ALIGN);
+} __packed;
 
 
 /* RFC02167 Initiate Coprocessor Instructions document

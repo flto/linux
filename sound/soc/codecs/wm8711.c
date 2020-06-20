@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * wm8711.c  --  WM8711 ALSA SoC Audio driver
  *
@@ -6,10 +7,6 @@
  * Author: Mike Arthur <Mike.Arthur@wolfsonmicro.com>
  *
  * Based on wm8731.c by Richard Purdie
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/module.h>
@@ -201,7 +198,7 @@ static void wm8711_shutdown(struct snd_pcm_substream *substream,
 	struct snd_soc_component *component = dai->component;
 
 	/* deactivate */
-	if (!snd_soc_component_is_active(component)) {
+	if (!snd_soc_component_active(component)) {
 		udelay(50);
 		snd_soc_component_write(component, WM8711_ACTIVE, 0x0);
 	}

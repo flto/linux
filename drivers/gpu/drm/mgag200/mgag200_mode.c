@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2010 Matt Turner.
  * Copyright 2012 Red Hat
- *
- * This file is subject to the terms and conditions of the GNU General
- * Public License version 2. See the file COPYING in the main
- * directory of this archive for more details.
  *
  * Authors: Matthew Garrett
  *	    Matt Turner
@@ -12,10 +9,14 @@
  */
 
 #include <linux/delay.h>
+#include <linux/pci.h>
 
-#include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_probe_helper.h>
+#include <drm/drm_simple_kms_helper.h>
 
 #include "mgag200_drv.h"
 
@@ -28,7 +29,7 @@
 static void mga_crtc_load_lut(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
-	struct mga_device *mdev = dev->dev_private;
+	struct mga_device *mdev = to_mga_device(dev);
 	struct drm_framebuffer *fb = crtc->primary->fb;
 	u16 *r_ptr, *g_ptr, *b_ptr;
 	int i;
@@ -728,7 +729,7 @@ static int mga_crtc_set_plls(struct mga_device *mdev, long clock)
 
 static void mga_g200wb_prepare(struct drm_crtc *crtc)
 {
-	struct mga_device *mdev = crtc->dev->dev_private;
+	struct mga_device *mdev = to_mga_device(crtc->dev);
 	u8 tmp;
 	int iter_max;
 
@@ -783,7 +784,7 @@ static void mga_g200wb_prepare(struct drm_crtc *crtc)
 static void mga_g200wb_commit(struct drm_crtc *crtc)
 {
 	u8 tmp;
-	struct mga_device *mdev = crtc->dev->dev_private;
+	struct mga_device *mdev = to_mga_device(crtc->dev);
 
 	/* 1- The first step is to ensure that the vrsten and hrsten are set */
 	WREG8(MGAREG_CRTCEXT_INDEX, 1);
@@ -833,7 +834,7 @@ static void mga_g200wb_commit(struct drm_crtc *crtc)
  */
 static void mga_set_start_address(struct drm_crtc *crtc, unsigned offset)
 {
-	struct mga_device *mdev = crtc->dev->dev_private;
+	struct mga_device *mdev = to_mga_device(crtc->dev);
 	u32 addr;
 	int count;
 	u8 crtcext0;
@@ -857,57 +858,37 @@ static void mga_set_start_address(struct drm_crtc *crtc, unsigned offset)
 	WREG_ECRT(0x0, ((u8)(addr >> 16) & 0xf) | crtcext0);
 }
 
-
-/* ast is different - we will force move buffers out of VRAM */
 static int mga_crtc_do_set_base(struct drm_crtc *crtc,
 				struct drm_framebuffer *fb,
 				int x, int y, int atomic)
 {
-	struct mga_device *mdev = crtc->dev->dev_private;
-	struct drm_gem_object *obj;
-	struct mga_framebuffer *mga_fb;
-	struct mgag200_bo *bo;
+	struct drm_gem_vram_object *gbo;
 	int ret;
-	u64 gpu_addr;
+	s64 gpu_addr;
 
-	/* push the previous fb to system ram */
 	if (!atomic && fb) {
-		mga_fb = to_mga_framebuffer(fb);
-		obj = mga_fb->obj;
-		bo = gem_to_mga_bo(obj);
-		ret = mgag200_bo_reserve(bo, false);
-		if (ret)
-			return ret;
-		mgag200_bo_push_sysram(bo);
-		mgag200_bo_unreserve(bo);
+		gbo = drm_gem_vram_of_gem(fb->obj[0]);
+		drm_gem_vram_unpin(gbo);
 	}
 
-	mga_fb = to_mga_framebuffer(crtc->primary->fb);
-	obj = mga_fb->obj;
-	bo = gem_to_mga_bo(obj);
+	gbo = drm_gem_vram_of_gem(crtc->primary->fb->obj[0]);
 
-	ret = mgag200_bo_reserve(bo, false);
+	ret = drm_gem_vram_pin(gbo, DRM_GEM_VRAM_PL_FLAG_VRAM);
 	if (ret)
 		return ret;
-
-	ret = mgag200_bo_pin(bo, TTM_PL_FLAG_VRAM, &gpu_addr);
-	if (ret) {
-		mgag200_bo_unreserve(bo);
-		return ret;
+	gpu_addr = drm_gem_vram_offset(gbo);
+	if (gpu_addr < 0) {
+		ret = (int)gpu_addr;
+		goto err_drm_gem_vram_unpin;
 	}
-
-	if (&mdev->mfbdev->mfb == mga_fb) {
-		/* if pushing console in kmap it */
-		ret = ttm_bo_kmap(&bo->bo, 0, bo->bo.num_pages, &bo->kmap);
-		if (ret)
-			DRM_ERROR("failed to kmap fbcon\n");
-
-	}
-	mgag200_bo_unreserve(bo);
 
 	mga_set_start_address(crtc, (u32)gpu_addr);
 
 	return 0;
+
+err_drm_gem_vram_unpin:
+	drm_gem_vram_unpin(gbo);
+	return ret;
 }
 
 static int mga_crtc_mode_set_base(struct drm_crtc *crtc, int x, int y,
@@ -922,7 +903,7 @@ static int mga_crtc_mode_set(struct drm_crtc *crtc,
 				int x, int y, struct drm_framebuffer *old_fb)
 {
 	struct drm_device *dev = crtc->dev;
-	struct mga_device *mdev = dev->dev_private;
+	struct mga_device *mdev = to_mga_device(dev);
 	const struct drm_framebuffer *fb = crtc->primary->fb;
 	int hdisplay, hsyncstart, hsyncend, htotal;
 	int vdisplay, vsyncstart, vsyncend, vtotal;
@@ -1155,9 +1136,6 @@ static int mga_crtc_mode_set(struct drm_crtc *crtc,
 
 	WREG8(MGA_MISC_OUT, misc);
 
-	if (adjusted_mode)
-		memcpy(&mdev->mode, mode, sizeof(struct drm_display_mode));
-
 	mga_crtc_do_set_base(crtc, old_fb, x, y, 0);
 
 	/* reset tagfifo */
@@ -1283,7 +1261,7 @@ static int mga_resume(struct drm_crtc *crtc)
 static void mga_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
 	struct drm_device *dev = crtc->dev;
-	struct mga_device *mdev = dev->dev_private;
+	struct mga_device *mdev = to_mga_device(dev);
 	u8 seq1 = 0, crtcext1 = 0;
 
 	switch (mode) {
@@ -1337,7 +1315,7 @@ static void mga_crtc_dpms(struct drm_crtc *crtc, int mode)
 static void mga_crtc_prepare(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
-	struct mga_device *mdev = dev->dev_private;
+	struct mga_device *mdev = to_mga_device(dev);
 	u8 tmp;
 
 	/*	mga_resume(crtc);*/
@@ -1373,7 +1351,7 @@ static void mga_crtc_prepare(struct drm_crtc *crtc)
 static void mga_crtc_commit(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
-	struct mga_device *mdev = dev->dev_private;
+	struct mga_device *mdev = to_mga_device(dev);
 	const struct drm_crtc_helper_funcs *crtc_funcs = crtc->helper_private;
 	u8 tmp;
 
@@ -1421,26 +1399,21 @@ static void mga_crtc_destroy(struct drm_crtc *crtc)
 
 static void mga_crtc_disable(struct drm_crtc *crtc)
 {
-	int ret;
 	DRM_DEBUG_KMS("\n");
 	mga_crtc_dpms(crtc, DRM_MODE_DPMS_OFF);
 	if (crtc->primary->fb) {
-		struct mga_framebuffer *mga_fb = to_mga_framebuffer(crtc->primary->fb);
-		struct drm_gem_object *obj = mga_fb->obj;
-		struct mgag200_bo *bo = gem_to_mga_bo(obj);
-		ret = mgag200_bo_reserve(bo, false);
-		if (ret)
-			return;
-		mgag200_bo_push_sysram(bo);
-		mgag200_bo_unreserve(bo);
+		struct drm_framebuffer *fb = crtc->primary->fb;
+		struct drm_gem_vram_object *gbo =
+			drm_gem_vram_of_gem(fb->obj[0]);
+		drm_gem_vram_unpin(gbo);
 	}
 	crtc->primary->fb = NULL;
 }
 
 /* These provide the minimum set of functions required to handle a CRTC */
 static const struct drm_crtc_funcs mga_crtc_funcs = {
-	.cursor_set = mga_crtc_cursor_set,
-	.cursor_move = mga_crtc_cursor_move,
+	.cursor_set = mgag200_crtc_cursor_set,
+	.cursor_move = mgag200_crtc_cursor_move,
 	.gamma_set = mga_crtc_gamma_set,
 	.set_config = drm_crtc_helper_set_config,
 	.destroy = mga_crtc_destroy,
@@ -1458,6 +1431,7 @@ static const struct drm_crtc_helper_funcs mga_helper_funcs = {
 /* CRTC setup */
 static void mga_crtc_init(struct mga_device *mdev)
 {
+	struct drm_device *dev = mdev->dev;
 	struct mga_crtc *mga_crtc;
 
 	mga_crtc = kzalloc(sizeof(struct mga_crtc) +
@@ -1467,83 +1441,16 @@ static void mga_crtc_init(struct mga_device *mdev)
 	if (mga_crtc == NULL)
 		return;
 
-	drm_crtc_init(mdev->dev, &mga_crtc->base, &mga_crtc_funcs);
+	drm_crtc_init(dev, &mga_crtc->base, &mga_crtc_funcs);
 
 	drm_mode_crtc_set_gamma_size(&mga_crtc->base, MGAG200_LUT_SIZE);
-	mdev->mode_info.crtc = mga_crtc;
 
 	drm_crtc_helper_add(&mga_crtc->base, &mga_helper_funcs);
 }
 
 /*
- * The encoder comes after the CRTC in the output pipeline, but before
- * the connector. It's responsible for ensuring that the digital
- * stream is appropriately converted into the output format. Setup is
- * very simple in this case - all we have to do is inform qemu of the
- * colour depth in order to ensure that it displays appropriately
+ * Connector
  */
-
-/*
- * These functions are analagous to those in the CRTC code, but are intended
- * to handle any encoder-specific limitations
- */
-static void mga_encoder_mode_set(struct drm_encoder *encoder,
-				struct drm_display_mode *mode,
-				struct drm_display_mode *adjusted_mode)
-{
-
-}
-
-static void mga_encoder_dpms(struct drm_encoder *encoder, int state)
-{
-	return;
-}
-
-static void mga_encoder_prepare(struct drm_encoder *encoder)
-{
-}
-
-static void mga_encoder_commit(struct drm_encoder *encoder)
-{
-}
-
-static void mga_encoder_destroy(struct drm_encoder *encoder)
-{
-	struct mga_encoder *mga_encoder = to_mga_encoder(encoder);
-	drm_encoder_cleanup(encoder);
-	kfree(mga_encoder);
-}
-
-static const struct drm_encoder_helper_funcs mga_encoder_helper_funcs = {
-	.dpms = mga_encoder_dpms,
-	.mode_set = mga_encoder_mode_set,
-	.prepare = mga_encoder_prepare,
-	.commit = mga_encoder_commit,
-};
-
-static const struct drm_encoder_funcs mga_encoder_encoder_funcs = {
-	.destroy = mga_encoder_destroy,
-};
-
-static struct drm_encoder *mga_encoder_init(struct drm_device *dev)
-{
-	struct drm_encoder *encoder;
-	struct mga_encoder *mga_encoder;
-
-	mga_encoder = kzalloc(sizeof(struct mga_encoder), GFP_KERNEL);
-	if (!mga_encoder)
-		return NULL;
-
-	encoder = &mga_encoder->base;
-	encoder->possible_crtcs = 0x1;
-
-	drm_encoder_init(dev, encoder, &mga_encoder_encoder_funcs,
-			 DRM_MODE_ENCODER_DAC, NULL);
-	drm_encoder_helper_add(encoder, &mga_encoder_helper_funcs);
-
-	return encoder;
-}
-
 
 static int mga_vga_get_modes(struct drm_connector *connector)
 {
@@ -1590,7 +1497,7 @@ static enum drm_mode_status mga_vga_mode_valid(struct drm_connector *connector,
 				 struct drm_display_mode *mode)
 {
 	struct drm_device *dev = connector->dev;
-	struct mga_device *mdev = (struct mga_device*)dev->dev_private;
+	struct mga_device *mdev = to_mga_device(dev);
 	int bpp = 32;
 
 	if (IS_G200_SE(mdev)) {
@@ -1655,7 +1562,7 @@ static enum drm_mode_status mga_vga_mode_valid(struct drm_connector *connector,
 			bpp = connector->cmdline_mode.bpp;
 	}
 
-	if ((mode->hdisplay * mode->vdisplay * (bpp/8)) > mdev->mc.vram_size) {
+	if ((mode->hdisplay * mode->vdisplay * (bpp/8)) > mdev->vram_fb_available) {
 		if (connector->cmdline_mode.specified)
 			connector->cmdline_mode.specified = false;
 		return MODE_BAD;
@@ -1664,28 +1571,16 @@ static enum drm_mode_status mga_vga_mode_valid(struct drm_connector *connector,
 	return MODE_OK;
 }
 
-static struct drm_encoder *mga_connector_best_encoder(struct drm_connector
-						  *connector)
-{
-	int enc_id = connector->encoder_ids[0];
-	/* pick the encoder ids */
-	if (enc_id)
-		return drm_encoder_find(connector->dev, NULL, enc_id);
-	return NULL;
-}
-
 static void mga_connector_destroy(struct drm_connector *connector)
 {
 	struct mga_connector *mga_connector = to_mga_connector(connector);
 	mgag200_i2c_destroy(mga_connector->i2c);
 	drm_connector_cleanup(connector);
-	kfree(connector);
 }
 
 static const struct drm_connector_helper_funcs mga_vga_connector_helper_funcs = {
 	.get_modes = mga_vga_get_modes,
 	.mode_valid = mga_vga_mode_valid,
-	.best_encoder = mga_connector_best_encoder,
 };
 
 static const struct drm_connector_funcs mga_vga_connector_funcs = {
@@ -1694,71 +1589,96 @@ static const struct drm_connector_funcs mga_vga_connector_funcs = {
 	.destroy = mga_connector_destroy,
 };
 
-static struct drm_connector *mga_vga_init(struct drm_device *dev)
+static int mgag200_vga_connector_init(struct mga_device *mdev)
 {
-	struct drm_connector *connector;
-	struct mga_connector *mga_connector;
+	struct drm_device *dev = mdev->dev;
+	struct mga_connector *mconnector = &mdev->connector;
+	struct drm_connector *connector = &mconnector->base;
+	struct mga_i2c_chan *i2c;
+	int ret;
 
-	mga_connector = kzalloc(sizeof(struct mga_connector), GFP_KERNEL);
-	if (!mga_connector)
-		return NULL;
+	i2c = mgag200_i2c_create(dev);
+	if (!i2c)
+		drm_warn(dev, "failed to add DDC bus\n");
 
-	connector = &mga_connector->base;
-
-	drm_connector_init(dev, connector,
-			   &mga_vga_connector_funcs, DRM_MODE_CONNECTOR_VGA);
-
+	ret = drm_connector_init_with_ddc(dev, connector,
+					  &mga_vga_connector_funcs,
+					  DRM_MODE_CONNECTOR_VGA,
+					  &i2c->adapter);
+	if (ret)
+		goto err_mgag200_i2c_destroy;
 	drm_connector_helper_add(connector, &mga_vga_connector_helper_funcs);
 
-	drm_connector_register(connector);
+	mconnector->i2c = i2c;
 
-	mga_connector->i2c = mgag200_i2c_create(dev);
-	if (!mga_connector->i2c)
-		DRM_ERROR("failed to add ddc bus\n");
+	return 0;
 
-	return connector;
+err_mgag200_i2c_destroy:
+	mgag200_i2c_destroy(i2c);
+	return ret;
 }
 
+static const struct drm_mode_config_funcs mgag200_mode_config_funcs = {
+	.fb_create = drm_gem_fb_create
+};
+
+static unsigned int mgag200_preferred_depth(struct mga_device *mdev)
+{
+	if (IS_G200_SE(mdev) && mdev->vram_fb_available < (2048*1024))
+		return 16;
+	else
+		return 32;
+}
 
 int mgag200_modeset_init(struct mga_device *mdev)
 {
-	struct drm_encoder *encoder;
-	struct drm_connector *connector;
+	struct drm_device *dev = mdev->dev;
+	struct drm_encoder *encoder = &mdev->encoder;
+	struct drm_connector *connector = &mdev->connector.base;
 	int ret;
 
-	mdev->mode_info.mode_config_initialized = true;
+	mdev->bpp_shifts[0] = 0;
+	mdev->bpp_shifts[1] = 1;
+	mdev->bpp_shifts[2] = 0;
+	mdev->bpp_shifts[3] = 2;
 
-	mdev->dev->mode_config.max_width = MGAG200_MAX_FB_WIDTH;
-	mdev->dev->mode_config.max_height = MGAG200_MAX_FB_HEIGHT;
+	ret = drmm_mode_config_init(dev);
+	if (ret) {
+		drm_err(dev, "drmm_mode_config_init() failed, error %d\n",
+			ret);
+		return ret;
+	}
 
-	mdev->dev->mode_config.fb_base = mdev->mc.vram_base;
+	dev->mode_config.max_width = MGAG200_MAX_FB_WIDTH;
+	dev->mode_config.max_height = MGAG200_MAX_FB_HEIGHT;
+
+	dev->mode_config.preferred_depth = mgag200_preferred_depth(mdev);
+	dev->mode_config.prefer_shadow = 1;
+
+	dev->mode_config.fb_base = mdev->mc.vram_base;
+
+	dev->mode_config.funcs = &mgag200_mode_config_funcs;
 
 	mga_crtc_init(mdev);
 
-	encoder = mga_encoder_init(mdev->dev);
-	if (!encoder) {
-		DRM_ERROR("mga_encoder_init failed\n");
-		return -1;
+	ret = drm_simple_encoder_init(dev, encoder, DRM_MODE_ENCODER_DAC);
+	if (ret) {
+		drm_err(dev,
+			"drm_simple_encoder_init() failed, error %d\n",
+			ret);
+		return ret;
 	}
+	encoder->possible_crtcs = 0x1;
 
-	connector = mga_vga_init(mdev->dev);
-	if (!connector) {
-		DRM_ERROR("mga_vga_init failed\n");
-		return -1;
+	ret = mgag200_vga_connector_init(mdev);
+	if (ret) {
+		drm_err(dev,
+			"mgag200_vga_connector_init() failed, error %d\n",
+			ret);
+		return ret;
 	}
 
 	drm_connector_attach_encoder(connector, encoder);
 
-	ret = mgag200_fbdev_init(mdev);
-	if (ret) {
-		DRM_ERROR("mga_fbdev_init failed\n");
-		return ret;
-	}
-
 	return 0;
-}
-
-void mgag200_modeset_fini(struct mga_device *mdev)
-{
-
 }

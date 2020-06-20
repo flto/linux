@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * V4L2 Driver for PXA camera host
  *
  * Copyright (C) 2006, Sascha Hauer, Pengutronix
  * Copyright (C) 2008, Guennadi Liakhovetski <kernel@pengutronix.de>
  * Copyright (C) 2016, Robert Jarzmik <robert.jarzmik@free.fr>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <linux/init.h>
@@ -68,7 +64,7 @@
 #define CIBR1		0x0030
 #define CIBR2		0x0038
 
-#define CICR0_DMAEN	(1 << 31)	/* DMA request enable */
+#define CICR0_DMAEN	(1UL << 31)	/* DMA request enable */
 #define CICR0_PAR_EN	(1 << 30)	/* Parity enable */
 #define CICR0_SL_CAP_EN	(1 << 29)	/* Capture enable for slave mode */
 #define CICR0_ENB	(1 << 28)	/* Camera interface enable */
@@ -85,7 +81,7 @@
 #define CICR0_EOFM	(1 << 1)	/* End-of-frame mask */
 #define CICR0_FOM	(1 << 0)	/* FIFO-overrun mask */
 
-#define CICR1_TBIT	(1 << 31)	/* Transparency bit */
+#define CICR1_TBIT	(1UL << 31)	/* Transparency bit */
 #define CICR1_RGBT_CONV	(0x3 << 29)	/* RGBT conversion mask */
 #define CICR1_PPL	(0x7ff << 15)	/* Pixels per line mask */
 #define CICR1_RGB_CONV	(0x7 << 12)	/* RGB conversion mask */
@@ -1020,7 +1016,7 @@ static void pxa_camera_wakeup(struct pxa_camera_dev *pcdev,
  *  - a videobuffer is queued on the pcdev->capture list
  *
  * Please check the "DMA hot chaining timeslice issue" in
- *   Documentation/media/v4l-drivers/pxa_camera.rst
+ *   Documentation/driver-api/media/drivers/pxa_camera.rst
  *
  * Context: should only be called within the dma irq handler
  */
@@ -1392,7 +1388,7 @@ static int pxa_buffer_init(struct pxa_camera_dev *pcdev,
 		break;
 	default:
 		return -EINVAL;
-	};
+	}
 	buf->nb_planes = nb_channels;
 
 	ret = sg_split(sgt->sgl, sgt->nents, 0, nb_channels,
@@ -1442,7 +1438,7 @@ static void pxac_vb2_queue(struct vb2_buffer *vb)
 
 /*
  * Please check the DMA prepared buffer structure in :
- *   Documentation/media/v4l-drivers/pxa_camera.rst
+ *   Documentation/driver-api/media/drivers/pxa_camera.rst
  * Please check also in pxa_camera_check_link_miss() to understand why DMA chain
  * modification while DMA chain is running will work anyway.
  */
@@ -1631,7 +1627,7 @@ static int pxa_camera_set_bus_param(struct pxa_camera_dev *pcdev)
 
 	pcdev->channels = 1;
 
-	/* Make choises, based on platform preferences */
+	/* Make choices, based on platform preferences */
 	if ((common_flags & V4L2_MBUS_HSYNC_ACTIVE_HIGH) &&
 	    (common_flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)) {
 		if (pcdev->platform_flags & PXA_CAMERA_HSP)
@@ -1996,9 +1992,6 @@ static int pxac_vidioc_querycap(struct file *file, void *priv,
 	strscpy(cap->bus_info, "platform:pxa-camera", sizeof(cap->bus_info));
 	strscpy(cap->driver, PXA_CAM_DRV_NAME, sizeof(cap->driver));
 	strscpy(cap->card, pxa_cam_driver_description, sizeof(cap->card));
-	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
-	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
-
 	return 0;
 }
 
@@ -2198,7 +2191,7 @@ static int pxa_camera_sensor_bound(struct v4l2_async_notifier *notifier,
 	if (err)
 		goto out_sensor_poweroff;
 
-	err = video_register_device(&pcdev->vdev, VFL_TYPE_GRABBER, -1);
+	err = video_register_device(&pcdev->vdev, VFL_TYPE_VIDEO, -1);
 	if (err) {
 		v4l2_err(v4l2_dev, "register video device failed: %d\n", err);
 		pcdev->sensor = NULL;
@@ -2350,7 +2343,7 @@ static int pxa_camera_pdata_from_dt(struct device *dev,
 		pcdev->platform_flags |= PXA_CAMERA_PCLK_EN;
 
 	asd->match_type = V4L2_ASYNC_MATCH_FWNODE;
-	remote = of_graph_get_remote_port(np);
+	remote = of_graph_get_remote_port_parent(np);
 	if (remote)
 		asd->match.fwnode = of_fwnode_handle(remote);
 	else
@@ -2394,15 +2387,17 @@ static int pxa_camera_probe(struct platform_device *pdev)
 	pcdev->res = res;
 
 	pcdev->pdata = pdev->dev.platform_data;
-	if (pdev->dev.of_node && !pcdev->pdata) {
-		err = pxa_camera_pdata_from_dt(&pdev->dev, pcdev, &pcdev->asd);
-	} else {
+	if (pcdev->pdata) {
 		pcdev->platform_flags = pcdev->pdata->flags;
 		pcdev->mclk = pcdev->pdata->mclk_10khz * 10000;
 		pcdev->asd.match_type = V4L2_ASYNC_MATCH_I2C;
 		pcdev->asd.match.i2c.adapter_id =
 			pcdev->pdata->sensor_i2c_adapter_id;
 		pcdev->asd.match.i2c.address = pcdev->pdata->sensor_i2c_address;
+	} else if (pdev->dev.of_node) {
+		err = pxa_camera_pdata_from_dt(&pdev->dev, pcdev, &pcdev->asd);
+	} else {
+		return -ENODEV;
 	}
 	if (err < 0)
 		return err;
@@ -2445,23 +2440,23 @@ static int pxa_camera_probe(struct platform_device *pdev)
 	pcdev->base = base;
 
 	/* request dma */
-	pcdev->dma_chans[0] = dma_request_slave_channel(&pdev->dev, "CI_Y");
-	if (!pcdev->dma_chans[0]) {
+	pcdev->dma_chans[0] = dma_request_chan(&pdev->dev, "CI_Y");
+	if (IS_ERR(pcdev->dma_chans[0])) {
 		dev_err(&pdev->dev, "Can't request DMA for Y\n");
-		return -ENODEV;
+		return PTR_ERR(pcdev->dma_chans[0]);
 	}
 
-	pcdev->dma_chans[1] = dma_request_slave_channel(&pdev->dev, "CI_U");
-	if (!pcdev->dma_chans[1]) {
-		dev_err(&pdev->dev, "Can't request DMA for Y\n");
-		err = -ENODEV;
+	pcdev->dma_chans[1] = dma_request_chan(&pdev->dev, "CI_U");
+	if (IS_ERR(pcdev->dma_chans[1])) {
+		dev_err(&pdev->dev, "Can't request DMA for U\n");
+		err = PTR_ERR(pcdev->dma_chans[1]);
 		goto exit_free_dma_y;
 	}
 
-	pcdev->dma_chans[2] = dma_request_slave_channel(&pdev->dev, "CI_V");
-	if (!pcdev->dma_chans[2]) {
+	pcdev->dma_chans[2] = dma_request_chan(&pdev->dev, "CI_V");
+	if (IS_ERR(pcdev->dma_chans[2])) {
 		dev_err(&pdev->dev, "Can't request DMA for V\n");
-		err = -ENODEV;
+		err = PTR_ERR(pcdev->dma_chans[2]);
 		goto exit_free_dma_u;
 	}
 
@@ -2535,6 +2530,7 @@ exit_free_v4l2dev:
 	v4l2_device_unregister(&pcdev->v4l2_dev);
 exit_deactivate:
 	pxa_camera_deactivate(pcdev);
+	tasklet_kill(&pcdev->task_eof);
 exit_free_dma:
 	dma_release_channel(pcdev->dma_chans[2]);
 exit_free_dma_u:
@@ -2549,6 +2545,7 @@ static int pxa_camera_remove(struct platform_device *pdev)
 	struct pxa_camera_dev *pcdev = dev_get_drvdata(&pdev->dev);
 
 	pxa_camera_deactivate(pcdev);
+	tasklet_kill(&pcdev->task_eof);
 	dma_release_channel(pcdev->dma_chans[0]);
 	dma_release_channel(pcdev->dma_chans[1]);
 	dma_release_channel(pcdev->dma_chans[2]);

@@ -11,12 +11,10 @@
 #ifndef _SPEAKUP_PRIVATE_H
 #define _SPEAKUP_PRIVATE_H
 
+#include <linux/printk.h>
+
 #include "spk_types.h"
 #include "spk_priv_keyinfo.h"
-
-#ifndef pr_warn
-#define pr_warn(fmt, arg...) printk(KERN_WARNING fmt, ##arg)
-#endif
 
 #define V_LAST_VAR { MAXVARS }
 #define SPACE 0x20
@@ -74,6 +72,7 @@ int synth_request_region(unsigned long start, unsigned long n);
 int synth_release_region(unsigned long start, unsigned long n);
 int synth_add(struct spk_synth *in_synth);
 void synth_remove(struct spk_synth *in_synth);
+struct spk_synth *synth_current(void);
 
 extern struct speakup_info_t speakup_info;
 

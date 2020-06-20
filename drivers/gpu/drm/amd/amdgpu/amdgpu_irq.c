@@ -43,8 +43,11 @@
  */
 
 #include <linux/irq.h>
-#include <drm/drmP.h>
+#include <linux/pci.h>
+
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_irq.h>
+#include <drm/drm_vblank.h>
 #include <drm/amdgpu_drm.h>
 #include "amdgpu.h"
 #include "amdgpu_ih.h"
@@ -52,6 +55,7 @@
 #include "amdgpu_connectors.h"
 #include "amdgpu_trace.h"
 #include "amdgpu_amdkfd.h"
+#include "amdgpu_ras.h"
 
 #include <linux/pm_runtime.h>
 
@@ -84,10 +88,13 @@ static void amdgpu_hotplug_work_func(struct work_struct *work)
 	struct drm_device *dev = adev->ddev;
 	struct drm_mode_config *mode_config = &dev->mode_config;
 	struct drm_connector *connector;
+	struct drm_connector_list_iter iter;
 
 	mutex_lock(&mode_config->mutex);
-	list_for_each_entry(connector, &mode_config->connector_list, head)
+	drm_connector_list_iter_begin(dev, &iter);
+	drm_for_each_connector_iter(connector, &iter)
 		amdgpu_connector_hotplug(connector);
+	drm_connector_list_iter_end(&iter);
 	mutex_unlock(&mode_config->mutex);
 	/* Just fire off a uevent and let userspace tell us what to do */
 	drm_helper_hpd_irq_event(dev);
@@ -131,27 +138,6 @@ void amdgpu_irq_disable_all(struct amdgpu_device *adev)
 }
 
 /**
- * amdgpu_irq_callback - callback from the IH ring
- *
- * @adev: amdgpu device pointer
- * @ih: amdgpu ih ring
- *
- * Callback from IH ring processing to handle the entry at the current position
- * and advance the read pointer.
- */
-static void amdgpu_irq_callback(struct amdgpu_device *adev,
-				struct amdgpu_ih_ring *ih)
-{
-	u32 ring_index = ih->rptr >> 2;
-	struct amdgpu_iv_entry entry;
-
-	entry.iv_entry = (const uint32_t *)&ih->ring[ring_index];
-	amdgpu_ih_decode_iv(adev, &entry);
-
-	amdgpu_irq_dispatch(adev, &entry);
-}
-
-/**
  * amdgpu_irq_handler - IRQ handler
  *
  * @irq: IRQ number (unused)
@@ -168,10 +154,56 @@ irqreturn_t amdgpu_irq_handler(int irq, void *arg)
 	struct amdgpu_device *adev = dev->dev_private;
 	irqreturn_t ret;
 
-	ret = amdgpu_ih_process(adev, &adev->irq.ih, amdgpu_irq_callback);
+	ret = amdgpu_ih_process(adev, &adev->irq.ih);
 	if (ret == IRQ_HANDLED)
 		pm_runtime_mark_last_busy(dev->dev);
+
+	/* For the hardware that cannot enable bif ring for both ras_controller_irq
+         * and ras_err_evnet_athub_irq ih cookies, the driver has to poll status
+	 * register to check whether the interrupt is triggered or not, and properly
+	 * ack the interrupt if it is there
+	 */
+	if (amdgpu_ras_is_supported(adev, AMDGPU_RAS_BLOCK__PCIE_BIF)) {
+		if (adev->nbio.funcs &&
+		    adev->nbio.funcs->handle_ras_controller_intr_no_bifring)
+			adev->nbio.funcs->handle_ras_controller_intr_no_bifring(adev);
+
+		if (adev->nbio.funcs &&
+		    adev->nbio.funcs->handle_ras_err_event_athub_intr_no_bifring)
+			adev->nbio.funcs->handle_ras_err_event_athub_intr_no_bifring(adev);
+	}
+
 	return ret;
+}
+
+/**
+ * amdgpu_irq_handle_ih1 - kick of processing for IH1
+ *
+ * @work: work structure in struct amdgpu_irq
+ *
+ * Kick of processing IH ring 1.
+ */
+static void amdgpu_irq_handle_ih1(struct work_struct *work)
+{
+	struct amdgpu_device *adev = container_of(work, struct amdgpu_device,
+						  irq.ih1_work);
+
+	amdgpu_ih_process(adev, &adev->irq.ih1);
+}
+
+/**
+ * amdgpu_irq_handle_ih2 - kick of processing for IH2
+ *
+ * @work: work structure in struct amdgpu_irq
+ *
+ * Kick of processing IH ring 2.
+ */
+static void amdgpu_irq_handle_ih2(struct work_struct *work)
+{
+	struct amdgpu_device *adev = container_of(work, struct amdgpu_device,
+						  irq.ih2_work);
+
+	amdgpu_ih_process(adev, &adev->irq.ih2);
 }
 
 /**
@@ -216,10 +248,19 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
 	adev->irq.msi_enabled = false;
 
 	if (amdgpu_msi_ok(adev)) {
-		int ret = pci_enable_msi(adev->pdev);
-		if (!ret) {
+		int nvec = pci_msix_vec_count(adev->pdev);
+		unsigned int flags;
+
+		if (nvec <= 0) {
+			flags = PCI_IRQ_MSI;
+		} else {
+			flags = PCI_IRQ_MSI | PCI_IRQ_MSIX;
+		}
+		/* we only need one vector */
+		nvec = pci_alloc_irq_vectors(adev->pdev, 1, 1, flags);
+		if (nvec > 0) {
 			adev->irq.msi_enabled = true;
-			dev_dbg(adev->dev, "amdgpu: using MSI.\n");
+			dev_dbg(adev->dev, "using MSI/MSI-X.\n");
 		}
 	}
 
@@ -238,8 +279,12 @@ int amdgpu_irq_init(struct amdgpu_device *adev)
 				amdgpu_hotplug_work_func);
 	}
 
+	INIT_WORK(&adev->irq.ih1_work, amdgpu_irq_handle_ih1);
+	INIT_WORK(&adev->irq.ih2_work, amdgpu_irq_handle_ih2);
+
 	adev->irq.installed = true;
-	r = drm_irq_install(adev->ddev, adev->ddev->pdev->irq);
+	/* Use vector 0 for MSI-X */
+	r = drm_irq_install(adev->ddev, pci_irq_vector(adev->pdev, 0));
 	if (r) {
 		adev->irq.installed = false;
 		if (!amdgpu_device_has_dc_support(adev))
@@ -269,7 +314,7 @@ void amdgpu_irq_fini(struct amdgpu_device *adev)
 		drm_irq_uninstall(adev->ddev);
 		adev->irq.installed = false;
 		if (adev->irq.msi_enabled)
-			pci_disable_msi(adev->pdev);
+			pci_free_irq_vectors(adev->pdev);
 		if (!amdgpu_device_has_dc_support(adev))
 			flush_work(&adev->hotplug_work);
 	}
@@ -354,20 +399,27 @@ int amdgpu_irq_add_id(struct amdgpu_device *adev,
  * amdgpu_irq_dispatch - dispatch IRQ to IP blocks
  *
  * @adev: amdgpu device pointer
- * @entry: interrupt vector pointer
+ * @ih: interrupt ring instance
  *
  * Dispatches IRQ to IP blocks.
  */
 void amdgpu_irq_dispatch(struct amdgpu_device *adev,
-			 struct amdgpu_iv_entry *entry)
+			 struct amdgpu_ih_ring *ih)
 {
-	unsigned client_id = entry->client_id;
-	unsigned src_id = entry->src_id;
+	u32 ring_index = ih->rptr >> 2;
+	struct amdgpu_iv_entry entry;
+	unsigned client_id, src_id;
 	struct amdgpu_irq_src *src;
 	bool handled = false;
 	int r;
 
-	trace_amdgpu_iv(entry);
+	entry.iv_entry = (const uint32_t *)&ih->ring[ring_index];
+	amdgpu_ih_decode_iv(adev, &entry);
+
+	trace_amdgpu_iv(ih - &adev->irq.ih, &entry);
+
+	client_id = entry.client_id;
+	src_id = entry.src_id;
 
 	if (client_id >= AMDGPU_IRQ_CLIENTID_MAX) {
 		DRM_DEBUG("Invalid client_id in IV: %d\n", client_id);
@@ -383,7 +435,7 @@ void amdgpu_irq_dispatch(struct amdgpu_device *adev,
 			  client_id, src_id);
 
 	} else if ((src = adev->irq.client[client_id].sources[src_id])) {
-		r = src->funcs->process(adev, src, entry);
+		r = src->funcs->process(adev, src, &entry);
 		if (r < 0)
 			DRM_ERROR("error processing interrupt (%d)\n", r);
 		else if (r)
@@ -395,7 +447,7 @@ void amdgpu_irq_dispatch(struct amdgpu_device *adev,
 
 	/* Send it to amdkfd as well if it isn't already handled */
 	if (!handled)
-		amdgpu_amdkfd_interrupt(adev, entry->iv_entry);
+		amdgpu_amdkfd_interrupt(adev, entry.iv_entry);
 }
 
 /**

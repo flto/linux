@@ -1,18 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Murata ZPA2326 pressure and temperature sensor IIO driver
  *
  * Copyright (c) 2016 Parrot S.A.
  *
  * Author: Gregor Boirie <gregor.boirie@parrot.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  */
 
 /**
@@ -72,6 +64,7 @@
 #include <linux/iio/trigger.h>
 #include <linux/iio/trigger_consumer.h>
 #include <linux/iio/triggered_buffer.h>
+#include <asm/unaligned.h>
 #include "zpa2326.h"
 
 /* 200 ms should be enough for the longest conversion time in one-shot mode. */
@@ -1013,22 +1006,20 @@ static int zpa2326_fetch_raw_sample(const struct iio_dev *indio_dev,
 	struct regmap *regs = ((struct zpa2326_private *)
 			       iio_priv(indio_dev))->regmap;
 	int            err;
+	u8             v[3];
 
 	switch (type) {
 	case IIO_PRESSURE:
 		zpa2326_dbg(indio_dev, "fetching raw pressure sample");
 
-		err = regmap_bulk_read(regs, ZPA2326_PRESS_OUT_XL_REG, value,
-				       3);
+		err = regmap_bulk_read(regs, ZPA2326_PRESS_OUT_XL_REG, v, sizeof(v));
 		if (err) {
 			zpa2326_warn(indio_dev, "failed to fetch pressure (%d)",
 				     err);
 			return err;
 		}
 
-		/* Pressure is a 24 bits wide little-endian unsigned int. */
-		*value = (((u8 *)value)[2] << 16) | (((u8 *)value)[1] << 8) |
-			 ((u8 *)value)[0];
+		*value = get_unaligned_le24(&v[0]);
 
 		return IIO_VAL_INT;
 
@@ -1251,6 +1242,11 @@ static int zpa2326_postenable_buffer(struct iio_dev *indio_dev)
 	const struct zpa2326_private *priv = iio_priv(indio_dev);
 	int                           err;
 
+	/* Plug our own trigger event handler. */
+	err = iio_triggered_buffer_postenable(indio_dev);
+	if (err)
+		goto err;
+
 	if (!priv->waken) {
 		/*
 		 * We were already power supplied. Just clear hardware FIFO to
@@ -1258,7 +1254,7 @@ static int zpa2326_postenable_buffer(struct iio_dev *indio_dev)
 		 */
 		err = zpa2326_clear_fifo(indio_dev, 0);
 		if (err)
-			goto err;
+			goto err_buffer_predisable;
 	}
 
 	if (!iio_trigger_using_own(indio_dev) && priv->waken) {
@@ -1268,16 +1264,13 @@ static int zpa2326_postenable_buffer(struct iio_dev *indio_dev)
 		 */
 		err = zpa2326_config_oneshot(indio_dev, priv->irq);
 		if (err)
-			goto err;
+			goto err_buffer_predisable;
 	}
-
-	/* Plug our own trigger event handler. */
-	err = iio_triggered_buffer_postenable(indio_dev);
-	if (err)
-		goto err;
 
 	return 0;
 
+err_buffer_predisable:
+	iio_triggered_buffer_predisable(indio_dev);
 err:
 	zpa2326_err(indio_dev, "failed to enable buffering (%d)", err);
 

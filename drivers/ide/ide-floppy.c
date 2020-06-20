@@ -19,6 +19,7 @@
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
+#include <linux/compat.h>
 #include <linux/delay.h>
 #include <linux/timer.h>
 #include <linux/mm.h>
@@ -427,7 +428,7 @@ static int ide_floppy_get_capacity(ide_drive_t *drive)
 				 * (maintains previous driver behaviour)
 				 */
 				break;
-			/* else: fall through */
+			/* fall through */
 		case CAPACITY_CURRENT:
 			/* Normal Zip/LS-120 disks */
 			if (memcmp(cap_desc, &floppy->cap_desc, 8))
@@ -546,4 +547,7 @@ const struct ide_disk_ops ide_atapi_disk_ops = {
 	.set_doorlock	= ide_set_media_lock,
 	.do_request	= ide_floppy_do_request,
 	.ioctl		= ide_floppy_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= ide_floppy_compat_ioctl,
+#endif
 };

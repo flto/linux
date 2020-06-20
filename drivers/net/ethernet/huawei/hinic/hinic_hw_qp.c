@@ -1,16 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Huawei HiNIC PCI Express Linux driver
  * Copyright(c) 2017 Huawei Technologies Co., Ltd
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * for more details.
- *
  */
 
 #include <linux/kernel.h>
@@ -117,7 +108,12 @@ void hinic_sq_prepare_ctxt(struct hinic_sq_ctxt *sq_ctxt,
 	wq_page_pfn_hi = upper_32_bits(wq_page_pfn);
 	wq_page_pfn_lo = lower_32_bits(wq_page_pfn);
 
-	wq_block_pfn = HINIC_WQ_BLOCK_PFN(wq->block_paddr);
+	/* If only one page, use 0-level CLA */
+	if (wq->num_q_pages == 1)
+		wq_block_pfn = HINIC_WQ_BLOCK_PFN(wq_page_addr);
+	else
+		wq_block_pfn = HINIC_WQ_BLOCK_PFN(wq->block_paddr);
+
 	wq_block_pfn_hi = upper_32_bits(wq_block_pfn);
 	wq_block_pfn_lo = lower_32_bits(wq_block_pfn);
 
@@ -647,6 +643,7 @@ void hinic_sq_write_db(struct hinic_sq *sq, u16 prod_idx, unsigned int wqe_size,
 
 	/* increment prod_idx to the next */
 	prod_idx += ALIGN(wqe_size, wq->wqebb_size) / wq->wqebb_size;
+	prod_idx = SQ_MASKED_IDX(sq, prod_idx);
 
 	wmb();  /* Write all before the doorbell */
 

@@ -53,7 +53,8 @@ nfp_abm_setup_tc(struct nfp_app *app, struct net_device *netdev,
 	}
 }
 
-static struct net_device *nfp_abm_repr_get(struct nfp_app *app, u32 port_id)
+static struct net_device *
+nfp_abm_repr_get(struct nfp_app *app, u32 port_id, bool *redir_egress)
 {
 	enum nfp_repr_type rtype;
 	struct nfp_reprs *reprs;
@@ -282,6 +283,7 @@ nfp_abm_vnic_set_mac(struct nfp_pf *pf, struct nfp_abm *abm, struct nfp_net *nn,
 	if (!nfp_nsp_has_hwinfo_lookup(nsp)) {
 		nfp_warn(pf->cpp, "NSP doesn't support PF MAC generation\n");
 		eth_hw_addr_random(nn->dp.netdev);
+		nfp_nsp_close(nsp);
 		return;
 	}
 
@@ -331,8 +333,10 @@ nfp_abm_vnic_alloc(struct nfp_app *app, struct nfp_net *nn, unsigned int id)
 		goto err_free_alink;
 
 	alink->prio_map = kzalloc(abm->prio_map_len, GFP_KERNEL);
-	if (!alink->prio_map)
+	if (!alink->prio_map) {
+		err = -ENOMEM;
 		goto err_free_alink;
+	}
 
 	/* This is a multi-host app, make sure MAC/PHY is up, but don't
 	 * make the MAC/PHY state follow the state of any of the ports.
@@ -549,5 +553,5 @@ const struct nfp_app_type app_abm = {
 	.eswitch_mode_get	= nfp_abm_eswitch_mode_get,
 	.eswitch_mode_set	= nfp_abm_eswitch_mode_set,
 
-	.repr_get	= nfp_abm_repr_get,
+	.dev_get	= nfp_abm_repr_get,
 };

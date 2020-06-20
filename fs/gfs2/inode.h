@@ -1,10 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) Sistina Software, Inc.  1997-2003 All rights reserved.
  * Copyright (C) 2004-2006 Red Hat, Inc.  All rights reserved.
- *
- * This copyrighted material is made available to anyone wishing to use,
- * modify, copy, or redistribute it subject to the terms and conditions
- * of the GNU General Public License version 2.
  */
 
 #ifndef __INODE_DOT_H__
@@ -59,8 +56,8 @@ static inline u64 gfs2_get_inode_blocks(const struct inode *inode)
 
 static inline void gfs2_add_inode_blocks(struct inode *inode, s64 change)
 {
-	gfs2_assert(GFS2_SB(inode), (change >= 0 || inode->i_blocks > -change));
-	change *= (GFS2_SB(inode)->sd_sb.sb_bsize/GFS2_BASIC_BLOCK);
+	change <<= inode->i_blkbits - GFS2_BASIC_BLOCK_SHIFT;
+	gfs2_assert(GFS2_SB(inode), (change >= 0 || inode->i_blocks >= -change));
 	inode->i_blocks += change;
 }
 
@@ -95,7 +92,7 @@ extern struct inode *gfs2_inode_lookup(struct super_block *sb, unsigned type,
 				       u64 no_addr, u64 no_formal_ino,
 				       unsigned int blktype);
 extern struct inode *gfs2_lookup_by_inum(struct gfs2_sbd *sdp, u64 no_addr,
-					 u64 *no_formal_ino,
+					 u64 no_formal_ino,
 					 unsigned int blktype);
 
 extern int gfs2_inode_refresh(struct gfs2_inode *ip);

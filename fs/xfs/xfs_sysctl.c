@@ -4,10 +4,7 @@
  * All Rights Reserved.
  */
 #include "xfs.h"
-#include <linux/sysctl.h>
-#include <linux/proc_fs.h>
 #include "xfs_error.h"
-#include "xfs_stats.h"
 
 static struct ctl_table_header *xfs_table_header;
 
@@ -16,7 +13,7 @@ STATIC int
 xfs_stats_clear_proc_handler(
 	struct ctl_table	*ctl,
 	int			write,
-	void			__user *buffer,
+	void			*buffer,
 	size_t			*lenp,
 	loff_t			*ppos)
 {
@@ -36,7 +33,7 @@ STATIC int
 xfs_panic_mask_proc_handler(
 	struct ctl_table	*ctl,
 	int			write,
-	void			__user *buffer,
+	void			*buffer,
 	size_t			*lenp,
 	loff_t			*ppos)
 {

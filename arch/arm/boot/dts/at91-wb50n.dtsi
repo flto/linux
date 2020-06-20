@@ -42,12 +42,8 @@
 	clock-frequency = <12000000>;
 };
 
-&slow_osc {
+&clk32k {
 	atmel,osc-bypass;
-};
-
-&usart1_clk {
-	atmel,clk-output-range = <0 132000000>;
 };
 
 &mmc0 {

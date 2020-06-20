@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * wm8753.c  --  WM8753 ALSA Soc Audio driver
  *
  * Copyright 2003-11 Wolfson Microelectronics PLC.
  * Author: Liam Girdwood <lrg@slimlogic.co.uk>
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
  *
  * Notes:
  *  The WM8753 is a low power, high quality stereo codec with integrated PCM
@@ -28,7 +24,6 @@
  *
  * The driver can now fast switch between the DAI configurations via a
  * an alsa kcontrol. This allows the PCM to remain open.
- *
  */
 
 #include <linux/module.h>
@@ -246,7 +241,7 @@ static int wm8753_set_dai(struct snd_kcontrol *kcontrol,
 	if (wm8753->dai_func == ucontrol->value.enumerated.item[0])
 		return 0;
 
-	if (snd_soc_component_is_active(component))
+	if (snd_soc_component_active(component))
 		return -EBUSY;
 
 	ioctl = snd_soc_component_read32(component, WM8753_IOCTL);
@@ -1309,7 +1304,7 @@ static int wm8753_mute(struct snd_soc_dai *dai, int mute)
 	/* the digital mute covers the HiFi and Voice DAC's on the WM8753.
 	 * make sure we check if they are not both active when we mute */
 	if (mute && wm8753->dai_func == 1) {
-		if (!snd_soc_component_is_active(component))
+		if (!snd_soc_component_active(component))
 			snd_soc_component_write(component, WM8753_DAC, mute_reg | 0x8);
 	} else {
 		if (mute)

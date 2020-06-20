@@ -173,7 +173,7 @@ enum uapi_radix_data {
 	UVERBS_API_OBJ_KEY_BITS = 5,
 	UVERBS_API_OBJ_KEY_SHIFT =
 		UVERBS_API_METHOD_KEY_BITS + UVERBS_API_METHOD_KEY_SHIFT,
-	UVERBS_API_OBJ_KEY_NUM_CORE = 24,
+	UVERBS_API_OBJ_KEY_NUM_CORE = 20,
 	UVERBS_API_OBJ_KEY_NUM_DRIVER =
 		(1 << UVERBS_API_OBJ_KEY_BITS) - UVERBS_API_OBJ_KEY_NUM_CORE,
 	UVERBS_API_OBJ_KEY_MASK = GENMASK(31, UVERBS_API_OBJ_KEY_SHIFT),
@@ -420,9 +420,9 @@ struct uapi_definition {
 		.scope = UAPI_SCOPE_OBJECT,                                    \
 		.needs_fn_offset =                                             \
 			offsetof(struct ib_device_ops, ibdev_fn) +             \
-			BUILD_BUG_ON_ZERO(                                     \
-			    sizeof(((struct ib_device_ops *)0)->ibdev_fn) !=   \
-			    sizeof(void *)),				       \
+			BUILD_BUG_ON_ZERO(sizeof_field(struct ib_device_ops,   \
+						       ibdev_fn) !=            \
+					  sizeof(void *)),                     \
 	}
 
 /*
@@ -435,9 +435,9 @@ struct uapi_definition {
 		.scope = UAPI_SCOPE_METHOD,                                    \
 		.needs_fn_offset =                                             \
 			offsetof(struct ib_device_ops, ibdev_fn) +             \
-			BUILD_BUG_ON_ZERO(                                     \
-			    sizeof(((struct ib_device_ops *)0)->ibdev_fn) !=   \
-			    sizeof(void *)),                                   \
+			BUILD_BUG_ON_ZERO(sizeof_field(struct ib_device_ops,   \
+						       ibdev_fn) !=            \
+					  sizeof(void *)),                     \
 	}
 
 /* Call a function to determine if the entire object is supported or not */
@@ -491,8 +491,7 @@ struct uapi_definition {
  */
 #define UVERBS_ATTR_STRUCT(_type, _last)                                       \
 	.zero_trailing = 1,                                                    \
-	UVERBS_ATTR_SIZE(((uintptr_t)(&((_type *)0)->_last + 1)),              \
-			 sizeof(_type))
+	UVERBS_ATTR_SIZE(offsetofend(_type, _last), sizeof(_type))
 /*
  * Specifies at least min_len bytes must be passed in, but the amount can be
  * larger, up to the protocol maximum size. No check for zeroing is done.
@@ -652,6 +651,7 @@ struct uverbs_attr_bundle {
 	struct ib_udata driver_udata;
 	struct ib_udata ucore;
 	struct ib_uverbs_file *ufile;
+	struct ib_ucontext *context;
 	DECLARE_BITMAP(attr_present, UVERBS_API_ATTR_BKEY_LEN);
 	struct uverbs_attr attrs[];
 };
@@ -662,6 +662,23 @@ static inline bool uverbs_attr_is_valid(const struct uverbs_attr_bundle *attrs_b
 	return test_bit(uapi_bkey_attr(uapi_key_attr(idx)),
 			attrs_bundle->attr_present);
 }
+
+/**
+ * rdma_udata_to_drv_context - Helper macro to get the driver's context out of
+ *                             ib_udata which is embedded in uverbs_attr_bundle.
+ *
+ * If udata is not NULL this cannot fail. Otherwise a NULL udata will result
+ * in a NULL ucontext pointer, as a safety precaution. Callers should be using
+ * 'udata' to determine if the driver call is in user or kernel mode, not
+ * 'ucontext'.
+ *
+ */
+#define rdma_udata_to_drv_context(udata, drv_dev_struct, member)               \
+	(udata ? container_of(container_of(udata, struct uverbs_attr_bundle,   \
+					   driver_udata)                       \
+				      ->context,                               \
+			      drv_dev_struct, member) :                        \
+		 (drv_dev_struct *)NULL)
 
 #define IS_UVERBS_COPY_ERR(_ret)		((_ret) && (_ret) != -ENOENT)
 
@@ -718,6 +735,9 @@ uverbs_attr_get_len(const struct uverbs_attr_bundle *attrs_bundle, u16 idx)
 
 	return attr->ptr_attr.len;
 }
+
+void uverbs_finalize_uobj_create(const struct uverbs_attr_bundle *attrs_bundle,
+				 u16 idx);
 
 /*
  * uverbs_attr_ptr_get_array_size() - Get array size pointer by a ptr

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ps3vram - Use extra PS3 video ram as block device.
  *
@@ -736,7 +737,7 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 
 	ps3vram_proc_init(dev);
 
-	queue = blk_alloc_queue(GFP_KERNEL);
+	queue = blk_alloc_queue(ps3vram_make_request, NUMA_NO_NODE);
 	if (!queue) {
 		dev_err(&dev->core, "blk_alloc_queue failed\n");
 		error = -ENOMEM;
@@ -745,7 +746,6 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 
 	priv->queue = queue;
 	queue->queuedata = dev;
-	blk_queue_make_request(queue, ps3vram_make_request);
 	blk_queue_max_segments(queue, BLK_MAX_SEGMENTS);
 	blk_queue_max_segment_size(queue, BLK_MAX_SEGMENT_SIZE);
 	blk_queue_max_hw_sectors(queue, BLK_SAFE_MAX_SECTORS);
@@ -766,7 +766,7 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 	strlcpy(gendisk->disk_name, DEVICE_NAME, sizeof(gendisk->disk_name));
 	set_capacity(gendisk, priv->size >> 9);
 
-	dev_info(&dev->core, "%s: Using %lu MiB of GPU memory\n",
+	dev_info(&dev->core, "%s: Using %llu MiB of GPU memory\n",
 		 gendisk->disk_name, get_capacity(gendisk) >> 11);
 
 	device_add_disk(&dev->core, gendisk, NULL);

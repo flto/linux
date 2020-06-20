@@ -1,10 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright © 2009 - Maxim Levitsky
  * driver for Ricoh xD readers
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #define DRV_NAME "r852"
@@ -45,7 +42,6 @@ static inline void r852_write_reg(struct r852_device *dev,
 						int address, uint8_t value)
 {
 	writeb(value, dev->mmio + address);
-	mmiowb();
 }
 
 
@@ -61,7 +57,6 @@ static inline void r852_write_reg_dword(struct r852_device *dev,
 							int address, uint32_t value)
 {
 	writel(cpu_to_le32(value), dev->mmio + address);
-	mmiowb();
 }
 
 /* returns pointer to our private structure */
@@ -369,8 +364,7 @@ static int r852_wait(struct nand_chip *chip)
 	unsigned long timeout;
 	u8 status;
 
-	timeout = jiffies + (chip->state == FL_ERASING ?
-		msecs_to_jiffies(400) : msecs_to_jiffies(20));
+	timeout = jiffies + msecs_to_jiffies(400);
 
 	while (time_before(jiffies, timeout))
 		if (chip->legacy.dev_ready(chip))
@@ -657,7 +651,8 @@ static int r852_register_nand_device(struct r852_device *dev)
 	dev->card_registered = 1;
 	return 0;
 error3:
-	nand_release(dev->chip);
+	WARN_ON(mtd_device_unregister(nand_to_mtd(dev->chip)));
+	nand_cleanup(dev->chip);
 error1:
 	/* Force card redetect */
 	dev->card_detected = 0;
@@ -676,7 +671,8 @@ static void r852_unregister_nand_device(struct r852_device *dev)
 		return;
 
 	device_remove_file(&mtd->dev, &dev_attr_media_type);
-	nand_release(dev->chip);
+	WARN_ON(mtd_device_unregister(mtd));
+	nand_cleanup(dev->chip);
 	r852_engine_disable(dev);
 	dev->card_registered = 0;
 }
@@ -1004,7 +1000,7 @@ static void r852_shutdown(struct pci_dev *pci_dev)
 #ifdef CONFIG_PM_SLEEP
 static int r852_suspend(struct device *device)
 {
-	struct r852_device *dev = pci_get_drvdata(to_pci_dev(device));
+	struct r852_device *dev = dev_get_drvdata(device);
 
 	if (dev->ctlreg & R852_CTL_CARDENABLE)
 		return -EBUSY;
@@ -1025,7 +1021,7 @@ static int r852_suspend(struct device *device)
 
 static int r852_resume(struct device *device)
 {
-	struct r852_device *dev = pci_get_drvdata(to_pci_dev(device));
+	struct r852_device *dev = dev_get_drvdata(device);
 
 	r852_disable_irqs(dev);
 	r852_card_update_present(dev);

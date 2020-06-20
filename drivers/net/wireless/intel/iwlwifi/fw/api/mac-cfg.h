@@ -8,7 +8,7 @@
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2019 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -31,7 +31,7 @@
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
  * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2019 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -73,6 +73,24 @@ enum iwl_mac_conf_subcmd_ids {
 	 * @LOW_LATENCY_CMD: &struct iwl_mac_low_latency_cmd
 	 */
 	LOW_LATENCY_CMD = 0x3,
+	/**
+	 * @CHANNEL_SWITCH_TIME_EVENT_CMD: &struct iwl_chan_switch_te_cmd
+	 */
+	CHANNEL_SWITCH_TIME_EVENT_CMD = 0x4,
+	/**
+	 * @MISSED_VAP_NOTIF: &struct iwl_missed_vap_notif
+	 */
+	MISSED_VAP_NOTIF = 0xFA,
+	/**
+	 * @SESSION_PROTECTION_CMD: &struct iwl_mvm_session_prot_cmd
+	 */
+	SESSION_PROTECTION_CMD = 0x5,
+
+	/**
+	 * @SESSION_PROTECTION_NOTIF: &struct iwl_mvm_session_prot_notif
+	 */
+	SESSION_PROTECTION_NOTIF = 0xFB,
+
 	/**
 	 * @PROBE_RESPONSE_DATA_NOTIF: &struct iwl_probe_resp_data_notif
 	 */
@@ -127,6 +145,21 @@ struct iwl_probe_resp_data_notif {
 } __packed; /* PROBE_RESPONSE_DATA_NTFY_API_S_VER_1 */
 
 /**
+ * struct iwl_missed_vap_notif - notification of missing vap detection
+ *
+ * @mac_id: the mac for which the ucode sends the notification for
+ * @num_beacon_intervals_elapsed: beacons elpased with no vap profile inside
+ * @profile_periodicity: beacons period to have our profile inside
+ * @reserved: reserved for alignment purposes
+ */
+struct iwl_missed_vap_notif {
+	__le32 mac_id;
+	u8 num_beacon_intervals_elapsed;
+	u8 profile_periodicity;
+	u8 reserved[2];
+} __packed; /* MISSED_VAP_NTFY_API_S_VER_1 */
+
+/**
  * struct iwl_channel_switch_noa_notif - Channel switch NOA notification
  *
  * @id_and_color: ID and color of the MAC
@@ -134,6 +167,29 @@ struct iwl_probe_resp_data_notif {
 struct iwl_channel_switch_noa_notif {
 	__le32 id_and_color;
 } __packed; /* CHANNEL_SWITCH_START_NTFY_API_S_VER_1 */
+
+/**
+ * struct iwl_chan_switch_te_cmd - Channel Switch Time Event command
+ *
+ * @mac_id: MAC ID for channel switch
+ * @action: action to perform, one of FW_CTXT_ACTION_*
+ * @tsf: beacon tsf
+ * @cs_count: channel switch count from CSA/eCSA IE
+ * @cs_delayed_bcn_count: if set to N (!= 0) GO/AP can delay N beacon intervals
+ *	at the new channel after the channel switch, otherwise (N == 0) expect
+ *	beacon right after the channel switch.
+ * @cs_mode: 1 - quiet, 0 - otherwise
+ * @reserved: reserved for alignment purposes
+ */
+struct iwl_chan_switch_te_cmd {
+	__le32 mac_id;
+	__le32 action;
+	__le32 tsf;
+	u8 cs_count;
+	u8 cs_delayed_bcn_count;
+	u8 cs_mode;
+	u8 reserved;
+} __packed; /* MAC_CHANNEL_SWITCH_TIME_EVENT_S_VER_2 */
 
 /**
  * struct iwl_mac_low_latency_cmd - set/clear mac to 'low-latency mode'

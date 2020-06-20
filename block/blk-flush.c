@@ -1,10 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Functions to sequence PREFLUSH and FUA writes.
  *
  * Copyright (C) 2011		Max Planck Institute for Gravitational Physics
  * Copyright (C) 2011		Tejun Heo <tj@kernel.org>
- *
- * This file is released under the GPLv2.
  *
  * REQ_{PREFLUSH|FUA} requests are decomposed to sequences consisted of three
  * optional steps - PREFLUSH, DATA and POSTFLUSH - according to the request
@@ -70,6 +69,7 @@
 #include <linux/blkdev.h>
 #include <linux/gfp.h>
 #include <linux/blk-mq.h>
+#include <linux/lockdep.h>
 
 #include "blk.h"
 #include "blk-mq.h"
@@ -137,6 +137,17 @@ static void blk_flush_queue_rq(struct request *rq, bool add_front)
 	blk_mq_add_to_requeue_list(rq, add_front, true);
 }
 
+static void blk_account_io_flush(struct request *rq)
+{
+	struct hd_struct *part = &rq->rq_disk->part0;
+
+	part_stat_lock();
+	part_stat_inc(part, ios[STAT_FLUSH]);
+	part_stat_add(part, nsecs[STAT_FLUSH],
+		      ktime_get_ns() - rq->start_time_ns);
+	part_stat_unlock();
+}
+
 /**
  * blk_flush_complete_seq - complete flush sequence
  * @rq: PREFLUSH/FUA request being sequenced
@@ -149,9 +160,6 @@ static void blk_flush_queue_rq(struct request *rq, bool add_front)
  *
  * CONTEXT:
  * spin_lock_irq(fq->mq_flush_lock)
- *
- * RETURNS:
- * %true if requests were added to the dispatch queue, %false otherwise.
  */
 static void blk_flush_complete_seq(struct request *rq,
 				   struct blk_flush_queue *fq,
@@ -186,7 +194,7 @@ static void blk_flush_complete_seq(struct request *rq,
 
 	case REQ_FSEQ_DONE:
 		/*
-		 * @rq was previously adjusted by blk_flush_issue() for
+		 * @rq was previously adjusted by blk_insert_flush() for
 		 * flush sequencing and may already have gone through the
 		 * flush data request completion path.  Restore @rq for
 		 * normal completion and end it.
@@ -213,14 +221,26 @@ static void flush_end_io(struct request *flush_rq, blk_status_t error)
 	struct blk_flush_queue *fq = blk_get_flush_queue(q, flush_rq->mq_ctx);
 	struct blk_mq_hw_ctx *hctx;
 
+	blk_account_io_flush(flush_rq);
+
 	/* release the tag's ownership to the req cloned from */
 	spin_lock_irqsave(&fq->mq_flush_lock, flags);
+
+	if (!refcount_dec_and_test(&flush_rq->ref)) {
+		fq->rq_status = error;
+		spin_unlock_irqrestore(&fq->mq_flush_lock, flags);
+		return;
+	}
+
+	if (fq->rq_status != BLK_STS_OK)
+		error = fq->rq_status;
+
 	hctx = flush_rq->mq_hctx;
 	if (!q->elevator) {
 		blk_mq_tag_set_rq(hctx, flush_rq->tag, fq->orig_rq);
 		flush_rq->tag = -1;
 	} else {
-		blk_mq_put_driver_tag_hctx(hctx, flush_rq);
+		blk_mq_put_driver_tag(flush_rq);
 		flush_rq->internal_tag = -1;
 	}
 
@@ -238,7 +258,6 @@ static void flush_end_io(struct request *flush_rq, blk_status_t error)
 		blk_flush_complete_seq(rq, fq, seq, error);
 	}
 
-	fq->flush_queue_delayed = 0;
 	spin_unlock_irqrestore(&fq->mq_flush_lock, flags);
 }
 
@@ -324,7 +343,7 @@ static void mq_flush_data_end_io(struct request *rq, blk_status_t error)
 
 	if (q->elevator) {
 		WARN_ON(rq->tag < 0);
-		blk_mq_put_driver_tag_hctx(hctx, rq);
+		blk_mq_put_driver_tag(rq);
 	}
 
 	/*
@@ -335,7 +354,7 @@ static void mq_flush_data_end_io(struct request *rq, blk_status_t error)
 	blk_flush_complete_seq(rq, fq, REQ_FSEQ_DATA, error);
 	spin_unlock_irqrestore(&fq->mq_flush_lock, flags);
 
-	blk_mq_run_hw_queue(hctx, true);
+	blk_mq_sched_restart(hctx);
 }
 
 /**
@@ -389,7 +408,7 @@ void blk_insert_flush(struct request *rq)
 	 */
 	if ((policy & REQ_FSEQ_DATA) &&
 	    !(policy & (REQ_FSEQ_PREFLUSH | REQ_FSEQ_POSTFLUSH))) {
-		blk_mq_request_bypass_insert(rq, false);
+		blk_mq_request_bypass_insert(rq, false, false);
 		return;
 	}
 
@@ -413,57 +432,27 @@ void blk_insert_flush(struct request *rq)
  * blkdev_issue_flush - queue a flush
  * @bdev:	blockdev to issue flush for
  * @gfp_mask:	memory allocation flags (for bio_alloc)
- * @error_sector:	error sector
  *
  * Description:
- *    Issue a flush for the block device in question. Caller can supply
- *    room for storing the error offset in case of a flush error, if they
- *    wish to.
+ *    Issue a flush for the block device in question.
  */
-int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
-		sector_t *error_sector)
+int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask)
 {
-	struct request_queue *q;
 	struct bio *bio;
 	int ret = 0;
-
-	if (bdev->bd_disk == NULL)
-		return -ENXIO;
-
-	q = bdev_get_queue(bdev);
-	if (!q)
-		return -ENXIO;
-
-	/*
-	 * some block devices may not have their queue correctly set up here
-	 * (e.g. loop device without a backing file) and so issuing a flush
-	 * here will panic. Ensure there is a request function before issuing
-	 * the flush.
-	 */
-	if (!q->make_request_fn)
-		return -ENXIO;
 
 	bio = bio_alloc(gfp_mask, 0);
 	bio_set_dev(bio, bdev);
 	bio->bi_opf = REQ_OP_WRITE | REQ_PREFLUSH;
 
 	ret = submit_bio_wait(bio);
-
-	/*
-	 * The driver must store the error location in ->bi_sector, if
-	 * it supports it. For non-stacked drivers, this should be
-	 * copied from blk_rq_pos(rq).
-	 */
-	if (error_sector)
-		*error_sector = bio->bi_iter.bi_sector;
-
 	bio_put(bio);
 	return ret;
 }
 EXPORT_SYMBOL(blkdev_issue_flush);
 
-struct blk_flush_queue *blk_alloc_flush_queue(struct request_queue *q,
-		int node, int cmd_size, gfp_t flags)
+struct blk_flush_queue *blk_alloc_flush_queue(int node, int cmd_size,
+					      gfp_t flags)
 {
 	struct blk_flush_queue *fq;
 	int rq_sz = sizeof(struct request);
@@ -483,6 +472,9 @@ struct blk_flush_queue *blk_alloc_flush_queue(struct request_queue *q,
 	INIT_LIST_HEAD(&fq->flush_queue[1]);
 	INIT_LIST_HEAD(&fq->flush_data_in_flight);
 
+	lockdep_register_key(&fq->key);
+	lockdep_set_class(&fq->mq_flush_lock, &fq->key);
+
 	return fq;
 
  fail_rq:
@@ -497,6 +489,7 @@ void blk_free_flush_queue(struct blk_flush_queue *fq)
 	if (!fq)
 		return;
 
+	lockdep_unregister_key(&fq->key);
 	kfree(fq->flush_rq);
 	kfree(fq);
 }

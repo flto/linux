@@ -39,6 +39,7 @@
 #include <linux/skbuff.h>
 #include <net/xfrm.h>
 #include "en.h"
+#include "en/txrx.h"
 
 struct sk_buff *mlx5e_ipsec_handle_rx_skb(struct net_device *netdev,
 					  struct sk_buff *skb, u32 *cqe_bcnt);
@@ -51,9 +52,9 @@ void mlx5e_ipsec_set_iv_esn(struct sk_buff *skb, struct xfrm_state *x,
 			    struct xfrm_offload *xo);
 void mlx5e_ipsec_set_iv(struct sk_buff *skb, struct xfrm_state *x,
 			struct xfrm_offload *xo);
-struct sk_buff *mlx5e_ipsec_handle_tx_skb(struct net_device *netdev,
-					  struct mlx5e_tx_wqe *wqe,
-					  struct sk_buff *skb);
+bool mlx5e_ipsec_handle_tx_skb(struct mlx5e_priv *priv,
+			       struct mlx5_wqe_eth_seg *eseg,
+			       struct sk_buff *skb);
 
 #endif /* CONFIG_MLX5_EN_IPSEC */
 

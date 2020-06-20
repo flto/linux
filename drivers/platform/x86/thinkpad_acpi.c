@@ -1,24 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  thinkpad_acpi.c - ThinkPad ACPI Extras
  *
- *
  *  Copyright (C) 2004-2005 Borislav Deianov <borislav@users.sf.net>
  *  Copyright (C) 2006-2009 Henrique de Moraes Holschuh <hmh@hmh.eng.br>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- *  02110-1301, USA.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -79,7 +64,7 @@
 #include <linux/jiffies.h>
 #include <linux/workqueue.h>
 #include <linux/acpi.h>
-#include <linux/pci_ids.h>
+#include <linux/pci.h>
 #include <linux/power_supply.h>
 #include <sound/core.h>
 #include <sound/control.h>
@@ -333,6 +318,7 @@ static struct {
 	u32 uwb:1;
 	u32 fan_ctrl_status_undef:1;
 	u32 second_fan:1;
+	u32 second_fan_ctl:1;
 	u32 beep_needs_two_args:1;
 	u32 mixer_no_level_control:1;
 	u32 battery_force_primary:1;
@@ -899,20 +885,11 @@ static ssize_t dispatch_proc_write(struct file *file,
 
 	if (!ibm || !ibm->write)
 		return -EINVAL;
-	if (count > PAGE_SIZE - 2)
-		return -EINVAL;
 
-	kernbuf = kmalloc(count + 2, GFP_KERNEL);
-	if (!kernbuf)
-		return -ENOMEM;
+	kernbuf = strndup_user(userbuf, PAGE_SIZE);
+	if (IS_ERR(kernbuf))
+		return PTR_ERR(kernbuf);
 
-	if (copy_from_user(kernbuf, userbuf, count)) {
-		kfree(kernbuf);
-		return -EFAULT;
-	}
-
-	kernbuf[count] = 0;
-	strcat(kernbuf, ",");
 	ret = ibm->write(kernbuf);
 	if (ret == 0)
 		ret = count;
@@ -922,31 +899,13 @@ static ssize_t dispatch_proc_write(struct file *file,
 	return ret;
 }
 
-static const struct file_operations dispatch_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= dispatch_proc_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-	.write		= dispatch_proc_write,
+static const struct proc_ops dispatch_proc_ops = {
+	.proc_open	= dispatch_proc_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+	.proc_write	= dispatch_proc_write,
 };
-
-static char *next_cmd(char **cmds)
-{
-	char *start = *cmds;
-	char *end;
-
-	while ((end = strchr(start, ',')) && end == start)
-		start = end + 1;
-
-	if (!end)
-		return NULL;
-
-	*end = 0;
-	*cmds = end + 1;
-	return start;
-}
-
 
 /****************************************************************************
  ****************************************************************************
@@ -1438,7 +1397,7 @@ static int tpacpi_rfk_procfs_write(const enum tpacpi_rfk_id id, char *buf)
 	if (id >= TPACPI_RFK_SW_MAX)
 		return -ENODEV;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (strlencmp(cmd, "enable") == 0)
 			status = TPACPI_RFK_RADIO_ON;
 		else if (strlencmp(cmd, "disable") == 0)
@@ -3662,22 +3621,19 @@ static int __init hotkey_init(struct ibm_init_struct *iibm)
 		goto err_exit;
 
 	/* Set up key map */
-	hotkey_keycode_map = kmalloc(TPACPI_HOTKEY_MAP_SIZE,
-					GFP_KERNEL);
-	if (!hotkey_keycode_map) {
-		pr_err("failed to allocate memory for key map\n");
-		res = -ENOMEM;
-		goto err_exit;
-	}
-
 	keymap_id = tpacpi_check_quirks(tpacpi_keymap_qtable,
 					ARRAY_SIZE(tpacpi_keymap_qtable));
 	BUG_ON(keymap_id >= ARRAY_SIZE(tpacpi_keymaps));
 	dbg_printk(TPACPI_DBG_INIT | TPACPI_DBG_HKEY,
 		   "using keymap number %lu\n", keymap_id);
 
-	memcpy(hotkey_keycode_map, &tpacpi_keymaps[keymap_id],
-		TPACPI_HOTKEY_MAP_SIZE);
+	hotkey_keycode_map = kmemdup(&tpacpi_keymaps[keymap_id],
+			TPACPI_HOTKEY_MAP_SIZE,	GFP_KERNEL);
+	if (!hotkey_keycode_map) {
+		pr_err("failed to allocate memory for key map\n");
+		res = -ENOMEM;
+		goto err_exit;
+	}
 
 	input_set_capability(tpacpi_inputdev, EV_MSC, MSC_SCAN);
 	tpacpi_inputdev->keycodesize = TPACPI_HOTKEY_MAP_TYPESIZE;
@@ -4212,7 +4168,7 @@ static void hotkey_notify(struct ibm_struct *ibm, u32 event)
 				known_ev = true;
 				break;
 			}
-			/* fallthrough to default */
+			/* fallthrough - to default */
 		default:
 			known_ev = false;
 		}
@@ -4324,7 +4280,7 @@ static int hotkey_write(char *buf)
 	mask = hotkey_user_mask;
 
 	res = 0;
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (strlencmp(cmd, "enable") == 0) {
 			hotkey_enabledisable_warn(1);
 		} else if (strlencmp(cmd, "disable") == 0) {
@@ -4501,6 +4457,74 @@ static void bluetooth_exit(void)
 	bluetooth_shutdown();
 }
 
+static const struct dmi_system_id bt_fwbug_list[] __initconst = {
+	{
+		.ident = "ThinkPad E485",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BOARD_NAME, "20KU"),
+		},
+	},
+	{
+		.ident = "ThinkPad E585",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BOARD_NAME, "20KV"),
+		},
+	},
+	{
+		.ident = "ThinkPad A285 - 20MW",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BOARD_NAME, "20MW"),
+		},
+	},
+	{
+		.ident = "ThinkPad A285 - 20MX",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BOARD_NAME, "20MX"),
+		},
+	},
+	{
+		.ident = "ThinkPad A485 - 20MU",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BOARD_NAME, "20MU"),
+		},
+	},
+	{
+		.ident = "ThinkPad A485 - 20MV",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_BOARD_NAME, "20MV"),
+		},
+	},
+	{}
+};
+
+static const struct pci_device_id fwbug_cards_ids[] __initconst = {
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x24F3) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x24FD) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x2526) },
+	{}
+};
+
+
+static int __init have_bt_fwbug(void)
+{
+	/*
+	 * Some AMD based ThinkPads have a firmware bug that calling
+	 * "GBDC" will cause bluetooth on Intel wireless cards blocked
+	 */
+	if (dmi_check_system(bt_fwbug_list) && pci_dev_present(fwbug_cards_ids)) {
+		vdbg_printk(TPACPI_DBG_INIT | TPACPI_DBG_RFKILL,
+			FW_BUG "disable bluetooth subdriver for Intel cards\n");
+		return 1;
+	} else
+		return 0;
+}
+
 static int __init bluetooth_init(struct ibm_init_struct *iibm)
 {
 	int res;
@@ -4513,7 +4537,7 @@ static int __init bluetooth_init(struct ibm_init_struct *iibm)
 
 	/* bluetooth not supported on 570, 600e/x, 770e, 770x, A21e, A2xm/p,
 	   G4x, R30, R31, R40e, R50e, T20-22, X20-21 */
-	tp_features.bluetooth = hkey_handle &&
+	tp_features.bluetooth = !have_bt_fwbug() && hkey_handle &&
 	    acpi_evalf(hkey_handle, &status, "GBDC", "qd");
 
 	vdbg_printk(TPACPI_DBG_INIT | TPACPI_DBG_RFKILL,
@@ -5183,7 +5207,7 @@ static int video_write(char *buf)
 	enable = 0;
 	disable = 0;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (strlencmp(cmd, "lcd_enable") == 0) {
 			enable |= TP_ACPI_VIDEO_S_LCD;
 		} else if (strlencmp(cmd, "lcd_disable") == 0) {
@@ -5384,8 +5408,7 @@ static int __init kbdlight_init(struct ibm_init_struct *iibm)
 
 static void kbdlight_exit(void)
 {
-	if (tp_features.kbdlight)
-		led_classdev_unregister(&tpacpi_led_kbdlight.led_classdev);
+	led_classdev_unregister(&tpacpi_led_kbdlight.led_classdev);
 }
 
 static int kbdlight_set_level_and_update(int level)
@@ -5423,23 +5446,18 @@ static int kbdlight_read(struct seq_file *m)
 static int kbdlight_write(char *buf)
 {
 	char *cmd;
-	int level = -1;
+	int res, level = -EINVAL;
 
 	if (!tp_features.kbdlight)
 		return -ENODEV;
 
-	while ((cmd = next_cmd(&buf))) {
-		if (strlencmp(cmd, "0") == 0)
-			level = 0;
-		else if (strlencmp(cmd, "1") == 0)
-			level = 1;
-		else if (strlencmp(cmd, "2") == 0)
-			level = 2;
-		else
-			return -EINVAL;
+	while ((cmd = strsep(&buf, ","))) {
+		res = kstrtoint(cmd, 10, &level);
+		if (res < 0)
+			return res;
 	}
 
-	if (level == -1)
+	if (level >= 3 || level < 0)
 		return -EINVAL;
 
 	return kbdlight_set_level_and_update(level);
@@ -5608,7 +5626,7 @@ static int light_write(char *buf)
 	if (!tp_features.light)
 		return -ENODEV;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (strlencmp(cmd, "on") == 0) {
 			newstatus = 1;
 		} else if (strlencmp(cmd, "off") == 0) {
@@ -5693,7 +5711,7 @@ static int cmos_write(char *buf)
 	char *cmd;
 	int cmos_cmd, res;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (sscanf(cmd, "%u", &cmos_cmd) == 1 &&
 		    cmos_cmd >= 0 && cmos_cmd <= 21) {
 			/* cmos_cmd set */
@@ -5808,7 +5826,7 @@ static int led_set_status(const unsigned int led,
 			return -EPERM;
 		if (!acpi_evalf(led_handle, NULL, NULL, "vdd",
 				(1 << led), led_sled_arg1[ledstatus]))
-			rc = -EIO;
+			return -EIO;
 		break;
 	case TPACPI_LED_OLD:
 		/* 600e/x, 770e, 770x, A21e, A2xm/p, T20-22, X20 */
@@ -5832,10 +5850,10 @@ static int led_set_status(const unsigned int led,
 			return -EPERM;
 		if (!acpi_evalf(led_handle, NULL, NULL, "vdd",
 				led, led_led_arg1[ledstatus]))
-			rc = -EIO;
+			return -EIO;
 		break;
 	default:
-		rc = -ENXIO;
+		return -ENXIO;
 	}
 
 	if (!rc)
@@ -5899,20 +5917,14 @@ static void led_exit(void)
 {
 	unsigned int i;
 
-	for (i = 0; i < TPACPI_LED_NUMLEDS; i++) {
-		if (tpacpi_leds[i].led_classdev.name)
-			led_classdev_unregister(&tpacpi_leds[i].led_classdev);
-	}
+	for (i = 0; i < TPACPI_LED_NUMLEDS; i++)
+		led_classdev_unregister(&tpacpi_leds[i].led_classdev);
 
 	kfree(tpacpi_leds);
 }
 
 static int __init tpacpi_init_led(unsigned int led)
 {
-	int rc;
-
-	tpacpi_leds[led].led = led;
-
 	/* LEDs with no name don't get registered */
 	if (!tpacpi_led_names[led])
 		return 0;
@@ -5920,17 +5932,12 @@ static int __init tpacpi_init_led(unsigned int led)
 	tpacpi_leds[led].led_classdev.brightness_set_blocking = &led_sysfs_set;
 	tpacpi_leds[led].led_classdev.blink_set = &led_sysfs_blink_set;
 	if (led_supported == TPACPI_LED_570)
-		tpacpi_leds[led].led_classdev.brightness_get =
-						&led_sysfs_get;
+		tpacpi_leds[led].led_classdev.brightness_get = &led_sysfs_get;
 
 	tpacpi_leds[led].led_classdev.name = tpacpi_led_names[led];
+	tpacpi_leds[led].led = led;
 
-	rc = led_classdev_register(&tpacpi_pdev->dev,
-				&tpacpi_leds[led].led_classdev);
-	if (rc < 0)
-		tpacpi_leds[led].led_classdev.name = NULL;
-
-	return rc;
+	return led_classdev_register(&tpacpi_pdev->dev, &tpacpi_leds[led].led_classdev);
 }
 
 static const struct tpacpi_quirk led_useful_qtable[] __initconst = {
@@ -6040,8 +6047,7 @@ static int __init led_init(struct ibm_init_struct *iibm)
 	for (i = 0; i < TPACPI_LED_NUMLEDS; i++) {
 		tpacpi_leds[i].led = -1;
 
-		if (!tpacpi_is_led_restricted(i) &&
-		    test_bit(i, &useful_leds)) {
+		if (!tpacpi_is_led_restricted(i) && test_bit(i, &useful_leds)) {
 			rc = tpacpi_init_led(i);
 			if (rc < 0) {
 				led_exit();
@@ -6094,12 +6100,14 @@ static int led_write(char *buf)
 	if (!led_supported)
 		return -ENODEV;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (sscanf(cmd, "%d", &led) != 1)
 			return -EINVAL;
 
-		if (led < 0 || led > (TPACPI_LED_NUMLEDS - 1) ||
-				tpacpi_leds[led].led < 0)
+		if (led < 0 || led > (TPACPI_LED_NUMLEDS - 1))
+			return -ENODEV;
+
+		if (tpacpi_leds[led].led < 0)
 			return -ENODEV;
 
 		if (strstr(cmd, "off")) {
@@ -6179,7 +6187,7 @@ static int beep_write(char *buf)
 	if (!beep_handle)
 		return -ENODEV;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (sscanf(cmd, "%u", &beep_cmd) == 1 &&
 		    beep_cmd >= 0 && beep_cmd <= 17) {
 			/* beep_cmd set */
@@ -6249,8 +6257,8 @@ static int thermal_get_sensor(int idx, s32 *value)
 			t = TP_EC_THERMAL_TMP8;
 			idx -= 8;
 		}
-		/* fallthrough */
 #endif
+		/* fallthrough */
 	case TPACPI_THERMAL_TPEC_8:
 		if (idx <= 7) {
 			if (!acpi_ec_read(t + idx, &tmp))
@@ -7067,7 +7075,7 @@ static int brightness_write(char *buf)
 	if (level < 0)
 		return level;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (strlencmp(cmd, "up") == 0) {
 			if (level < bright_maxlvl)
 				level++;
@@ -7819,7 +7827,7 @@ static int volume_write(char *buf)
 	new_level = s & TP_EC_AUDIO_LVL_MSK;
 	new_mute  = s & TP_EC_AUDIO_MUTESW_MSK;
 
-	while ((cmd = next_cmd(&buf))) {
+	while ((cmd = strsep(&buf, ","))) {
 		if (!tp_features.mixer_no_level_control) {
 			if (strlencmp(cmd, "up") == 0) {
 				if (new_mute)
@@ -8275,11 +8283,19 @@ static int fan_set_level(int level)
 
 	switch (fan_control_access_mode) {
 	case TPACPI_FAN_WR_ACPI_SFAN:
-		if (level >= 0 && level <= 7) {
-			if (!acpi_evalf(sfan_handle, NULL, NULL, "vd", level))
-				return -EIO;
-		} else
+		if ((level < 0) || (level > 7))
 			return -EINVAL;
+
+		if (tp_features.second_fan_ctl) {
+			if (!fan_select_fan2() ||
+			    !acpi_evalf(sfan_handle, NULL, NULL, "vd", level)) {
+				pr_warn("Couldn't set 2nd fan level, disabling support\n");
+				tp_features.second_fan_ctl = 0;
+			}
+			fan_select_fan1();
+		}
+		if (!acpi_evalf(sfan_handle, NULL, NULL, "vd", level))
+			return -EIO;
 		break;
 
 	case TPACPI_FAN_WR_ACPI_FANS:
@@ -8296,6 +8312,15 @@ static int fan_set_level(int level)
 		else if (level & TP_EC_FAN_AUTO)
 			level |= 4;	/* safety min speed 4 */
 
+		if (tp_features.second_fan_ctl) {
+			if (!fan_select_fan2() ||
+			    !acpi_ec_write(fan_status_offset, level)) {
+				pr_warn("Couldn't set 2nd fan level, disabling support\n");
+				tp_features.second_fan_ctl = 0;
+			}
+			fan_select_fan1();
+
+		}
 		if (!acpi_ec_write(fan_status_offset, level))
 			return -EIO;
 		else
@@ -8714,6 +8739,7 @@ static const struct attribute_group fan_attr_group = {
 
 #define TPACPI_FAN_Q1	0x0001		/* Unitialized HFSP */
 #define TPACPI_FAN_2FAN	0x0002		/* EC 0x31 bit 0 selects fan2 */
+#define TPACPI_FAN_2CTL	0x0004		/* selects fan2 control */
 
 static const struct tpacpi_quirk fan_quirk_table[] __initconst = {
 	TPACPI_QEC_IBM('1', 'Y', TPACPI_FAN_Q1),
@@ -8722,6 +8748,13 @@ static const struct tpacpi_quirk fan_quirk_table[] __initconst = {
 	TPACPI_QEC_IBM('7', '0', TPACPI_FAN_Q1),
 	TPACPI_QEC_LNV('7', 'M', TPACPI_FAN_2FAN),
 	TPACPI_Q_LNV('N', '1', TPACPI_FAN_2FAN),
+	TPACPI_Q_LNV3('N', '1', 'D', TPACPI_FAN_2CTL),	/* P70 */
+	TPACPI_Q_LNV3('N', '1', 'E', TPACPI_FAN_2CTL),	/* P50 */
+	TPACPI_Q_LNV3('N', '1', 'T', TPACPI_FAN_2CTL),	/* P71 */
+	TPACPI_Q_LNV3('N', '1', 'U', TPACPI_FAN_2CTL),	/* P51 */
+	TPACPI_Q_LNV3('N', '2', 'C', TPACPI_FAN_2CTL),	/* P52 / P72 */
+	TPACPI_Q_LNV3('N', '2', 'E', TPACPI_FAN_2CTL),	/* P1 / X1 Extreme (1st gen) */
+	TPACPI_Q_LNV3('N', '2', 'O', TPACPI_FAN_2CTL),	/* P1 / X1 Extreme (2nd gen) */
 };
 
 static int __init fan_init(struct ibm_init_struct *iibm)
@@ -8739,6 +8772,7 @@ static int __init fan_init(struct ibm_init_struct *iibm)
 	fan_watchdog_maxinterval = 0;
 	tp_features.fan_ctrl_status_undef = 0;
 	tp_features.second_fan = 0;
+	tp_features.second_fan_ctl = 0;
 	fan_control_desired_level = 7;
 
 	if (tpacpi_is_ibm()) {
@@ -8763,8 +8797,12 @@ static int __init fan_init(struct ibm_init_struct *iibm)
 				fan_quirk1_setup();
 			if (quirks & TPACPI_FAN_2FAN) {
 				tp_features.second_fan = 1;
-				dbg_printk(TPACPI_DBG_INIT | TPACPI_DBG_FAN,
-					"secondary fan support enabled\n");
+				pr_info("secondary fan support enabled\n");
+			}
+			if (quirks & TPACPI_FAN_2CTL) {
+				tp_features.second_fan = 1;
+				tp_features.second_fan_ctl = 1;
+				pr_info("secondary fan control enabled\n");
 			}
 		} else {
 			pr_err("ThinkPad ACPI EC access misbehaving, fan status and control unavailable\n");
@@ -9099,7 +9137,7 @@ static int fan_write(char *buf)
 	char *cmd;
 	int rc = 0;
 
-	while (!rc && (cmd = next_cmd(&buf))) {
+	while (!rc && (cmd = strsep(&buf, ","))) {
 		if (!((fan_control_commands & TPACPI_FAN_CMD_LEVEL) &&
 		      fan_write_cmd_level(cmd, &rc)) &&
 		    !((fan_control_commands & TPACPI_FAN_CMD_ENABLE) &&
@@ -9222,10 +9260,8 @@ static int mute_led_init(struct ibm_init_struct *iibm)
 		mute_led_cdev[i].brightness = ledtrig_audio_get(i);
 		err = led_classdev_register(&tpacpi_pdev->dev, &mute_led_cdev[i]);
 		if (err < 0) {
-			while (i--) {
-				if (led_tables[i].state >= 0)
-					led_classdev_unregister(&mute_led_cdev[i]);
-			}
+			while (i--)
+				led_classdev_unregister(&mute_led_cdev[i]);
 			return err;
 		}
 	}
@@ -9237,10 +9273,8 @@ static void mute_led_exit(void)
 	int i;
 
 	for (i = 0; i < TPACPI_LED_MAX; i++) {
-		if (led_tables[i].state >= 0) {
-			led_classdev_unregister(&mute_led_cdev[i]);
-			tpacpi_led_set(i, false);
-		}
+		led_classdev_unregister(&mute_led_cdev[i]);
+		tpacpi_led_set(i, false);
 	}
 }
 
@@ -9499,7 +9533,7 @@ static ssize_t tpacpi_battery_store(int what,
 		if (!battery_info.batteries[battery].start_support)
 			return -ENODEV;
 		/* valid values are [0, 99] */
-		if (value < 0 || value > 99)
+		if (value > 99)
 			return -EINVAL;
 		if (value > battery_info.batteries[battery].charge_stop)
 			return -EINVAL;
@@ -9659,6 +9693,106 @@ static void tpacpi_battery_exit(void)
 static struct ibm_struct battery_driver_data = {
 	.name = "battery",
 	.exit = tpacpi_battery_exit,
+};
+
+/*************************************************************************
+ * LCD Shadow subdriver, for the Lenovo PrivacyGuard feature
+ */
+
+static int lcdshadow_state;
+
+static int lcdshadow_on_off(bool state)
+{
+	acpi_handle set_shadow_handle;
+	int output;
+
+	if (ACPI_FAILURE(acpi_get_handle(hkey_handle, "SSSS", &set_shadow_handle))) {
+		pr_warn("Thinkpad ACPI has no %s interface.\n", "SSSS");
+		return -EIO;
+	}
+
+	if (!acpi_evalf(set_shadow_handle, &output, NULL, "dd", (int)state))
+		return -EIO;
+
+	lcdshadow_state = state;
+	return 0;
+}
+
+static int lcdshadow_set(bool on)
+{
+	if (lcdshadow_state < 0)
+		return lcdshadow_state;
+	if (lcdshadow_state == on)
+		return 0;
+	return lcdshadow_on_off(on);
+}
+
+static int tpacpi_lcdshadow_init(struct ibm_init_struct *iibm)
+{
+	acpi_handle get_shadow_handle;
+	int output;
+
+	if (ACPI_FAILURE(acpi_get_handle(hkey_handle, "GSSS", &get_shadow_handle))) {
+		lcdshadow_state = -ENODEV;
+		return 0;
+	}
+
+	if (!acpi_evalf(get_shadow_handle, &output, NULL, "dd", 0)) {
+		lcdshadow_state = -EIO;
+		return -EIO;
+	}
+	if (!(output & 0x10000)) {
+		lcdshadow_state = -ENODEV;
+		return 0;
+	}
+	lcdshadow_state = output & 0x1;
+
+	return 0;
+}
+
+static void lcdshadow_resume(void)
+{
+	if (lcdshadow_state >= 0)
+		lcdshadow_on_off(lcdshadow_state);
+}
+
+static int lcdshadow_read(struct seq_file *m)
+{
+	if (lcdshadow_state < 0) {
+		seq_puts(m, "status:\t\tnot supported\n");
+	} else {
+		seq_printf(m, "status:\t\t%d\n", lcdshadow_state);
+		seq_puts(m, "commands:\t0, 1\n");
+	}
+
+	return 0;
+}
+
+static int lcdshadow_write(char *buf)
+{
+	char *cmd;
+	int res, state = -EINVAL;
+
+	if (lcdshadow_state < 0)
+		return -ENODEV;
+
+	while ((cmd = strsep(&buf, ","))) {
+		res = kstrtoint(cmd, 10, &state);
+		if (res < 0)
+			return res;
+	}
+
+	if (state >= 2 || state < 0)
+		return -EINVAL;
+
+	return lcdshadow_set(state);
+}
+
+static struct ibm_struct lcdshadow_driver_data = {
+	.name = "lcdshadow",
+	.resume = lcdshadow_resume,
+	.read = lcdshadow_read,
+	.write = lcdshadow_write,
 };
 
 /****************************************************************************
@@ -9833,7 +9967,7 @@ static int __init ibm_init(struct ibm_init_struct *iibm)
 		if (ibm->write)
 			mode |= S_IWUSR;
 		entry = proc_create_data(ibm->name, mode, proc_dir,
-					 &dispatch_proc_fops, ibm);
+					 &dispatch_proc_ops, ibm);
 		if (!entry) {
 			pr_err("unable to create proc entry %s\n", ibm->name);
 			ret = -ENODEV;
@@ -9890,6 +10024,37 @@ invalid:
 	return '\0';
 }
 
+static void find_new_ec_fwstr(const struct dmi_header *dm, void *private)
+{
+	char *ec_fw_string = (char *) private;
+	const char *dmi_data = (const char *)dm;
+	/*
+	 * ThinkPad Embedded Controller Program Table on newer models
+	 *
+	 * Offset |  Name                | Width  | Description
+	 * ----------------------------------------------------
+	 *  0x00  | Type                 | BYTE   | 0x8C
+	 *  0x01  | Length               | BYTE   |
+	 *  0x02  | Handle               | WORD   | Varies
+	 *  0x04  | Signature            | BYTEx6 | ASCII for "LENOVO"
+	 *  0x0A  | OEM struct offset    | BYTE   | 0x0B
+	 *  0x0B  | OEM struct number    | BYTE   | 0x07, for this structure
+	 *  0x0C  | OEM struct revision  | BYTE   | 0x01, for this format
+	 *  0x0D  | ECP version ID       | STR ID |
+	 *  0x0E  | ECP release date     | STR ID |
+	 */
+
+	/* Return if data structure not match */
+	if (dm->type != 140 || dm->length < 0x0F ||
+	memcmp(dmi_data + 4, "LENOVO", 6) != 0 ||
+	dmi_data[0x0A] != 0x0B || dmi_data[0x0B] != 0x07 ||
+	dmi_data[0x0C] != 0x01)
+		return;
+
+	/* fwstr is the first 8byte string  */
+	strncpy(ec_fw_string, dmi_data + 0x0F, 8);
+}
+
 /* returns 0 - probe ok, or < 0 - probe error.
  * Probe ok doesn't mean thinkpad found.
  * On error, kfree() cleanup on tp->* is not performed, caller must do it */
@@ -9897,7 +10062,7 @@ static int __must_check __init get_thinkpad_model_data(
 						struct thinkpad_id_data *tp)
 {
 	const struct dmi_device *dev = NULL;
-	char ec_fw_string[18];
+	char ec_fw_string[18] = {0};
 	char const *s;
 	char t;
 
@@ -9937,20 +10102,25 @@ static int __must_check __init get_thinkpad_model_data(
 			   ec_fw_string) == 1) {
 			ec_fw_string[sizeof(ec_fw_string) - 1] = 0;
 			ec_fw_string[strcspn(ec_fw_string, " ]")] = 0;
-
-			tp->ec_version_str = kstrdup(ec_fw_string, GFP_KERNEL);
-			if (!tp->ec_version_str)
-				return -ENOMEM;
-
-			t = tpacpi_parse_fw_id(ec_fw_string,
-					       &tp->ec_model, &tp->ec_release);
-			if (t != 'H') {
-				pr_notice("ThinkPad firmware release %s doesn't match the known patterns\n",
-					  ec_fw_string);
-				pr_notice("please report this to %s\n",
-					  TPACPI_MAIL);
-			}
 			break;
+		}
+	}
+
+	/* Newer ThinkPads have different EC program info table */
+	if (!ec_fw_string[0])
+		dmi_walk(find_new_ec_fwstr, &ec_fw_string);
+
+	if (ec_fw_string[0]) {
+		tp->ec_version_str = kstrdup(ec_fw_string, GFP_KERNEL);
+		if (!tp->ec_version_str)
+			return -ENOMEM;
+
+		t = tpacpi_parse_fw_id(ec_fw_string,
+			 &tp->ec_model, &tp->ec_release);
+		if (t != 'H') {
+			pr_notice("ThinkPad firmware release %s doesn't match the known patterns\n",
+				  ec_fw_string);
+			pr_notice("please report this to %s\n", TPACPI_MAIL);
 		}
 	}
 
@@ -10106,6 +10276,10 @@ static struct ibm_init_struct ibms_init[] __initdata = {
 		.init = tpacpi_battery_init,
 		.data = &battery_driver_data,
 	},
+	{
+		.init = tpacpi_lcdshadow_init,
+		.data = &lcdshadow_driver_data,
+	},
 };
 
 static int __init set_ibm_param(const char *val, const struct kernel_param *kp)
@@ -10124,10 +10298,9 @@ static int __init set_ibm_param(const char *val, const struct kernel_param *kp)
 			continue;
 
 		if (strcmp(ibm->name, kp->name) == 0 && ibm->write) {
-			if (strlen(val) > sizeof(ibms_init[i].param) - 2)
+			if (strlen(val) > sizeof(ibms_init[i].param) - 1)
 				return -ENOSPC;
 			strcpy(ibms_init[i].param, val);
-			strcat(ibms_init[i].param, ",");
 			return 0;
 		}
 	}
@@ -10165,7 +10338,7 @@ MODULE_PARM_DESC(volume_mode,
 
 module_param_named(volume_capabilities, volume_capabilities, uint, 0444);
 MODULE_PARM_DESC(volume_capabilities,
-		 "Selects the mixer capabilites: 0=auto, 1=volume and mute, 2=mute only");
+		 "Selects the mixer capabilities: 0=auto, 1=volume and mute, 2=mute only");
 
 module_param_named(volume_control, volume_control_allowed, bool, 0444);
 MODULE_PARM_DESC(volume_control,

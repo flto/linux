@@ -40,7 +40,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/crypto.h>
-#include <linux/cryptohash.h>
 #include <linux/skbuff.h>
 #include <linux/rtnetlink.h>
 #include <linux/highmem.h>
@@ -99,9 +98,7 @@ void chcr_add_xfrmops(const struct cxgb4_lld_info *lld)
 		netdev->xfrmdev_ops = &chcr_xfrmdev_ops;
 		netdev->hw_enc_features |= NETIF_F_HW_ESP;
 		netdev->features |= NETIF_F_HW_ESP;
-		rtnl_lock();
 		netdev_change_features(netdev);
-		rtnl_unlock();
 	}
 }
 
@@ -132,11 +129,11 @@ static inline int chcr_ipsec_setauthsize(struct xfrm_state *x,
 static inline int chcr_ipsec_setkey(struct xfrm_state *x,
 				    struct ipsec_sa_entry *sa_entry)
 {
-	struct crypto_cipher *cipher;
 	int keylen = (x->aead->alg_key_len + 7) / 8;
 	unsigned char *key = x->aead->alg_key;
 	int ck_size, key_ctx_size = 0;
 	unsigned char ghash_h[AEAD_H_SIZE];
+	struct crypto_aes_ctx aes;
 	int ret = 0;
 
 	if (keylen > 3) {
@@ -170,26 +167,19 @@ static inline int chcr_ipsec_setkey(struct xfrm_state *x,
 	/* Calculate the H = CIPH(K, 0 repeated 16 times).
 	 * It will go in key context
 	 */
-	cipher = crypto_alloc_cipher("aes-generic", 0, 0);
-	if (IS_ERR(cipher)) {
-		sa_entry->enckey_len = 0;
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	ret = crypto_cipher_setkey(cipher, key, keylen);
+	ret = aes_expandkey(&aes, key, keylen);
 	if (ret) {
 		sa_entry->enckey_len = 0;
-		goto out1;
+		goto out;
 	}
 	memset(ghash_h, 0, AEAD_H_SIZE);
-	crypto_cipher_encrypt_one(cipher, ghash_h, ghash_h);
+	aes_encrypt(&aes, ghash_h, ghash_h);
+	memzero_explicit(&aes, sizeof(aes));
+
 	memcpy(sa_entry->key + (DIV_ROUND_UP(sa_entry->enckey_len, 16) *
 	       16), ghash_h, AEAD_H_SIZE);
 	sa_entry->kctx_len = ((DIV_ROUND_UP(sa_entry->enckey_len, 16)) << 4) +
 			      AEAD_H_SIZE;
-out1:
-	crypto_free_cipher(cipher);
 out:
 	return ret;
 }
@@ -333,7 +323,8 @@ static inline int is_eth_imm(const struct sk_buff *skb,
 }
 
 static inline unsigned int calc_tx_sec_flits(const struct sk_buff *skb,
-					     struct ipsec_sa_entry *sa_entry)
+					     struct ipsec_sa_entry *sa_entry,
+					     bool *immediate)
 {
 	unsigned int kctx_len;
 	unsigned int flits;
@@ -351,8 +342,10 @@ static inline unsigned int calc_tx_sec_flits(const struct sk_buff *skb,
 	 * TX Packet header plus the skb data in the Work Request.
 	 */
 
-	if (hdrlen)
+	if (hdrlen) {
+		*immediate = true;
 		return DIV_ROUND_UP(skb->len + hdrlen, sizeof(__be64));
+	}
 
 	flits = sgl_len(skb_shinfo(skb)->nr_frags + 1);
 
@@ -409,18 +402,18 @@ inline void *copy_esn_pktxt(struct sk_buff *skb,
 	xo = xfrm_offload(skb);
 
 	aadiv->spi = (esphdr->spi);
-	seqlo = htonl(esphdr->seq_no);
+	seqlo = ntohl(esphdr->seq_no);
 	seqno = cpu_to_be64(seqlo + ((u64)xo->seq.hi << 32));
 	memcpy(aadiv->seq_no, &seqno, 8);
 	iv = skb_transport_header(skb) + sizeof(struct ip_esp_hdr);
 	memcpy(aadiv->iv, iv, 8);
 
-	if (sa_entry->imm) {
+	if (is_eth_imm(skb, sa_entry) && !skb_is_nonlinear(skb)) {
 		sc_imm = (struct ulptx_idata *)(pos +
 			  (DIV_ROUND_UP(sizeof(struct chcr_ipsec_aadiv),
 					sizeof(__be64)) << 3));
-		sc_imm->cmd_more = FILL_CMD_MORE(!sa_entry->imm);
-		sc_imm->len = cpu_to_be32(sa_entry->imm);
+		sc_imm->cmd_more = FILL_CMD_MORE(0);
+		sc_imm->len = cpu_to_be32(skb->len);
 	}
 	pos += len;
 	return pos;
@@ -528,15 +521,18 @@ inline void *chcr_crypto_wreq(struct sk_buff *skb,
 	struct adapter *adap = pi->adapter;
 	unsigned int ivsize = GCM_ESP_IV_SIZE;
 	struct chcr_ipsec_wr *wr;
+	bool immediate = false;
 	u16 immdatalen = 0;
 	unsigned int flits;
 	u32 ivinoffset;
 	u32 aadstart;
 	u32 aadstop;
 	u32 ciphstart;
+	u16 sc_more = 0;
 	u32 ivdrop = 0;
 	u32 esnlen = 0;
 	u32 wr_mid;
+	u16 ndesc;
 	int qidx = skb_get_queue_mapping(skb);
 	struct sge_eth_txq *q = &adap->sge.ethtxq[qidx + pi->first_qset];
 	unsigned int kctx_len = sa_entry->kctx_len;
@@ -544,37 +540,40 @@ inline void *chcr_crypto_wreq(struct sk_buff *skb,
 
 	atomic_inc(&adap->chcr_stats.ipsec_cnt);
 
-	flits = calc_tx_sec_flits(skb, sa_entry);
+	flits = calc_tx_sec_flits(skb, sa_entry, &immediate);
+	ndesc = DIV_ROUND_UP(flits, 2);
 	if (sa_entry->esn)
 		ivdrop = 1;
 
-	if (is_eth_imm(skb, sa_entry)) {
+	if (immediate)
 		immdatalen = skb->len;
-		sa_entry->imm = immdatalen;
-	}
 
-	if (sa_entry->esn)
+	if (sa_entry->esn) {
 		esnlen = sizeof(struct chcr_ipsec_aadiv);
+		if (!skb_is_nonlinear(skb))
+			sc_more  = 1;
+	}
 
 	/* WR Header */
 	wr = (struct chcr_ipsec_wr *)pos;
 	wr->wreq.op_to_compl = htonl(FW_WR_OP_V(FW_ULPTX_WR));
-	wr_mid = FW_CRYPTO_LOOKASIDE_WR_LEN16_V(DIV_ROUND_UP(flits, 2));
+	wr_mid = FW_CRYPTO_LOOKASIDE_WR_LEN16_V(ndesc);
 
 	if (unlikely(credits < ETHTXQ_STOP_THRES)) {
 		netif_tx_stop_queue(q->txq);
 		q->q.stops++;
-		wr_mid |= FW_WR_EQUEQ_F | FW_WR_EQUIQ_F;
+		if (!q->dbqt)
+			wr_mid |= FW_WR_EQUEQ_F | FW_WR_EQUIQ_F;
 	}
 	wr_mid |= FW_ULPTX_WR_DATA_F;
 	wr->wreq.flowid_len16 = htonl(wr_mid);
 
 	/* ULPTX */
 	wr->req.ulptx.cmd_dest = FILL_ULPTX_CMD_DEST(pi->port_id, qid);
-	wr->req.ulptx.len = htonl(DIV_ROUND_UP(flits, 2)  - 1);
+	wr->req.ulptx.len = htonl(ndesc - 1);
 
 	/* Sub-command */
-	wr->req.sc_imm.cmd_more = FILL_CMD_MORE(!immdatalen);
+	wr->req.sc_imm.cmd_more = FILL_CMD_MORE(!immdatalen || sc_more);
 	wr->req.sc_imm.len = cpu_to_be32(sizeof(struct cpl_tx_sec_pdu) +
 					 sizeof(wr->req.key_ctx) +
 					 kctx_len +
@@ -668,16 +667,16 @@ static inline void txq_advance(struct sge_txq *q, unsigned int n)
 int chcr_ipsec_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct xfrm_state *x = xfrm_input_state(skb);
+	unsigned int last_desc, ndesc, flits = 0;
 	struct ipsec_sa_entry *sa_entry;
 	u64 *pos, *end, *before, *sgl;
+	struct tx_sw_desc *sgl_sdesc;
 	int qidx, left, credits;
-	unsigned int flits = 0, ndesc;
-	struct adapter *adap;
-	struct sge_eth_txq *q;
-	struct port_info *pi;
-	dma_addr_t addr[MAX_SKB_FRAGS + 1];
-	struct sec_path *sp;
 	bool immediate = false;
+	struct sge_eth_txq *q;
+	struct adapter *adap;
+	struct port_info *pi;
+	struct sec_path *sp;
 
 	if (!x->xso.offload_handle)
 		return NETDEV_TX_BUSY;
@@ -697,7 +696,7 @@ out_free:       dev_kfree_skb_any(skb);
 
 	cxgb4_reclaim_completed_tx(adap, &q->q, true);
 
-	flits = calc_tx_sec_flits(skb, sa_entry);
+	flits = calc_tx_sec_flits(skb, sa_entry, &immediate);
 	ndesc = flits_to_desc(flits);
 	credits = txq_avail(&q->q) - ndesc;
 
@@ -710,11 +709,14 @@ out_free:       dev_kfree_skb_any(skb);
 		return NETDEV_TX_BUSY;
 	}
 
-	if (is_eth_imm(skb, sa_entry))
-		immediate = true;
+	last_desc = q->q.pidx + ndesc - 1;
+	if (last_desc >= q->q.size)
+		last_desc -= q->q.size;
+	sgl_sdesc = &q->q.sdesc[last_desc];
 
 	if (!immediate &&
-	    unlikely(cxgb4_map_skb(adap->pdev_dev, skb, addr) < 0)) {
+	    unlikely(cxgb4_map_skb(adap->pdev_dev, skb, sgl_sdesc->addr) < 0)) {
+		memset(sgl_sdesc->addr, 0, sizeof(sgl_sdesc->addr));
 		q->mapping_err++;
 		goto out_free;
 	}
@@ -740,17 +742,10 @@ out_free:       dev_kfree_skb_any(skb);
 		cxgb4_inline_tx_skb(skb, &q->q, sgl);
 		dev_consume_skb_any(skb);
 	} else {
-		int last_desc;
-
 		cxgb4_write_sgl(skb, &q->q, (void *)sgl, end,
-				0, addr);
+				0, sgl_sdesc->addr);
 		skb_orphan(skb);
-
-		last_desc = q->q.pidx + ndesc - 1;
-		if (last_desc >= q->q.size)
-			last_desc -= q->q.size;
-		q->q.sdesc[last_desc].skb = skb;
-		q->q.sdesc[last_desc].sgl = (struct ulptx_sgl *)sgl;
+		sgl_sdesc->skb = skb;
 	}
 	txq_advance(&q->q, ndesc);
 

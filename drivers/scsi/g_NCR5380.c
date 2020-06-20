@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Generic Generic NCR5380 driver
  *
@@ -19,7 +20,7 @@
  * Added ISAPNP support for DTC436 adapters,
  * Thomas Sailer, sailer@ife.ee.ethz.ch
  *
- * See Documentation/scsi/g_NCR5380.txt for more info.
+ * See Documentation/scsi/g_NCR5380.rst for more info.
  */
 
 #include <asm/io.h>

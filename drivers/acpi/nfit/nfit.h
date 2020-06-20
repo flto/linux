@@ -1,16 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * NVDIMM Firmware Interface Table - NFIT
  *
  * Copyright(c) 2013-2015 Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
  */
 #ifndef __NFIT_H__
 #define __NFIT_H__
@@ -34,11 +26,15 @@
 /* https://msdn.microsoft.com/library/windows/hardware/mt604741 */
 #define UUID_NFIT_DIMM_N_MSFT "1ee68b36-d4bd-4a1a-9a16-4f8e53d46e05"
 
+/* http://www.uefi.org/RFIC_LIST (see "Virtual NVDIMM 0x1901") */
+#define UUID_NFIT_DIMM_N_HYPERV "5746c5f2-a9a2-4264-ad0e-e4ddc9e09e80"
+
 #define ACPI_NFIT_MEM_FAILED_MASK (ACPI_NFIT_MEM_SAVE_FAILED \
 		| ACPI_NFIT_MEM_RESTORE_FAILED | ACPI_NFIT_MEM_FLUSH_FAILED \
 		| ACPI_NFIT_MEM_NOT_ARMED | ACPI_NFIT_MEM_MAP_FAILED)
 
-#define NVDIMM_FAMILY_MAX NVDIMM_FAMILY_MSFT
+#define NVDIMM_FAMILY_MAX NVDIMM_FAMILY_HYPERV
+#define NVDIMM_CMD_MAX 31
 
 #define NVDIMM_STANDARD_CMDMASK \
 (1 << ND_CMD_SMART | 1 << ND_CMD_SMART_THRESHOLD | 1 << ND_CMD_DIMM_FLAGS \
@@ -94,6 +90,7 @@ enum nfit_uuids {
 	NFIT_DEV_DIMM_N_HPE1 = NVDIMM_FAMILY_HPE1,
 	NFIT_DEV_DIMM_N_HPE2 = NVDIMM_FAMILY_HPE2,
 	NFIT_DEV_DIMM_N_MSFT = NVDIMM_FAMILY_MSFT,
+	NFIT_DEV_DIMM_N_HYPERV = NVDIMM_FAMILY_HYPERV,
 	NFIT_SPA_VOLATILE,
 	NFIT_SPA_PM,
 	NFIT_SPA_DCR,
@@ -148,32 +145,32 @@ struct nfit_spa {
 	unsigned long ars_state;
 	u32 clear_err_unit;
 	u32 max_ars;
-	struct acpi_nfit_system_address spa[0];
+	struct acpi_nfit_system_address spa[];
 };
 
 struct nfit_dcr {
 	struct list_head list;
-	struct acpi_nfit_control_region dcr[0];
+	struct acpi_nfit_control_region dcr[];
 };
 
 struct nfit_bdw {
 	struct list_head list;
-	struct acpi_nfit_data_region bdw[0];
+	struct acpi_nfit_data_region bdw[];
 };
 
 struct nfit_idt {
 	struct list_head list;
-	struct acpi_nfit_interleave idt[0];
+	struct acpi_nfit_interleave idt[];
 };
 
 struct nfit_flush {
 	struct list_head list;
-	struct acpi_nfit_flush_address flush[0];
+	struct acpi_nfit_flush_address flush[];
 };
 
 struct nfit_memdev {
 	struct list_head list;
-	struct acpi_nfit_memory_map memdev[0];
+	struct acpi_nfit_memory_map memdev[];
 };
 
 enum nfit_mem_flags {
@@ -210,6 +207,13 @@ struct nfit_mem {
 	int family;
 };
 
+enum scrub_flags {
+	ARS_BUSY,
+	ARS_CANCEL,
+	ARS_VALID,
+	ARS_POLL,
+};
+
 struct acpi_nfit_desc {
 	struct nvdimm_bus_descriptor nd_desc;
 	struct acpi_table_header acpi_header;
@@ -223,7 +227,6 @@ struct acpi_nfit_desc {
 	struct list_head idts;
 	struct nvdimm_bus *nvdimm_bus;
 	struct device *dev;
-	u8 ars_start_flags;
 	struct nd_cmd_ars_status *ars_status;
 	struct nfit_spa *scrub_spa;
 	struct delayed_work dwork;
@@ -232,8 +235,7 @@ struct acpi_nfit_desc {
 	unsigned int max_ars;
 	unsigned int scrub_count;
 	unsigned int scrub_mode;
-	unsigned int scrub_busy:1;
-	unsigned int cancel:1;
+	unsigned long scrub_flags;
 	unsigned long dimm_cmd_force_en;
 	unsigned long bus_cmd_force_en;
 	unsigned long bus_nfit_cmd_force_en;
@@ -310,6 +312,30 @@ static inline struct acpi_nfit_desc *to_acpi_desc(
 {
 	return container_of(nd_desc, struct acpi_nfit_desc, nd_desc);
 }
+
+#ifdef CONFIG_PROVE_LOCKING
+static inline void nfit_device_lock(struct device *dev)
+{
+	device_lock(dev);
+	mutex_lock(&dev->lockdep_mutex);
+}
+
+static inline void nfit_device_unlock(struct device *dev)
+{
+	mutex_unlock(&dev->lockdep_mutex);
+	device_unlock(dev);
+}
+#else
+static inline void nfit_device_lock(struct device *dev)
+{
+	device_lock(dev);
+}
+
+static inline void nfit_device_unlock(struct device *dev)
+{
+	device_unlock(dev);
+}
+#endif
 
 const guid_t *to_nfit_uuid(enum nfit_uuids id);
 int acpi_nfit_init(struct acpi_nfit_desc *acpi_desc, void *nfit, acpi_size sz);

@@ -12,30 +12,29 @@
 #ifndef __ASM_S390_PROCESSOR_H
 #define __ASM_S390_PROCESSOR_H
 
-#include <linux/const.h>
+#include <linux/bits.h>
 
-#define CIF_MCCK_PENDING	0	/* machine check handling is pending */
-#define CIF_ASCE_PRIMARY	1	/* primary asce needs fixup / uaccess */
-#define CIF_ASCE_SECONDARY	2	/* secondary asce needs fixup / uaccess */
-#define CIF_NOHZ_DELAY		3	/* delay HZ disable for a tick */
-#define CIF_FPU			4	/* restore FPU registers */
-#define CIF_IGNORE_IRQ		5	/* ignore interrupt (for udelay) */
-#define CIF_ENABLED_WAIT	6	/* in enabled wait state */
-#define CIF_MCCK_GUEST		7	/* machine check happening in guest */
-#define CIF_DEDICATED_CPU	8	/* this CPU is dedicated */
+#define CIF_ASCE_PRIMARY	0	/* primary asce needs fixup / uaccess */
+#define CIF_ASCE_SECONDARY	1	/* secondary asce needs fixup / uaccess */
+#define CIF_NOHZ_DELAY		2	/* delay HZ disable for a tick */
+#define CIF_FPU			3	/* restore FPU registers */
+#define CIF_IGNORE_IRQ		4	/* ignore interrupt (for udelay) */
+#define CIF_ENABLED_WAIT	5	/* in enabled wait state */
+#define CIF_MCCK_GUEST		6	/* machine check happening in guest */
+#define CIF_DEDICATED_CPU	7	/* this CPU is dedicated */
 
-#define _CIF_MCCK_PENDING	_BITUL(CIF_MCCK_PENDING)
-#define _CIF_ASCE_PRIMARY	_BITUL(CIF_ASCE_PRIMARY)
-#define _CIF_ASCE_SECONDARY	_BITUL(CIF_ASCE_SECONDARY)
-#define _CIF_NOHZ_DELAY		_BITUL(CIF_NOHZ_DELAY)
-#define _CIF_FPU		_BITUL(CIF_FPU)
-#define _CIF_IGNORE_IRQ		_BITUL(CIF_IGNORE_IRQ)
-#define _CIF_ENABLED_WAIT	_BITUL(CIF_ENABLED_WAIT)
-#define _CIF_MCCK_GUEST		_BITUL(CIF_MCCK_GUEST)
-#define _CIF_DEDICATED_CPU	_BITUL(CIF_DEDICATED_CPU)
+#define _CIF_ASCE_PRIMARY	BIT(CIF_ASCE_PRIMARY)
+#define _CIF_ASCE_SECONDARY	BIT(CIF_ASCE_SECONDARY)
+#define _CIF_NOHZ_DELAY		BIT(CIF_NOHZ_DELAY)
+#define _CIF_FPU		BIT(CIF_FPU)
+#define _CIF_IGNORE_IRQ		BIT(CIF_IGNORE_IRQ)
+#define _CIF_ENABLED_WAIT	BIT(CIF_ENABLED_WAIT)
+#define _CIF_MCCK_GUEST		BIT(CIF_MCCK_GUEST)
+#define _CIF_DEDICATED_CPU	BIT(CIF_DEDICATED_CPU)
 
 #ifndef __ASSEMBLY__
 
+#include <linux/cpumask.h>
 #include <linux/linkage.h>
 #include <linux/irqflags.h>
 #include <asm/cpu.h>
@@ -83,7 +82,6 @@ void s390_update_cpu_mhz(void);
 void cpu_detect_mhz_feature(void);
 
 extern const struct seq_operations cpuinfo_op;
-extern int sysctl_ieee_emulation_warnings;
 extern void execve_tail(void);
 extern void __bpon(void);
 
@@ -92,15 +90,15 @@ extern void __bpon(void);
  */
 
 #define TASK_SIZE_OF(tsk)	(test_tsk_thread_flag(tsk, TIF_31BIT) ? \
-					(1UL << 31) : -PAGE_SIZE)
+					_REGION3_SIZE : TASK_SIZE_MAX)
 #define TASK_UNMAPPED_BASE	(test_thread_flag(TIF_31BIT) ? \
-					(1UL << 30) : (1UL << 41))
+					(_REGION3_SIZE >> 1) : (_REGION2_SIZE >> 1))
 #define TASK_SIZE		TASK_SIZE_OF(current)
 #define TASK_SIZE_MAX		(-PAGE_SIZE)
 
 #define STACK_TOP		(test_thread_flag(TIF_31BIT) ? \
-					(1UL << 31) : (1UL << 42))
-#define STACK_TOP_MAX		(1UL << 42)
+					_REGION3_SIZE : _REGION2_SIZE)
+#define STACK_TOP_MAX		_REGION2_SIZE
 
 #define HAVE_ARCH_PICK_MMAP_LAYOUT
 
@@ -156,30 +154,12 @@ struct thread_struct {
 
 typedef struct thread_struct thread_struct;
 
-/*
- * Stack layout of a C stack frame.
- */
-#ifndef __PACK_STACK
-struct stack_frame {
-	unsigned long back_chain;
-	unsigned long empty1[5];
-	unsigned long gprs[10];
-	unsigned int  empty2[8];
-};
-#else
-struct stack_frame {
-	unsigned long empty1[5];
-	unsigned int  empty2[8];
-	unsigned long gprs[10];
-	unsigned long back_chain;
-};
-#endif
-
 #define ARCH_MIN_TASKALIGN	8
 
 #define INIT_THREAD {							\
 	.ksp = sizeof(init_stack) + (unsigned long) &init_stack,	\
 	.fpu.regs = (void *) init_task.thread.fpu.fprs,			\
+	.last_break = 1,						\
 }
 
 /*
@@ -196,7 +176,6 @@ struct stack_frame {
 	regs->psw.mask	= PSW_USER_BITS | PSW_MASK_BA;			\
 	regs->psw.addr	= new_psw;					\
 	regs->gprs[15]	= new_stackp;					\
-	crst_table_downgrade(current->mm);				\
 	execve_tail();							\
 } while (0)
 
@@ -206,11 +185,7 @@ struct mm_struct;
 struct seq_file;
 struct pt_regs;
 
-typedef int (*dump_trace_func_t)(void *data, unsigned long address, int reliable);
-void dump_trace(dump_trace_func_t func, void *data,
-		struct task_struct *task, unsigned long sp);
 void show_registers(struct pt_regs *regs);
-
 void show_cacheinfo(struct seq_file *m);
 
 /* Free all resources held by a thread. */
@@ -228,7 +203,7 @@ unsigned long get_wchan(struct task_struct *p);
 /* Has task runtime instrumentation enabled ? */
 #define is_ri_task(tsk) (!!(tsk)->thread.ri_cb)
 
-static inline unsigned long current_stack_pointer(void)
+static __always_inline unsigned long current_stack_pointer(void)
 {
 	unsigned long sp;
 
@@ -243,61 +218,6 @@ static __no_kasan_or_inline unsigned short stap(void)
 	asm volatile("stap %0" : "=Q" (cpu_address));
 	return cpu_address;
 }
-
-#define CALL_ARGS_0()							\
-	register unsigned long r2 asm("2")
-#define CALL_ARGS_1(arg1)						\
-	register unsigned long r2 asm("2") = (unsigned long)(arg1)
-#define CALL_ARGS_2(arg1, arg2)						\
-	CALL_ARGS_1(arg1);						\
-	register unsigned long r3 asm("3") = (unsigned long)(arg2)
-#define CALL_ARGS_3(arg1, arg2, arg3)					\
-	CALL_ARGS_2(arg1, arg2);					\
-	register unsigned long r4 asm("4") = (unsigned long)(arg3)
-#define CALL_ARGS_4(arg1, arg2, arg3, arg4)				\
-	CALL_ARGS_3(arg1, arg2, arg3);					\
-	register unsigned long r4 asm("5") = (unsigned long)(arg4)
-#define CALL_ARGS_5(arg1, arg2, arg3, arg4, arg5)			\
-	CALL_ARGS_4(arg1, arg2, arg3, arg4);				\
-	register unsigned long r4 asm("6") = (unsigned long)(arg5)
-
-#define CALL_FMT_0
-#define CALL_FMT_1 CALL_FMT_0, "0" (r2)
-#define CALL_FMT_2 CALL_FMT_1, "d" (r3)
-#define CALL_FMT_3 CALL_FMT_2, "d" (r4)
-#define CALL_FMT_4 CALL_FMT_3, "d" (r5)
-#define CALL_FMT_5 CALL_FMT_4, "d" (r6)
-
-#define CALL_CLOBBER_5 "0", "1", "14", "cc", "memory"
-#define CALL_CLOBBER_4 CALL_CLOBBER_5
-#define CALL_CLOBBER_3 CALL_CLOBBER_4, "5"
-#define CALL_CLOBBER_2 CALL_CLOBBER_3, "4"
-#define CALL_CLOBBER_1 CALL_CLOBBER_2, "3"
-#define CALL_CLOBBER_0 CALL_CLOBBER_1
-
-#define CALL_ON_STACK(fn, stack, nr, args...)				\
-({									\
-	CALL_ARGS_##nr(args);						\
-	unsigned long prev;						\
-									\
-	asm volatile(							\
-		"	la	%[_prev],0(15)\n"			\
-		"	la	15,0(%[_stack])\n"			\
-		"	stg	%[_prev],%[_bc](15)\n"			\
-		"	brasl	14,%[_fn]\n"				\
-		"	la	15,0(%[_prev])\n"			\
-		: "+&d" (r2), [_prev] "=&a" (prev)			\
-		: [_stack] "a" (stack),					\
-		  [_bc] "i" (offsetof(struct stack_frame, back_chain)),	\
-		  [_fn] "X" (fn) CALL_FMT_##nr : CALL_CLOBBER_##nr);	\
-	r2;								\
-})
-
-/*
- * Give up the time slice of the virtual PU.
- */
-#define cpu_relax_yield cpu_relax_yield
-void cpu_relax_yield(void);
 
 #define cpu_relax() barrier()
 
@@ -339,10 +259,10 @@ static __no_kasan_or_inline void __load_psw_mask(unsigned long mask)
 
 	asm volatile(
 		"	larl	%0,1f\n"
-		"	stg	%0,%O1+8(%R1)\n"
-		"	lpswe	%1\n"
+		"	stg	%0,%1\n"
+		"	lpswe	%2\n"
 		"1:"
-		: "=&d" (addr), "=Q" (psw) : "Q" (psw) : "memory", "cc");
+		: "=&d" (addr), "=Q" (psw.addr) : "Q" (psw) : "memory", "cc");
 }
 
 /*
@@ -387,12 +307,12 @@ void enabled_wait(void);
 /*
  * Function to drop a processor into disabled wait state
  */
-static inline void __noreturn disabled_wait(unsigned long code)
+static __always_inline void __noreturn disabled_wait(void)
 {
 	psw_t psw;
 
 	psw.mask = PSW_MASK_BASE | PSW_MASK_WAIT | PSW_MASK_BA | PSW_MASK_EA;
-	psw.addr = code;
+	psw.addr = _THIS_IP_;
 	__load_psw(psw);
 	while (1);
 }
@@ -401,11 +321,9 @@ static inline void __noreturn disabled_wait(unsigned long code)
  * Basic Machine Check/Program Check Handler.
  */
 
-extern void s390_base_mcck_handler(void);
 extern void s390_base_pgm_handler(void);
 extern void s390_base_ext_handler(void);
 
-extern void (*s390_base_mcck_handler_fn)(void);
 extern void (*s390_base_pgm_handler_fn)(void);
 extern void (*s390_base_ext_handler_fn)(void);
 

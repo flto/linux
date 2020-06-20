@@ -7,6 +7,7 @@
 #define BTRFS_INODE_H
 
 #include <linux/hash.h>
+#include <linux/refcount.h>
 #include "extent_map.h"
 #include "extent_io.h"
 #include "ordered-data.h"
@@ -60,11 +61,14 @@ struct btrfs_inode {
 	 */
 	struct extent_io_tree io_failure_tree;
 
+	/*
+	 * Keep track of where the inode has extent items mapped in order to
+	 * make sure the i_size adjustments are accurate
+	 */
+	struct extent_io_tree file_extent_tree;
+
 	/* held while logging the inode in tree-log.c */
 	struct mutex log_mutex;
-
-	/* held while doing delalloc reservations */
-	struct mutex delalloc_mutex;
 
 	/* used to order data wrt metadata */
 	struct btrfs_ordered_inode_tree ordered_tree;
@@ -148,12 +152,6 @@ struct btrfs_inode {
 	u64 last_unlink_trans;
 
 	/*
-	 * Track the transaction id of the last transaction used to create a
-	 * hard link for the inode. This is used by the log tree (fsync).
-	 */
-	u64 last_link_trans;
-
-	/*
 	 * Number of bytes outstanding that are going to need csums.  This is
 	 * used in ENOSPC accounting.
 	 */
@@ -202,8 +200,6 @@ struct btrfs_inode {
 
 	struct inode vfs_inode;
 };
-
-extern unsigned char btrfs_filetype_table[];
 
 static inline struct btrfs_inode *BTRFS_I(const struct inode *inode)
 {
@@ -298,34 +294,23 @@ static inline int btrfs_inode_in_log(struct btrfs_inode *inode, u64 generation)
 	return ret;
 }
 
-#define BTRFS_DIO_ORIG_BIO_SUBMITTED	0x1
-
 struct btrfs_dio_private {
 	struct inode *inode;
-	unsigned long flags;
 	u64 logical_offset;
 	u64 disk_bytenr;
 	u64 bytes;
-	void *private;
 
-	/* number of bios pending for this dio */
-	atomic_t pending_bios;
-
-	/* IO errors */
-	int errors;
-
-	/* orig_bio is our btrfs_io_bio */
-	struct bio *orig_bio;
+	/*
+	 * References to this structure. There is one reference per in-flight
+	 * bio plus one while we're still setting up.
+	 */
+	refcount_t refs;
 
 	/* dio_bio came from fs/direct-io.c */
 	struct bio *dio_bio;
 
-	/*
-	 * The original bio may be split to several sub-bios, this is
-	 * done during endio of sub-bios
-	 */
-	blk_status_t (*subio_endio)(struct inode *, struct btrfs_io_bio *,
-			blk_status_t);
+	/* Array of checksums */
+	u8 csums[];
 };
 
 /*
@@ -345,22 +330,34 @@ static inline void btrfs_inode_resume_unlocked_dio(struct btrfs_inode *inode)
 	clear_bit(BTRFS_INODE_READDIO_NEED_LOCK, &inode->runtime_flags);
 }
 
+/* Array of bytes with variable length, hexadecimal format 0x1234 */
+#define CSUM_FMT				"0x%*phN"
+#define CSUM_FMT_VALUE(size, bytes)		size, bytes
+
 static inline void btrfs_print_data_csum_error(struct btrfs_inode *inode,
-		u64 logical_start, u32 csum, u32 csum_expected, int mirror_num)
+		u64 logical_start, u8 *csum, u8 *csum_expected, int mirror_num)
 {
 	struct btrfs_root *root = inode->root;
+	struct btrfs_super_block *sb = root->fs_info->super_copy;
+	const u16 csum_size = btrfs_super_csum_size(sb);
 
 	/* Output minus objectid, which is more meaningful */
 	if (root->root_key.objectid >= BTRFS_LAST_FREE_OBJECTID)
 		btrfs_warn_rl(root->fs_info,
-	"csum failed root %lld ino %lld off %llu csum 0x%08x expected csum 0x%08x mirror %d",
+"csum failed root %lld ino %lld off %llu csum " CSUM_FMT " expected csum " CSUM_FMT " mirror %d",
 			root->root_key.objectid, btrfs_ino(inode),
-			logical_start, csum, csum_expected, mirror_num);
+			logical_start,
+			CSUM_FMT_VALUE(csum_size, csum),
+			CSUM_FMT_VALUE(csum_size, csum_expected),
+			mirror_num);
 	else
 		btrfs_warn_rl(root->fs_info,
-	"csum failed root %llu ino %llu off %llu csum 0x%08x expected csum 0x%08x mirror %d",
+"csum failed root %llu ino %llu off %llu csum " CSUM_FMT " expected csum " CSUM_FMT " mirror %d",
 			root->root_key.objectid, btrfs_ino(inode),
-			logical_start, csum, csum_expected, mirror_num);
+			logical_start,
+			CSUM_FMT_VALUE(csum_size, csum),
+			CSUM_FMT_VALUE(csum_size, csum_expected),
+			mirror_num);
 }
 
 #endif

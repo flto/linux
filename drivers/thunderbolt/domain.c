@@ -147,10 +147,10 @@ static ssize_t boot_acl_show(struct device *dev, struct device_attribute *attr,
 
 	for (ret = 0, i = 0; i < tb->nboot_acl; i++) {
 		if (!uuid_is_null(&uuids[i]))
-			ret += snprintf(buf + ret, PAGE_SIZE - ret, "%pUb",
+			ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%pUb",
 					&uuids[i]);
 
-		ret += snprintf(buf + ret, PAGE_SIZE - ret, "%s",
+		ret += scnprintf(buf + ret, PAGE_SIZE - ret, "%s",
 			       i < tb->nboot_acl - 1 ? "," : "\n");
 	}
 
@@ -678,7 +678,6 @@ int tb_domain_challenge_switch_key(struct tb *tb, struct tb_switch *sw)
 	}
 
 	shash->tfm = tfm;
-	shash->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
 	memset(hmac, 0, sizeof(hmac));
 	ret = crypto_shash_digest(shash, challenge, sizeof(hmac), hmac);

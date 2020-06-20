@@ -52,7 +52,7 @@ struct sigframe {
 	/* Matches struct ucontext from its uc_mcontext field onwards */
 	struct sigcontext sf_sc;
 	sigset_t sf_mask;
-	unsigned long long sf_extcontext[0];
+	unsigned long long sf_extcontext[];
 };
 
 struct rt_sigframe {
@@ -641,7 +641,7 @@ asmlinkage void sys_sigreturn(void)
 	if (sig < 0)
 		goto badframe;
 	else if (sig)
-		force_sig(sig, current);
+		force_sig(sig);
 
 	/*
 	 * Don't let your children do this ...
@@ -654,7 +654,7 @@ asmlinkage void sys_sigreturn(void)
 	/* Unreached */
 
 badframe:
-	force_sig(SIGSEGV, current);
+	force_sig(SIGSEGV);
 }
 #endif /* CONFIG_TRAD_SIGNALS */
 
@@ -678,7 +678,7 @@ asmlinkage void sys_rt_sigreturn(void)
 	if (sig < 0)
 		goto badframe;
 	else if (sig)
-		force_sig(sig, current);
+		force_sig(sig);
 
 	if (restore_altstack(&frame->rs_uc.uc_stack))
 		goto badframe;
@@ -694,7 +694,7 @@ asmlinkage void sys_rt_sigreturn(void)
 	/* Unreached */
 
 badframe:
-	force_sig(SIGSEGV, current);
+	force_sig(SIGSEGV);
 }
 
 #ifdef CONFIG_TRAD_SIGNALS
@@ -824,7 +824,7 @@ static void handle_signal(struct ksignal *ksig, struct pt_regs *regs)
 				regs->regs[2] = EINTR;
 				break;
 			}
-		/* fallthrough */
+			fallthrough;
 		case ERESTARTNOINTR:
 			regs->regs[7] = regs->regs[26];
 			regs->regs[2] = regs->regs[0];

@@ -832,32 +832,30 @@ static int ixgbe_alloc_q_vector(struct ixgbe_adapter *adapter,
 				int xdp_count, int xdp_idx,
 				int rxr_count, int rxr_idx)
 {
+	int node = dev_to_node(&adapter->pdev->dev);
 	struct ixgbe_q_vector *q_vector;
 	struct ixgbe_ring *ring;
-	int node = NUMA_NO_NODE;
 	int cpu = -1;
-	int ring_count, size;
+	int ring_count;
 	u8 tcs = adapter->hw_tcs;
 
 	ring_count = txr_count + rxr_count + xdp_count;
-	size = sizeof(struct ixgbe_q_vector) +
-	       (sizeof(struct ixgbe_ring) * ring_count);
 
 	/* customize cpu for Flow Director mapping */
 	if ((tcs <= 1) && !(adapter->flags & IXGBE_FLAG_SRIOV_ENABLED)) {
 		u16 rss_i = adapter->ring_feature[RING_F_RSS].indices;
 		if (rss_i > 1 && adapter->atr_sample_rate) {
-			if (cpu_online(v_idx)) {
-				cpu = v_idx;
-				node = cpu_to_node(cpu);
-			}
+			cpu = cpumask_local_spread(v_idx, node);
+			node = cpu_to_node(cpu);
 		}
 	}
 
 	/* allocate q_vector and rings */
-	q_vector = kzalloc_node(size, GFP_KERNEL, node);
+	q_vector = kzalloc_node(struct_size(q_vector, ring, ring_count),
+				GFP_KERNEL, node);
 	if (!q_vector)
-		q_vector = kzalloc(size, GFP_KERNEL);
+		q_vector = kzalloc(struct_size(q_vector, ring, ring_count),
+				   GFP_KERNEL);
 	if (!q_vector)
 		return -ENOMEM;
 

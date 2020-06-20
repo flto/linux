@@ -11,7 +11,7 @@ User Space Memory Access
 .. kernel-doc:: arch/x86/lib/usercopy_32.c
    :export:
 
-.. kernel-doc:: mm/util.c
+.. kernel-doc:: mm/gup.c
    :functions: get_user_pages_fast
 
 .. _mm-api-gfp-flags:
@@ -35,7 +35,7 @@ users will want to use a plain ``GFP_KERNEL``.
    :doc: Reclaim modifiers
 
 .. kernel-doc:: include/linux/gfp.h
-   :doc: Common combinations
+   :doc: Useful GFP flag combinations
 
 The Slab Cache
 ==============
@@ -72,6 +72,9 @@ File Mapping and Page Cache
 
 .. kernel-doc:: mm/truncate.c
    :export:
+
+.. kernel-doc:: include/linux/pagemap.h
+   :internal:
 
 Memory pools
 ============

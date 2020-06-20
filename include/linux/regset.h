@@ -1,11 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * User-mode machine state access
  *
  * Copyright (C) 2007 Red Hat, Inc.  All rights reserved.
- *
- * This copyrighted material is made available to anyone wishing to use,
- * modify, copy, or redistribute it subject to the terms and conditions
- * of the GNU General Public License v.2.
  *
  * Red Hat Author: Roland McGrath.
  */
@@ -323,7 +320,7 @@ static inline int user_regset_copyout_zero(unsigned int *pos,
 		if (*kbuf) {
 			memset(*kbuf, 0, copy);
 			*kbuf += copy;
-		} else if (__clear_user(*ubuf, copy))
+		} else if (clear_user(*ubuf, copy))
 			return -EFAULT;
 		else
 			*ubuf += copy;

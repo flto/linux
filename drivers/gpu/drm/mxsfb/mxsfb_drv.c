@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2016 Marek Vasut <marex@denx.de>
  *
@@ -5,40 +6,34 @@
  * Copyright (C) 2010 Juergen Beisert, Pengutronix
  * Copyright (C) 2008-2009 Freescale Semiconductor, Inc. All Rights Reserved.
  * Copyright (C) 2008 Embedded Alley Solutions, Inc All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
-#include <linux/module.h>
-#include <linux/spinlock.h>
 #include <linux/clk.h>
 #include <linux/component.h>
+#include <linux/dma-mapping.h>
 #include <linux/list.h>
+#include <linux/module.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/pm_runtime.h>
-#include <linux/reservation.h>
+#include <linux/dma-resv.h>
+#include <linux/spinlock.h>
 
-#include <drm/drmP.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
-#include <drm/drm_crtc_helper.h>
-#include <drm/drm_fb_helper.h>
+#include <drm/drm_drv.h>
 #include <drm/drm_fb_cma_helper.h>
+#include <drm/drm_fb_helper.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_irq.h>
 #include <drm/drm_of.h>
 #include <drm/drm_panel.h>
+#include <drm/drm_probe_helper.h>
 #include <drm/drm_simple_kms_helper.h>
+#include <drm/drm_vblank.h>
 
 #include "mxsfb_drv.h"
 #include "mxsfb_regs.h"
@@ -106,8 +101,24 @@ static void mxsfb_pipe_enable(struct drm_simple_display_pipe *pipe,
 			      struct drm_crtc_state *crtc_state,
 			      struct drm_plane_state *plane_state)
 {
+	struct drm_connector *connector;
 	struct mxsfb_drm_private *mxsfb = drm_pipe_to_mxsfb_drm_private(pipe);
 	struct drm_device *drm = pipe->plane.dev;
+
+	if (!mxsfb->connector) {
+		list_for_each_entry(connector,
+				    &drm->mode_config.connector_list,
+				    head)
+			if (connector->encoder == &mxsfb->pipe.encoder) {
+				mxsfb->connector = connector;
+				break;
+			}
+	}
+
+	if (!mxsfb->connector) {
+		dev_warn(drm->dev, "No connector attached, using default\n");
+		mxsfb->connector = &mxsfb->panel_connector;
+	}
 
 	pm_runtime_get_sync(drm->dev);
 	drm_panel_prepare(mxsfb->panel);
@@ -134,6 +145,9 @@ static void mxsfb_pipe_disable(struct drm_simple_display_pipe *pipe)
 		drm_crtc_send_vblank_event(crtc, event);
 	}
 	spin_unlock_irq(&drm->event_lock);
+
+	if (mxsfb->connector != &mxsfb->panel_connector)
+		mxsfb->connector = NULL;
 }
 
 static void mxsfb_pipe_update(struct drm_simple_display_pipe *pipe,
@@ -231,16 +245,33 @@ static int mxsfb_load(struct drm_device *drm, unsigned long flags)
 
 	ret = drm_simple_display_pipe_init(drm, &mxsfb->pipe, &mxsfb_funcs,
 			mxsfb_formats, ARRAY_SIZE(mxsfb_formats), NULL,
-			&mxsfb->connector);
+			mxsfb->connector);
 	if (ret < 0) {
 		dev_err(drm->dev, "Cannot setup simple display pipe\n");
 		goto err_vblank;
 	}
 
-	ret = drm_panel_attach(mxsfb->panel, &mxsfb->connector);
-	if (ret) {
-		dev_err(drm->dev, "Cannot connect panel\n");
-		goto err_vblank;
+	/*
+	 * Attach panel only if there is one.
+	 * If there is no panel attach, it must be a bridge. In this case, we
+	 * need a reference to its connector for a proper initialization.
+	 * We will do this check in pipe->enable(), since the connector won't
+	 * be attached to an encoder until then.
+	 */
+
+	if (mxsfb->panel) {
+		ret = drm_panel_attach(mxsfb->panel, mxsfb->connector);
+		if (ret) {
+			dev_err(drm->dev, "Cannot connect panel: %d\n", ret);
+			goto err_vblank;
+		}
+	} else if (mxsfb->bridge) {
+		ret = drm_simple_display_pipe_attach_bridge(&mxsfb->pipe,
+							    mxsfb->bridge);
+		if (ret) {
+			dev_err(drm->dev, "Cannot connect bridge: %d\n", ret);
+			goto err_vblank;
+		}
 	}
 
 	drm->mode_config.min_width	= MXSFB_MIN_XRES;
@@ -263,23 +294,12 @@ static int mxsfb_load(struct drm_device *drm, unsigned long flags)
 
 	drm_kms_helper_poll_init(drm);
 
-	mxsfb->fbdev = drm_fbdev_cma_init(drm, 32,
-					  drm->mode_config.num_connector);
-	if (IS_ERR(mxsfb->fbdev)) {
-		ret = PTR_ERR(mxsfb->fbdev);
-		mxsfb->fbdev = NULL;
-		dev_err(drm->dev, "Failed to init FB CMA area\n");
-		goto err_cma;
-	}
-
 	platform_set_drvdata(pdev, drm);
 
 	drm_helper_hpd_irq_event(drm);
 
 	return 0;
 
-err_cma:
-	drm_irq_uninstall(drm);
 err_irq:
 	drm_panel_detach(mxsfb->panel);
 err_vblank:
@@ -290,11 +310,6 @@ err_vblank:
 
 static void mxsfb_unload(struct drm_device *drm)
 {
-	struct mxsfb_drm_private *mxsfb = drm->dev_private;
-
-	if (mxsfb->fbdev)
-		drm_fbdev_cma_fini(mxsfb->fbdev);
-
 	drm_kms_helper_poll_fini(drm);
 	drm_mode_config_cleanup(drm);
 
@@ -305,13 +320,6 @@ static void mxsfb_unload(struct drm_device *drm)
 	drm->dev_private = NULL;
 
 	pm_runtime_disable(drm->dev);
-}
-
-static void mxsfb_lastclose(struct drm_device *drm)
-{
-	struct mxsfb_drm_private *mxsfb = drm->dev_private;
-
-	drm_fbdev_cma_restore_mode(mxsfb->fbdev);
 }
 
 static void mxsfb_irq_preinstall(struct drm_device *drm)
@@ -344,10 +352,7 @@ static irqreturn_t mxsfb_irq_handler(int irq, void *data)
 DEFINE_DRM_GEM_CMA_FOPS(fops);
 
 static struct drm_driver mxsfb_driver = {
-	.driver_features	= DRIVER_GEM | DRIVER_MODESET |
-				  DRIVER_PRIME | DRIVER_ATOMIC |
-				  DRIVER_HAVE_IRQ,
-	.lastclose		= mxsfb_lastclose,
+	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.irq_handler		= mxsfb_irq_handler,
 	.irq_preinstall		= mxsfb_irq_preinstall,
 	.irq_uninstall		= mxsfb_irq_preinstall,
@@ -356,8 +361,6 @@ static struct drm_driver mxsfb_driver = {
 	.dumb_create		= drm_gem_cma_dumb_create,
 	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle,
-	.gem_prime_export	= drm_gem_prime_export,
-	.gem_prime_import	= drm_gem_prime_import,
 	.gem_prime_get_sg_table	= drm_gem_cma_prime_get_sg_table,
 	.gem_prime_import_sg_table = drm_gem_cma_prime_import_sg_table,
 	.gem_prime_vmap		= drm_gem_cma_prime_vmap,
@@ -411,6 +414,8 @@ static int mxsfb_probe(struct platform_device *pdev)
 	ret = drm_dev_register(drm, 0);
 	if (ret)
 		goto err_unload;
+
+	drm_fbdev_generic_setup(drm, 32);
 
 	return 0;
 

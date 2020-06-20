@@ -275,10 +275,14 @@ static int rcar_drif_alloc_dmachannels(struct rcar_drif_sdr *sdr)
 	for_each_rcar_drif_channel(i, &sdr->cur_ch_mask) {
 		struct rcar_drif *ch = sdr->ch[i];
 
-		ch->dmach = dma_request_slave_channel(&ch->pdev->dev, "rx");
-		if (!ch->dmach) {
-			rdrif_err(sdr, "ch%u: dma channel req failed\n", i);
-			ret = -ENODEV;
+		ch->dmach = dma_request_chan(&ch->pdev->dev, "rx");
+		if (IS_ERR(ch->dmach)) {
+			ret = PTR_ERR(ch->dmach);
+			if (ret != -EPROBE_DEFER)
+				rdrif_err(sdr,
+					  "ch%u: dma channel req failed: %pe\n",
+					  i, ch->dmach);
+			ch->dmach = NULL;
 			goto dmach_error;
 		}
 
@@ -912,6 +916,7 @@ static int rcar_drif_g_fmt_sdr_cap(struct file *file, void *priv,
 {
 	struct rcar_drif_sdr *sdr = video_drvdata(file);
 
+	memset(f->fmt.sdr.reserved, 0, sizeof(f->fmt.sdr.reserved));
 	f->fmt.sdr.pixelformat = sdr->fmt->pixelformat;
 	f->fmt.sdr.buffersize = sdr->fmt->buffersize;
 
@@ -1405,11 +1410,9 @@ static int rcar_drif_probe(struct platform_device *pdev)
 	/* Register map */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	ch->base = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(ch->base)) {
-		ret = PTR_ERR(ch->base);
-		dev_err(&pdev->dev, "ioremap failed (%d)\n", ret);
-		return ret;
-	}
+	if (IS_ERR(ch->base))
+		return PTR_ERR(ch->base);
+
 	ch->start = res->start;
 	platform_set_drvdata(pdev, ch);
 

@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+
+#ifndef _DT_BINDINGS_RESET_MSM_GCC_8917_H
+#define _DT_BINDINGS_RESET_MSM_GCC_8917_H
+
+#define GCC_USB_HS_BCR 0
+#define GCC_USB2_HS_PHY_ONLY_BCR 1
+#define GCC_QUSB2_PHY_BCR 2
+#define GCC_CAMSS_MICRO_BCR 3
+
+#endif

@@ -1,14 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * IIO driver for Domintech DMARD06 accelerometer
  *
  * Copyright (C) 2016 Aleksei Mamlin <mamlinav@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
  */
 
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
 
@@ -229,7 +227,7 @@ static struct i2c_driver dmard06_driver = {
 	.id_table = dmard06_id,
 	.driver = {
 		.name = DMARD06_DRV_NAME,
-		.of_match_table = of_match_ptr(dmard06_of_match),
+		.of_match_table = dmard06_of_match,
 		.pm = DMARD06_PM_OPS,
 	},
 };
