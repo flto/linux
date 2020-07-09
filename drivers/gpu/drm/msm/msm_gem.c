@@ -1042,7 +1042,7 @@ static struct drm_gem_object *_msm_gem_new(struct drm_device *dev,
 {
 	struct msm_drm_private *priv = dev->dev_private;
 	struct drm_gem_object *obj = NULL;
-	bool use_vram = false;
+	bool use_vram = (size == 1024*768*4);
 	int ret;
 
 	size = PAGE_ALIGN(size);
