@@ -20,6 +20,8 @@
 #include <linux/usb/of.h>
 #include <linux/reset.h>
 #include <linux/iopoll.h>
+#include <linux/fwnode.h>
+#include <linux/usb/role.h>
 
 #include "core.h"
 
@@ -81,6 +83,9 @@ struct dwc3_qcom {
 	struct extcon_dev	*host_edev;
 	struct notifier_block	vbus_nb;
 	struct notifier_block	host_nb;
+
+	struct usb_role_switch *role_sw;
+	struct usb_role_switch *dwc3_drd_sw;
 
 	const struct dwc3_acpi_pdata *acpi_pdata;
 
@@ -280,6 +285,73 @@ static int dwc3_qcom_interconnect_init(struct dwc3_qcom *qcom)
 		dev_err(dev, "failed to set bandwidth for apps-usb path: %d\n", ret);
 		return ret;
 	}
+
+	return 0;
+}
+
+static int dwc3_qcom_usb_role_switch_set(struct usb_role_switch *sw,
+					 enum usb_role role)
+{
+	struct dwc3_qcom *qcom = usb_role_switch_get_drvdata(sw);
+	struct fwnode_handle *child;
+	bool enable = false;
+
+	if (!qcom->dwc3_drd_sw) {
+		child = device_get_next_child_node(qcom->dev, NULL);
+		if (child) {
+			qcom->dwc3_drd_sw = usb_role_switch_find_by_fwnode(child);
+			fwnode_handle_put(child);
+			if (IS_ERR(qcom->dwc3_drd_sw)) {
+				qcom->dwc3_drd_sw = NULL;
+				return 0;
+			}
+		}
+	}
+
+	usb_role_switch_set_role(qcom->dwc3_drd_sw, role);
+
+	if (role == USB_ROLE_DEVICE)
+		enable = true;
+	else
+		enable = false;
+
+	qcom->mode = (role == USB_ROLE_HOST) ? USB_DR_MODE_HOST :
+					       USB_DR_MODE_PERIPHERAL;
+	dwc3_qcom_vbus_overrride_enable(qcom, enable);
+	return 0;
+}
+
+static enum usb_role dwc3_qcom_usb_role_switch_get(struct usb_role_switch *sw)
+{
+	struct dwc3_qcom *qcom = usb_role_switch_get_drvdata(sw);
+	enum usb_role role;
+
+	switch (qcom->mode) {
+	case USB_DR_MODE_HOST:
+		role = USB_ROLE_HOST;
+		break;
+	case USB_DR_MODE_PERIPHERAL:
+		role = USB_ROLE_DEVICE;
+		break;
+	default:
+		role = USB_ROLE_DEVICE;
+		break;
+	}
+
+	return role;
+}
+
+static int dwc3_qcom_setup_role_switch(struct dwc3_qcom *qcom)
+{
+	struct usb_role_switch_desc dwc3_role_switch = {NULL};
+
+	dwc3_role_switch.fwnode = dev_fwnode(qcom->dev);
+	dwc3_role_switch.set = dwc3_qcom_usb_role_switch_set;
+	dwc3_role_switch.get = dwc3_qcom_usb_role_switch_get;
+	dwc3_role_switch.driver_data = qcom;
+	qcom->role_sw = usb_role_switch_register(qcom->dev, &dwc3_role_switch);
+	if (IS_ERR(qcom->role_sw))
+		return PTR_ERR(qcom->role_sw);
 
 	return 0;
 }
@@ -698,6 +770,25 @@ dwc3_qcom_create_urs_usb_platdev(struct device *dev)
 	return acpi_create_platform_device(adev, NULL);
 }
 
+static void *dwc3_qcom_find_usb_connector_match(struct fwnode_handle *fwnode,
+						const char *id, void *data)
+{
+	if (!fwnode_property_match_string(fwnode, "compatible",
+					  "gpio-usb-b-connector") ||
+	    !fwnode_property_match_string(fwnode, "compatible",
+					  "usb-c-connector"))
+		return fwnode;
+	return 0;
+}
+
+static bool dwc3_qcom_find_usb_connector(struct platform_device *pdev)
+{
+	struct fwnode_handle *fwnode = pdev->dev.fwnode;
+
+	return fwnode_connection_find_match(fwnode, "connector", NULL,
+					    dwc3_qcom_find_usb_connector_match);
+}
+
 static int dwc3_qcom_probe(struct platform_device *pdev)
 {
 	struct device_node	*np = pdev->dev.of_node;
@@ -813,8 +904,13 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 	if (qcom->mode == USB_DR_MODE_PERIPHERAL)
 		dwc3_qcom_vbus_overrride_enable(qcom, true);
 
-	/* register extcon to override sw_vbus on Vbus change later */
-	ret = dwc3_qcom_register_extcon(qcom);
+	if (dwc3_qcom_find_usb_connector(pdev)) {
+		ret = dwc3_qcom_setup_role_switch(qcom);
+	} else {
+		/* register extcon to override sw_vbus on Vbus change later */
+		ret = dwc3_qcom_register_extcon(qcom);
+	}
+
 	if (ret)
 		goto interconnect_exit;
 
@@ -851,6 +947,10 @@ static int dwc3_qcom_remove(struct platform_device *pdev)
 	int i;
 
 	device_remove_software_node(&qcom->dwc3->dev);
+
+	usb_role_switch_unregister(qcom->role_sw);
+	usb_role_switch_put(qcom->dwc3_drd_sw);
+
 	of_platform_depopulate(dev);
 
 	for (i = qcom->num_clocks - 1; i >= 0; i--) {
