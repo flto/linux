@@ -6171,9 +6171,28 @@ struct tcpm_port *tcpm_register_port(struct device *dev, struct tcpc_dev *tcpc)
 		goto out_role_sw_put;
 	}
 
-	typec_port_register_altmodes(port->typec_port,
-				     &tcpm_altmode_ops, port,
-				     port->port_altmode, ALTMODE_DISCOVERY_MAX);
+	{
+		struct typec_altmode_desc desc = {
+			.svid = 0xff01,
+			.mode = 1,
+			/* is this right? */
+			.vdo = 0x00ff0006,
+			.roles = TYPEC_PORT_DRD,
+		};
+
+		struct typec_altmode *alt;
+
+		alt = typec_port_register_altmode(port->typec_port, &desc);
+		if (IS_ERR(alt)) {
+			tcpm_log(port, "failed to register port alternate mode");
+			err = PTR_ERR(alt);
+			goto out_role_sw_put;
+		} else {
+			typec_altmode_set_drvdata(alt, port);
+			alt->ops = &tcpm_altmode_ops;
+			port->port_altmode[0] = alt;
+		}
+	}
 
 	mutex_lock(&port->lock);
 	tcpm_init(port);
