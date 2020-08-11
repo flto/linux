@@ -12,6 +12,8 @@
 #include <linux/slab.h>
 #include <linux/usb/pd_vdo.h>
 #include <linux/usb/typec_mux.h>
+#include <linux/device.h>
+#include "mux.h"
 
 #include "bus.h"
 #include "class.h"
@@ -577,9 +579,12 @@ typec_register_altmode(struct device *parent,
  */
 void typec_unregister_altmode(struct typec_altmode *adev)
 {
+	int i;
+
 	if (IS_ERR_OR_NULL(adev))
 		return;
-	typec_mux_put(to_altmode(adev)->mux);
+	for (i = 0; i < to_altmode(adev)->num_mux; i++)
+		typec_mux_put(to_altmode(adev)->mux[i]);
 	device_unregister(&adev->dev);
 }
 EXPORT_SYMBOL_GPL(typec_unregister_altmode);
@@ -1902,24 +1907,77 @@ EXPORT_SYMBOL_GPL(typec_get_drvdata);
  *
  * Returns handle to the alternate mode on success or ERR_PTR on failure.
  */
+
+static bool dev_name_ends_with(struct device *dev, const char *suffix)
+{
+	const char *name = dev_name(dev);
+	const int name_len = strlen(name);
+	const int suffix_len = strlen(suffix);
+
+	if (suffix_len > name_len)
+		return false;
+
+	return strcmp(name + (name_len - suffix_len), suffix) == 0;
+}
+
+static int mux_fwnode_match(struct device *dev, const void *fwnode)
+{
+	return dev_fwnode(dev) == fwnode && dev_name_ends_with(dev, "-mux");
+}
+
 struct typec_altmode *
 typec_port_register_altmode(struct typec_port *port,
 			    const struct typec_altmode_desc *desc)
 {
 	struct typec_altmode *adev;
-	struct typec_mux *mux;
+	struct typec_mux *mux[3];
+	struct device *dev;
+	struct fwnode_handle *ep;
+	unsigned num_mux = 0;
+	int nval, i, ret;
 
-	mux = typec_mux_get(&port->dev, desc);
-	if (IS_ERR(mux))
-		return ERR_CAST(mux);
+	fwnode_graph_for_each_endpoint(port->dev.fwnode, ep) {
+		struct fwnode_handle *fwnode = fwnode_graph_get_remote_port_parent(ep);
+		if (!fwnode_device_is_available(fwnode))
+			continue;
+
+		if (!fwnode_property_present(fwnode, "mode-switch"))
+			continue;
+
+		nval = fwnode_property_count_u16(fwnode, "svid");
+		if (nval <= 0)
+			continue;
+
+		/* assume only 0xff01 / matching svid */
+		dev = class_find_device(&typec_mux_class, NULL, fwnode, mux_fwnode_match);
+		if (dev) {
+			mux[num_mux] = to_typec_mux(dev);
+			WARN_ON(!try_module_get(mux[num_mux]->dev.parent->driver->owner));
+			num_mux++;
+		} else {
+			ret = -EPROBE_DEFER;
+			goto err_put;
+		}
+
+		fwnode_handle_put(fwnode);
+	}
 
 	adev = typec_register_altmode(&port->dev, desc);
-	if (IS_ERR(adev))
-		typec_mux_put(mux);
-	else
-		to_altmode(adev)->mux = mux;
+	if (IS_ERR(adev)) {
+		ret = PTR_ERR(adev);
+		goto err_put;
+	}
+
+	for (i = 0; i < num_mux; i++)
+		to_altmode(adev)->mux[i] = mux[i];
+	to_altmode(adev)->num_mux = num_mux;
 
 	return adev;
+
+err_put:
+	for (i = 0; i < num_mux; i++)
+		typec_mux_put(mux[i]);
+	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(typec_port_register_altmode);
 
