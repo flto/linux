@@ -16,15 +16,16 @@ static inline int
 typec_altmode_set_mux(struct altmode *alt, unsigned long conf, void *data)
 {
 	struct typec_mux_state state;
-
-	if (!alt->mux)
-		return 0;
+	int i;
 
 	state.alt = &alt->adev;
 	state.mode = conf;
 	state.data = data;
 
-	return alt->mux->set(alt->mux, &state);
+	for (i = 0; i < alt->num_mux; i++)
+		alt->mux[i]->set(alt->mux[i], &state);
+
+	return 0;
 }
 
 static int typec_altmode_set_state(struct typec_altmode *adev,

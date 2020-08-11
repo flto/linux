@@ -11,7 +11,8 @@ struct typec_mux;
 struct altmode {
 	unsigned int			id;
 	struct typec_altmode		adev;
-	struct typec_mux		*mux;
+	struct typec_mux		*mux[3];
+	unsigned num_mux;
 
 	enum typec_port_data		roles;
 
