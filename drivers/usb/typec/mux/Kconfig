@@ -19,4 +19,12 @@ config TYPEC_MUX_INTEL_PMC
 	  control the USB role switch and also the multiplexer/demultiplexer
 	  switches used with USB Type-C Alternate Modes.
 
+config TYPEC_MUX_FSA4480
+	tristate "Fairchild FSA4480 switch"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Driver for Fairchild FSA4480 switch chip. Allows switching
+	  orientation for DP AUX lanes.
+
 endmenu
