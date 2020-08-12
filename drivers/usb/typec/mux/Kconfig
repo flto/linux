@@ -26,4 +26,11 @@ config TYPEC_MUX_FSA4480
 	  Driver for Fairchild FSA4480 switch chip. Allows switching
 	  orientation for DP AUX lanes.
 
+config TYPEC_MUX_GPIO
+	tristate "GPIO DP aux switch"
+	depends on I2C
+	help
+	  Driver for GPIO-controlled DP aux switch, to flip DP aux lanes
+	  when orientation changes.
+
 endmenu
