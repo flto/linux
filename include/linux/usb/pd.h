@@ -483,7 +483,7 @@ static inline unsigned int rdo_max_power(u32 rdo)
 #define PD_T_SINK_TX		16	/* 16 - 20 ms */
 #define PD_T_CHUNK_NOT_SUPP	42	/* 40 - 50 ms */
 
-#define PD_T_DRP_TRY		100	/* 75 - 150 ms */
+#define PD_T_DRP_TRY		400	/* 75 - 150 ms */
 #define PD_T_DRP_TRYWAIT	600	/* 400 - 800 ms */
 
 #define PD_T_CC_DEBOUNCE	200	/* 100 - 200 ms */
