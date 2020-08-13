@@ -4817,6 +4817,7 @@ static void _tcpm_cc_change(struct tcpm_port *port, enum typec_cc_status cc1,
 
 	case SRC_TRYWAIT:
 		/* Hand over to state machine if needed */
+		printk("SRC_TRYWAIT: %d %d\n", port->vbus_present, tcpm_port_is_source(port));
 		if (!port->vbus_present && tcpm_port_is_source(port))
 			tcpm_set_state(port, SRC_TRYWAIT_DEBOUNCE, 0);
 		break;
