@@ -66,4 +66,12 @@ config TYPEC_WCOVE
 	  To compile this driver as module, choose M here: the module will be
 	  called typec_wcove.ko
 
+config TYPEC_QCOM_PMIC
+	tristate "Qualcomm PMIC USB Type-C driver"
+	depends on ARCH_QCOM || COMPILE_TEST
+	help
+	  This driver adds support for USB Type-C on Qualcomm platforms
+	  that PM8150B PMIC. The driver works with USB Type-C Port Controller
+	  Manager to provide USB PD and Type-C functionalities.
+
 endif # TYPEC_TCPM
