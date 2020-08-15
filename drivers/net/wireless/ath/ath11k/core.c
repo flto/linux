@@ -533,9 +533,11 @@ err:
 static int ath11k_core_fetch_board_data_api_1(struct ath11k_base *ab,
 					      struct ath11k_board_data *bd)
 {
-	bd->fw = ath11k_core_firmware_request(ab, ATH11K_DEFAULT_BOARD_FILE);
-	if (IS_ERR(bd->fw))
-		return PTR_ERR(bd->fw);
+	int ret;
+
+	ret = firmware_request_nowarn(&bd->fw, "bdwlan.bin", ab->dev);
+	if (ret)
+		return ret;
 
 	bd->data = bd->fw->data;
 	bd->len = bd->fw->size;

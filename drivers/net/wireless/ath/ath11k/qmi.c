@@ -1677,7 +1677,7 @@ static int ath11k_qmi_respond_fw_mem_request(struct ath11k_base *ab)
 	 * failure to FW and FW will then request mulitple blocks of small
 	 * chunk size memory.
 	 */
-	if (!ab->bus_params.fixed_mem_region && ab->qmi.target_mem_delayed) {
+	if (!ab->bus_params.fixed_mem_region && false) {
 		delayed = true;
 		ath11k_dbg(ab, ATH11K_DBG_QMI, "qmi delays mem_request %d\n",
 			   ab->qmi.mem_seg_count);
@@ -1995,7 +1995,7 @@ static int ath11k_qmi_load_bdf_fixed_addr(struct ath11k_base *ab)
 		req->seg_id = type;
 		req->data_valid = 0;
 		req->data_len = ATH11K_QMI_MAX_BDF_FILE_NAME_SIZE;
-		req->bdf_type = 0;
+		req->bdf_type = 1;
 		req->bdf_type_valid = 0;
 		req->end_valid = 1;
 		req->end = 1;
