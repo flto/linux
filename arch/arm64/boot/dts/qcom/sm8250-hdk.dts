@@ -7,6 +7,7 @@
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/usb/pd.h>
 #include "sm8250.dtsi"
 #include "pm8150.dtsi"
 #include "pm8150b.dtsi"
@@ -439,6 +440,14 @@
 
 &usb_1 {
 	status = "okay";
+	usb-role-switch;
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	port {
+		dwc3_drd_switch: endpoint@0 {
+			remote-endpoint = <&usb3_role>;
+		};
+	};
 };
 
 &usb_2 {
@@ -446,9 +455,50 @@
 };
 
 &usb_1_dwc3 {
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	usb-role-switch;
 };
 
 &usb_2_dwc3 {
 	dr_mode = "host";
 };
+
+&pm8150b_vbus {
+	status = "okay";
+};
+
+&pm8150b_tcpm {
+	status = "okay";
+
+	vdd-pdphy-supply = <&vreg_l2a_3p1>;
+	vbus-supply = <&pm8150b_vbus>;
+	connector {
+		compatible = "usb-c-connector";
+		power-role = "dual";
+		data-role = "dual";
+		try-power-role = "sink";
+		source-pdos = <PDO_FIXED(5000, 1500, PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+		  PDO_FIXED_USB_COMM)>;
+		sink-pdos = <PDO_FIXED(5000, 300, PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+		  PDO_FIXED_USB_COMM)>;
+		op-sink-microwatt = <15000000>;
+
+#if 0
+		qcom,default-sink-caps = <5000 3000>, /* 5V @ 3A */
+						 <9000 3000>, /* 9V @ 3A */
+						 <12000 2250>; /* 12V @ 2.25A */
+#endif
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@1 {
+				reg = <1>;
+				usb3_role: endpoint@0 {
+					remote-endpoint = <&dwc3_drd_switch>;
+				};
+			};
+		};
+	};
+};
+
