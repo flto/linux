@@ -473,7 +473,6 @@
 	vdd-pdphy-supply = <&vreg_l2a_3p1>;
 	vbus-supply = <&pm8150b_vbus>;
 	connector {
-		compatible = "usb-c-connector";
 		power-role = "dual";
 		data-role = "dual";
 		try-power-role = "sink";
@@ -497,6 +496,52 @@
 				usb3_role: endpoint@0 {
 					remote-endpoint = <&dwc3_drd_switch>;
 				};
+				dp_mode_out: endpoint@2 {
+					remote-endpoint = <&dp_mode>;
+				};
+				fsa_mode_out: endpoint@3 {
+					remote-endpoint = <&fsa_mode>;
+				};
+			};
+		};
+	};
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&msm_dp {
+	status = "okay";
+
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	port {
+		dp_mode: endpoint@0 {
+			remote-endpoint = <&dp_mode_out>;
+		};
+	};
+};
+
+
+&qupv3_id_2 {
+	status = "okay";
+};
+
+&i2c15 {
+	status = "okay";
+	fsa4480: fsa4480@43 {
+		compatible = "fairchild,fsa4480";
+		reg = <0x43>;
+		mode-switch;
+		svid = /bits/ 16 <0xff01>;
+		port {
+			fsa_mode: endpoint@0 {
+				remote-endpoint = <&fsa_mode_out>;
 			};
 		};
 	};
