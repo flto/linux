@@ -559,6 +559,9 @@ int venus_helper_get_bufreq(struct venus_inst *inst, u32 type,
 	unsigned int i;
 	int ret;
 
+	if (IS_IRIS2(inst->core))
+		return venus_helper_get_bufreq_iris2(inst, type, req);
+
 	if (req)
 		memset(req, 0, sizeof(*req));
 
