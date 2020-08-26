@@ -48,6 +48,34 @@ void pkt_sys_debug_config(struct hfi_sys_set_property_pkt *pkt, u32 mode,
 	hfi->mode = mode;
 }
 
+void pkt_sys_ubwc_config(struct hfi_sys_set_property_pkt *pkt)
+{
+	struct hfi_ubwc_config *hfi;
+
+	pkt->hdr.size = sizeof(*pkt) + sizeof(*hfi) + sizeof(u32);
+	pkt->hdr.pkt_type = HFI_CMD_SYS_SET_PROPERTY;
+	pkt->num_properties = 1;
+	pkt->data[0] = HFI_PROPERTY_SYS_UBWC_CONFIG;
+	hfi = (struct hfi_ubwc_config *)&pkt->data[1];
+
+	/* SM8250 default LPDDR5 UBWC config */
+	hfi->size = 0;
+	hfi->packet_type = 0;
+	hfi->override_bit_info.max_channel_override = 1;
+	hfi->override_bit_info.mal_length_override = 1;
+	hfi->override_bit_info.hb_override = 1;
+	hfi->override_bit_info.bank_swzl_level_override = 0;
+	hfi->override_bit_info.bank_spreading_override = 0;
+	hfi->override_bit_info.reserved = 0;
+	hfi->max_channels = 8;
+	hfi->mal_length = 32;
+	hfi->highest_bank_bit = 16; /* TODO: 15 for LPDDR4 */
+	hfi->bank_swzl_level = 0;
+	hfi->bank_spreading = 0;
+	hfi->reserved[0] = 0;
+	hfi->reserved[1] = 0;
+}
+
 void pkt_sys_coverage_config(struct hfi_sys_set_property_pkt *pkt, u32 mode)
 {
 	pkt->hdr.size = sizeof(*pkt) + sizeof(u32);
