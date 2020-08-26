@@ -69,9 +69,11 @@ static int core_clks_set_rate(struct venus_core *core, unsigned long freq)
 	struct clk *clk = core->clks[0];
 	int ret;
 
-	ret = clk_set_rate(clk, freq);
-	if (ret)
-		return ret;
+	if (!IS_IRIS2(core)) {
+		ret = clk_set_rate(clk, freq);
+		if (ret)
+			return ret;
+	}
 
 	ret = clk_set_rate(core->vcodec0_clks[0], freq);
 	if (ret)
