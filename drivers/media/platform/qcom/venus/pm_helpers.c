@@ -766,12 +766,7 @@ static int vcodec_domains_get(struct device *dev)
 		core->pmdomains[i] = pd;
 	}
 
-	core->pd_dl_venus = device_link_add(dev, core->pmdomains[0],
-					    DL_FLAG_PM_RUNTIME |
-					    DL_FLAG_STATELESS |
-					    DL_FLAG_RPM_ACTIVE);
-	if (!core->pd_dl_venus)
-		return -ENODEV;
+	pm_runtime_get_sync(core->pmdomains[0]);
 
 skip_pmdomains:
 	if (!core->has_opp_table)
@@ -819,8 +814,7 @@ static void vcodec_domains_put(struct device *dev)
 	if (!res->vcodec_pmdomains_num)
 		goto skip_pmdomains;
 
-	if (core->pd_dl_venus)
-		device_link_del(core->pd_dl_venus);
+	pm_runtime_put_sync(core->pmdomains[0]);
 
 	for (i = 0; i < res->vcodec_pmdomains_num; i++) {
 		if (IS_ERR_OR_NULL(core->pmdomains[i]))
