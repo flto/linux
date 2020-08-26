@@ -334,7 +334,7 @@ venc_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 	pfmt[0].sizeimage = max(ALIGN(pfmt[0].sizeimage, SZ_4K), sizeimage);
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
-		pfmt[0].bytesperline = ALIGN(pixmp->width, 128);
+		pfmt[0].bytesperline = ALIGN(pixmp->width, 128); // should be 512 but does not seem to be the case?
 	else
 		pfmt[0].bytesperline = 0;
 
@@ -775,6 +775,7 @@ static int venc_set_properties(struct venus_inst *inst)
 	if (ret)
 		return ret;
 
+#if 0
 	ptype = HFI_PROPERTY_PARAM_VENC_SESSION_QP;
 	quant.qp_i = ctr->h264_i_qp;
 	quant.qp_p = ctr->h264_p_qp;
@@ -783,11 +784,13 @@ static int venc_set_properties(struct venus_inst *inst)
 	ret = hfi_session_set_property(inst, ptype, &quant);
 	if (ret)
 		return ret;
+#endif
 
 	ptype = HFI_PROPERTY_PARAM_VENC_SESSION_QP_RANGE;
-	quant_range.min_qp = ctr->h264_min_qp;
-	quant_range.max_qp = ctr->h264_max_qp;
-	quant_range.layer_id = 0;
+	quant_range.min_qp.qp_packed = ctr->h264_min_qp;
+	quant_range.max_qp.qp_packed = ctr->h264_max_qp;
+	quant_range.min_qp.layer_id = 0xff;
+	quant_range.max_qp.layer_id = 0xff;
 	ret = hfi_session_set_property(inst, ptype, &quant_range);
 	if (ret)
 		return ret;
@@ -869,15 +872,15 @@ static int venc_out_num_buffers(struct venus_inst *inst, unsigned int *num)
 	struct hfi_buffer_requirements bufreq;
 	int ret;
 
-	ret = venc_init_session(inst);
-	if (ret)
-		return ret;
+	//ret = venc_init_session(inst);
+	//if (ret)
+	//	return ret;
 
 	ret = venus_helper_get_bufreq(inst, HFI_BUFFER_INPUT, &bufreq);
 
 	*num = bufreq.count_actual;
 
-	hfi_session_deinit(inst);
+	//hfi_session_deinit(inst);
 
 	return ret;
 }

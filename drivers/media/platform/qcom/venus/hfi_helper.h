@@ -423,6 +423,7 @@
 #define HFI_PROPERTY_PARAM_MVC_BUFFER_LAYOUT			0x100f
 #define HFI_PROPERTY_PARAM_MAX_SESSIONS_SUPPORTED		0x1010
 #define HFI_PROPERTY_PARAM_WORK_MODE				0x1015
+#define HFI_PROPERTY_PARAM_WORK_ROUTE				0x1017
 
 /*
  * HFI_PROPERTY_CONFIG_COMMON_START
@@ -458,8 +459,8 @@
 #define HFI_PROPERTY_PARAM_VENC_H264_PICORDER_CNT_TYPE		0x2005005
 #define HFI_PROPERTY_PARAM_VENC_SESSION_QP			0x2005006
 #define HFI_PROPERTY_PARAM_VENC_MPEG4_AC_PREDICTION		0x2005007
-#define HFI_PROPERTY_PARAM_VENC_SESSION_QP_RANGE		0x2005008
-#define HFI_PROPERTY_PARAM_VENC_MPEG4_TIME_RESOLUTION		0x2005009
+#define HFI_PROPERTY_PARAM_VENC_SESSION_QP_RANGE		0x2005009
+//#define HFI_PROPERTY_PARAM_VENC_MPEG4_TIME_RESOLUTION		0x2005009
 #define HFI_PROPERTY_PARAM_VENC_MPEG4_SHORT_HEADER		0x200500a
 #define HFI_PROPERTY_PARAM_VENC_MPEG4_HEADER_EXTENSION		0x200500b
 #define HFI_PROPERTY_PARAM_VENC_OPEN_GOP			0x200500c
@@ -727,23 +728,16 @@ struct hfi_quality_vs_speed {
 };
 
 struct hfi_quantization {
-	u32 qp_i;
-	u32 qp_p;
-	u32 qp_b;
+	u32 qp_packed;
 	u32 layer_id;
-};
-
-struct hfi_initial_quantization {
-	u32 qp_i;
-	u32 qp_p;
-	u32 qp_b;
-	u32 init_qp_enable;
+	u32 enable;
+	u32 reserved[3];
 };
 
 struct hfi_quantization_range {
-	u32 min_qp;
-	u32 max_qp;
-	u32 layer_id;
+	struct hfi_quantization min_qp;
+	struct hfi_quantization max_qp;
+	u32 reserved[4];
 };
 
 #define HFI_LTR_MODE_DISABLE	0x0

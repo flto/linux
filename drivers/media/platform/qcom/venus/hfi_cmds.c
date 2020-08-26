@@ -678,6 +678,7 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		pkt->shdr.hdr.size += sizeof(u32) * 2;
 		break;
 	}
+#if 0
 	case HFI_PROPERTY_PARAM_VENC_MPEG4_TIME_RESOLUTION: {
 		struct hfi_mpeg4_time_resolution *in = pdata, *res = prop_data;
 
@@ -685,6 +686,7 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*res);
 		break;
 	}
+#endif
 	case HFI_PROPERTY_PARAM_VENC_MPEG4_HEADER_EXTENSION: {
 		struct hfi_mpeg4_header_extension *in = pdata, *ext = prop_data;
 
@@ -711,6 +713,7 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*db);
 		break;
 	}
+#if 0
 	case HFI_PROPERTY_PARAM_VENC_SESSION_QP: {
 		struct hfi_quantization *in = pdata, *quant = prop_data;
 
@@ -721,12 +724,13 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*quant);
 		break;
 	}
+#endif
 	case HFI_PROPERTY_PARAM_VENC_SESSION_QP_RANGE: {
 		struct hfi_quantization_range *in = pdata, *range = prop_data;
 		u32 min_qp, max_qp;
 
-		min_qp = in->min_qp;
-		max_qp = in->max_qp;
+		min_qp = in->min_qp.qp_packed;
+		max_qp = in->max_qp.qp_packed;
 
 		/* We'll be packing in the qp, so make sure we
 		 * won't be losing data when masking
@@ -740,9 +744,10 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		 * 0xiippbb, where ii = qp range for I-frames,
 		 * pp = qp range for P-frames, etc.
 		 */
-		range->min_qp = min_qp | min_qp << 8 | min_qp << 16;
-		range->max_qp = max_qp | max_qp << 8 | max_qp << 16;
-		range->layer_id = in->layer_id;
+		range->min_qp.qp_packed = min_qp | min_qp << 8 | min_qp << 16;
+		range->max_qp.qp_packed = max_qp | max_qp << 8 | max_qp << 16;
+		range->min_qp.layer_id = in->min_qp.layer_id;
+		range->max_qp.layer_id = in->max_qp.layer_id;
 
 		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*range);
 		break;
@@ -1003,6 +1008,7 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*en);
 		break;
 	}
+#if 0
 	case HFI_PROPERTY_PARAM_VENC_INITIAL_QP: {
 		struct hfi_initial_quantization *in = pdata, *quant = prop_data;
 
@@ -1013,6 +1019,7 @@ static int pkt_session_set_property_1x(struct hfi_session_set_property_pkt *pkt,
 		pkt->shdr.hdr.size += sizeof(u32) + sizeof(*quant);
 		break;
 	}
+#endif
 	case HFI_PROPERTY_PARAM_VPE_COLOR_SPACE_CONVERSION: {
 		struct hfi_vpe_color_space_conversion *in = pdata;
 		struct hfi_vpe_color_space_conversion *csc = prop_data;
