@@ -578,12 +578,74 @@ static const struct venus_resources sc7180_res = {
 	.fwname = "qcom/venus-5.4/venus.mdt",
 };
 
+/* TODO: set things correctly for bw/freq calculations */
+
+static const struct freq_tbl sm8250_freq_table[] = {
+	{ 0, 444000000 },	/* 4096x2160@90 */
+	//{ 0, 366000000 },	/* 4096x2160@60 */
+	//{ 0, 338000000 },	/* 3840x2160@60 */
+	//{  0, 240000000 },	/* 3840x2160@30 */
+};
+
+static const struct codec_freq_data sm8250_codec_freq_data[] =  {
+	{ V4L2_PIX_FMT_H264, VIDC_SESSION_TYPE_ENC, 0, 0 },
+	{ V4L2_PIX_FMT_HEVC, VIDC_SESSION_TYPE_ENC, 0, 0 },
+	{ V4L2_PIX_FMT_VP8, VIDC_SESSION_TYPE_ENC, 0, 0 },
+	{ V4L2_PIX_FMT_MPEG2, VIDC_SESSION_TYPE_DEC, 0, 0 },
+	{ V4L2_PIX_FMT_H264, VIDC_SESSION_TYPE_DEC, 0, 0 },
+	{ V4L2_PIX_FMT_HEVC, VIDC_SESSION_TYPE_DEC, 0, 0 },
+	{ V4L2_PIX_FMT_VP8, VIDC_SESSION_TYPE_DEC, 0, 0 },
+	{ V4L2_PIX_FMT_VP9, VIDC_SESSION_TYPE_DEC, 0, 0 },
+};
+
+static const struct bw_tbl sm8250_bw_table_enc[] = {
+	{ 0, 15000000, 15000000, 15000000, 15000000 },
+};
+
+static const struct bw_tbl sm8250_bw_table_dec[] = {
+	{ 0, 15000000, 15000000, 15000000, 15000000 },
+};
+
+
+static const struct reg_val sm8250_reg_preset[] = {
+	{ 0xb0088, 0 },
+};
+
+static const struct venus_resources sm8250_res = {
+	.freq_tbl = sm8250_freq_table,
+	.freq_tbl_size = ARRAY_SIZE(sm8250_freq_table),
+	.bw_tbl_enc = sm8250_bw_table_enc,
+	.bw_tbl_enc_size = ARRAY_SIZE(sm8250_bw_table_enc),
+	.bw_tbl_dec = sm8250_bw_table_dec,
+	.bw_tbl_dec_size = ARRAY_SIZE(sm8250_bw_table_dec),
+	.codec_freq_data = sm8250_codec_freq_data,
+	.codec_freq_data_size = ARRAY_SIZE(sm8250_codec_freq_data),
+	.reg_tbl = sm8250_reg_preset,
+	.reg_tbl_size = ARRAY_SIZE(sm8250_reg_preset),
+	.clks = {"core", "bus" },
+	.clks_num = 2,
+	.vcodec0_clks = { "vcodec0_core" },
+	.vcodec_clks_num = 1,
+	.vcodec_pmdomains = { "venus", "vcodec0" },
+	.vcodec_pmdomains_num = 2,
+	.vcodec_num = 1,
+	.max_load = 7833600,	/* 4096x2160@90 */
+	.hfi_version = HFI_VERSION_4XX,
+	.iris2 = true,
+	.vmem_id = VIDC_RESOURCE_NONE,
+	.vmem_size = 0,
+	.vmem_addr = 0,
+	.dma_mask = 0xe0000000 - 1,
+	.fwname = "qcom/venus.mbn",
+};
+
 static const struct of_device_id venus_dt_match[] = {
 	{ .compatible = "qcom,msm8916-venus", .data = &msm8916_res, },
 	{ .compatible = "qcom,msm8996-venus", .data = &msm8996_res, },
 	{ .compatible = "qcom,sdm845-venus", .data = &sdm845_res, },
 	{ .compatible = "qcom,sdm845-venus-v2", .data = &sdm845_res_v2, },
 	{ .compatible = "qcom,sc7180-venus", .data = &sc7180_res, },
+	{ .compatible = "qcom,sm8250-venus", .data = &sm8250_res, },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, venus_dt_match);
