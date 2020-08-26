@@ -924,7 +924,8 @@ static int vdec_start_capture(struct venus_inst *inst)
 		return 0;
 	}
 
-	if (inst->codec_state != VENUS_DEC_STATE_STOPPED)
+	if (inst->codec_state != VENUS_DEC_STATE_STOPPED &&
+	    inst->codec_state != VENUS_DEC_STATE_INIT)
 		return 0;
 
 reconfigure:
