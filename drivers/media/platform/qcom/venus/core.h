@@ -64,6 +64,7 @@ struct venus_resources {
 	unsigned int vcodec_pmdomains_num;
 	unsigned int vcodec_num;
 	enum hfi_version hfi_version;
+	bool iris2;
 	u32 max_load;
 	unsigned int vmem_id;
 	u32 vmem_size;
@@ -395,6 +396,7 @@ struct venus_inst {
 #define IS_V1(core)	((core)->res->hfi_version == HFI_VERSION_1XX)
 #define IS_V3(core)	((core)->res->hfi_version == HFI_VERSION_3XX)
 #define IS_V4(core)	((core)->res->hfi_version == HFI_VERSION_4XX)
+#define IS_IRIS2(core)	((core)->res->iris2)
 
 #define ctrl_to_inst(ctrl)	\
 	container_of((ctrl)->handler, struct venus_inst, ctrl_handler)
