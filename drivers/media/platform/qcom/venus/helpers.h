@@ -27,8 +27,8 @@ int venus_helper_get_bufreq(struct venus_inst *inst, u32 type,
 			    struct hfi_buffer_requirements *req);
 int venus_helper_get_bufreq_iris2(struct venus_inst *inst, u32 type,
 				  struct hfi_buffer_requirements *req);
-u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height);
-u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height);
+u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height, bool iris2_dec);
+u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height, bool iris2_dec);
 int venus_helper_set_input_resolution(struct venus_inst *inst,
 				      unsigned int width, unsigned int height);
 int venus_helper_set_output_resolution(struct venus_inst *inst,

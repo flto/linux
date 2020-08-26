@@ -701,11 +701,13 @@ static u32 get_framesize_raw_yuv420_tp10_ubwc(u32 width, u32 height)
 	return ALIGN(size, SZ_4K);
 }
 
-u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height)
+u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height, bool iris2_dec)
 {
 	switch (hfi_fmt) {
 	case HFI_COLOR_FORMAT_NV12:
 	case HFI_COLOR_FORMAT_NV21:
+		if (iris2_dec)
+			width = ALIGN(width, 512);
 		return get_framesize_raw_nv12(width, height);
 	case HFI_COLOR_FORMAT_NV12_UBWC:
 		return get_framesize_raw_nv12_ubwc(width, height);
@@ -721,7 +723,7 @@ u32 venus_helper_get_framesz_raw(u32 hfi_fmt, u32 width, u32 height)
 }
 EXPORT_SYMBOL_GPL(venus_helper_get_framesz_raw);
 
-u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height)
+u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height, bool iris2_dec)
 {
 	u32 hfi_fmt, sz;
 	bool compressed;
@@ -757,7 +759,7 @@ u32 venus_helper_get_framesz(u32 v4l2_fmt, u32 width, u32 height)
 	if (!hfi_fmt)
 		return 0;
 
-	return venus_helper_get_framesz_raw(hfi_fmt, width, height);
+	return venus_helper_get_framesz_raw(hfi_fmt, width, height, iris2_dec);
 }
 EXPORT_SYMBOL_GPL(venus_helper_get_framesz);
 

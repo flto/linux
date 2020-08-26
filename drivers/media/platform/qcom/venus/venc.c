@@ -329,7 +329,8 @@ venc_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 
 	sizeimage = venus_helper_get_framesz(pixmp->pixelformat,
 					     pixmp->width,
-					     pixmp->height);
+					     pixmp->height,
+					     false);
 	pfmt[0].sizeimage = max(ALIGN(pfmt[0].sizeimage, SZ_4K), sizeimage);
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE)
@@ -923,7 +924,8 @@ static int venc_queue_setup(struct vb2_queue *q,
 
 		sizes[0] = venus_helper_get_framesz(inst->fmt_out->pixfmt,
 						    inst->width,
-						    inst->height);
+						    inst->height,
+						    false);
 		inst->input_buf_size = sizes[0];
 		break;
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
@@ -932,7 +934,8 @@ static int venc_queue_setup(struct vb2_queue *q,
 		inst->num_output_bufs = *num_buffers;
 		sizes[0] = venus_helper_get_framesz(inst->fmt_cap->pixfmt,
 						    inst->width,
-						    inst->height);
+						    inst->height,
+						    false);
 		sizes[0] = max(sizes[0], inst->output_buf_size);
 		inst->output_buf_size = sizes[0];
 		break;

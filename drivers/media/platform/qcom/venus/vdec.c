@@ -174,11 +174,14 @@ vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 	pixmp->flags = 0;
 
 	szimage = venus_helper_get_framesz(pixmp->pixelformat, pixmp->width,
-					   pixmp->height);
+					   pixmp->height, IS_IRIS2(inst->core));
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		pfmt[0].sizeimage = szimage;
-		pfmt[0].bytesperline = ALIGN(pixmp->width, 128);
+		if (IS_IRIS2(inst->core))
+			pfmt[0].bytesperline = ALIGN(pixmp->width, 512);
+		else
+			pfmt[0].bytesperline = ALIGN(pixmp->width, 128);
 	} else {
 		pfmt[0].sizeimage = clamp_t(u32, pfmt[0].sizeimage, 0, SZ_8M);
 		pfmt[0].sizeimage = max(pfmt[0].sizeimage, szimage);
@@ -638,6 +641,7 @@ static int vdec_output_conf(struct venus_inst *inst)
 	u32 height = inst->out_height;
 	u32 out_fmt, out2_fmt;
 	bool ubwc = false;
+	bool iris2 = IS_IRIS2(inst->core);
 	u32 ptype;
 	int ret;
 
@@ -666,9 +670,9 @@ static int vdec_output_conf(struct venus_inst *inst)
 		return ret;
 
 	inst->output_buf_size =
-			venus_helper_get_framesz_raw(out_fmt, width, height);
+			venus_helper_get_framesz_raw(out_fmt, width, height, iris2);
 	inst->output2_buf_size =
-			venus_helper_get_framesz_raw(out2_fmt, width, height);
+			venus_helper_get_framesz_raw(out2_fmt, width, height, iris2);
 
 	if (is_ubwc_fmt(out_fmt)) {
 		inst->opb_buftype = HFI_BUFFER_OUTPUT2;
@@ -833,7 +837,8 @@ static int vdec_queue_setup(struct vb2_queue *q,
 		*num_planes = inst->fmt_out->num_planes;
 		sizes[0] = venus_helper_get_framesz(inst->fmt_out->pixfmt,
 						    inst->out_width,
-						    inst->out_height);
+						    inst->out_height,
+						    IS_IRIS2(inst->core));
 		sizes[0] = max(sizes[0], inst->input_buf_size);
 		inst->input_buf_size = sizes[0];
 		*num_buffers = max(*num_buffers, in_num);
@@ -844,7 +849,8 @@ static int vdec_queue_setup(struct vb2_queue *q,
 		*num_planes = inst->fmt_cap->num_planes;
 		sizes[0] = venus_helper_get_framesz(inst->fmt_cap->pixfmt,
 						    inst->width,
-						    inst->height);
+						    inst->height,
+						    IS_IRIS2(inst->core));
 		inst->output_buf_size = sizes[0];
 		*num_buffers = max(*num_buffers, out_num);
 		inst->num_output_bufs = *num_buffers;
