@@ -217,7 +217,7 @@ static int load_scale_bw(struct venus_core *core)
 	dev_dbg(core->dev, "total: avg_bw: %u, peak_bw: %u\n",
 		total_avg, total_peak);
 
-	return icc_set_bw(core->video_path, total_avg, total_peak);
+	return 0;//icc_set_bw(core->video_path, total_avg, total_peak);
 }
 
 static int load_scale_v1(struct venus_inst *inst)

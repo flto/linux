@@ -244,6 +244,10 @@ static int venus_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	ret = icc_set_bw(core->video_path, kbps_to_icc(15000000), kbps_to_icc(15000000));
+	if (ret)
+		return ret;
+
 	ret = hfi_create(core, &venus_core_ops);
 	if (ret)
 		return ret;
