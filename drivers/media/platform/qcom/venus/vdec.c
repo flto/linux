@@ -34,6 +34,10 @@ static const struct venus_format vdec_formats[] = {
 		.pixfmt = V4L2_PIX_FMT_NV12,
 		.num_planes = 1,
 		.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
+	},{
+		.pixfmt = V4L2_PIX_FMT_NV12_UBWC,
+		.num_planes = 1,
+		.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
 	}, {
 		.pixfmt = V4L2_PIX_FMT_MPEG4,
 		.num_planes = 1,
@@ -178,7 +182,7 @@ vdec_try_fmt_common(struct venus_inst *inst, struct v4l2_format *f)
 
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		pfmt[0].sizeimage = szimage;
-		if (IS_IRIS2(inst->core))
+		if (IS_IRIS2(inst->core) && pixmp->pixelformat != V4L2_PIX_FMT_NV12_UBWC)
 			pfmt[0].bytesperline = ALIGN(pixmp->width, 512);
 		else
 			pfmt[0].bytesperline = ALIGN(pixmp->width, 128);
@@ -674,12 +678,12 @@ static int vdec_output_conf(struct venus_inst *inst)
 	inst->output2_buf_size =
 			venus_helper_get_framesz_raw(out2_fmt, width, height, iris2);
 
-	if (is_ubwc_fmt(out_fmt)) {
+	if (is_ubwc_fmt(out_fmt) && out2_fmt) {
 		inst->opb_buftype = HFI_BUFFER_OUTPUT2;
 		inst->opb_fmt = out2_fmt;
 		inst->dpb_buftype = HFI_BUFFER_OUTPUT;
 		inst->dpb_fmt = out_fmt;
-	} else if (is_ubwc_fmt(out2_fmt)) {
+	} else if (is_ubwc_fmt(out2_fmt) && out_fmt) {
 		inst->opb_buftype = HFI_BUFFER_OUTPUT;
 		inst->opb_fmt = out_fmt;
 		inst->dpb_buftype = HFI_BUFFER_OUTPUT2;
@@ -708,6 +712,10 @@ static int vdec_output_conf(struct venus_inst *inst)
 
 		ret = venus_helper_set_output_resolution(inst, width, height,
 							 HFI_BUFFER_OUTPUT2);
+		if (ret)
+			return ret;
+	} else {
+		ret = venus_helper_set_multistream(inst, true, false);
 		if (ret)
 			return ret;
 	}
