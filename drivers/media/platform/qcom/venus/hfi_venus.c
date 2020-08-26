@@ -1619,8 +1619,8 @@ static int venus_suspend_3xx(struct venus_core *core)
 		ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0_IRIS2);
 	else
 		ctrl_status = venus_readl(hdev, CPU_CS_SCIACMDARG0);
-	if (ctrl_status & CPU_CS_SCIACMDARG0_PC_READY)
-		goto power_off;
+	//if (ctrl_status & CPU_CS_SCIACMDARG0_PC_READY)
+	//	goto power_off;
 
 	/*
 	 * Power collapse sequence for Venus 3xx and 4xx versions:
