@@ -544,6 +544,8 @@ static u32 to_hfi_raw_fmt(u32 v4l2_fmt)
 		return HFI_COLOR_FORMAT_NV12;
 	case V4L2_PIX_FMT_NV21:
 		return HFI_COLOR_FORMAT_NV21;
+	case V4L2_PIX_FMT_NV12_UBWC:
+		return HFI_COLOR_FORMAT_NV12_UBWC;
 	default:
 		break;
 	}
@@ -1330,6 +1332,13 @@ int venus_helper_get_out_fmts(struct venus_inst *inst, u32 v4l2_fmt,
 
 	if (!fmt)
 		return -EINVAL;
+
+#define is_ubwc_fmt(fmt) (!!((fmt) & HFI_COLOR_FORMAT_UBWC_BASE))
+	if (is_ubwc_fmt(fmt)) {
+		*out_fmt = fmt;
+		*out2_fmt = 0;
+		return 0;
+	}
 
 	caps = venus_caps_by_codec(core, inst->hfi_codec, inst->session_type);
 	if (!caps)
