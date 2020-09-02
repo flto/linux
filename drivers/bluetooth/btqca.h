@@ -146,6 +146,7 @@ enum qca_btsoc_type {
 	QCA_WCN3998,
 	QCA_WCN3991,
 	QCA_QCA6390,
+	QCA_QCA6391,
 	QCA_WCN6750,
 };
 

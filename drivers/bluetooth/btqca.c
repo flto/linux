@@ -604,7 +604,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
 	if (qca_is_wcn399x(soc_type)) {
 		snprintf(config.fwname, sizeof(config.fwname),
 			 "qca/crbtfw%02x.tlv", rom_ver);
-	} else if (soc_type == QCA_QCA6390) {
+	} else if (soc_type == QCA_QCA6390 || soc_type == QCA_QCA6391) {
 		snprintf(config.fwname, sizeof(config.fwname),
 			 "qca/htbtfw%02x.tlv", rom_ver);
 	} else if (soc_type == QCA_WCN6750) {
@@ -642,7 +642,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
 				 "qca/crnv%02x.bin", rom_ver);
 		}
 	}
-	else if (soc_type == QCA_QCA6390)
+	else if (soc_type == QCA_QCA6390 || soc_type == QCA_QCA6391)
 		snprintf(config.fwname, sizeof(config.fwname),
 			 "qca/htnv%02x.bin", rom_ver);
 	else if (soc_type == QCA_WCN6750)
