@@ -22,6 +22,8 @@
 #include <linux/iopoll.h>
 #include <linux/fwnode.h>
 #include <linux/usb/role.h>
+#include <linux/usb/typec_dp.h>
+#include <linux/usb/typec_mux.h>
 
 #include "core.h"
 
@@ -86,6 +88,7 @@ struct dwc3_qcom {
 
 	struct usb_role_switch *role_sw;
 	struct usb_role_switch *dwc3_drd_sw;
+	struct typec_mux *typec_mux;
 
 	const struct dwc3_acpi_pdata *acpi_pdata;
 
@@ -94,6 +97,7 @@ struct dwc3_qcom {
 	bool			pm_suspended;
 	struct icc_path		*icc_path_ddr;
 	struct icc_path		*icc_path_apps;
+	bool 			utmi_clk;
 };
 
 static inline void dwc3_qcom_setbits(void __iomem *base, u32 offset, u32 val)
@@ -341,9 +345,29 @@ static enum usb_role dwc3_qcom_usb_role_switch_get(struct usb_role_switch *sw)
 	return role;
 }
 
+static void dwc3_qcom_select_utmi_clk(struct dwc3_qcom *qcom, bool enable);
+
+/* in 4 lane DP mode, USB3 phy pipe_clk will not be available */
+static int dwc3_qcom_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
+{
+	struct dwc3_qcom *qcom = typec_mux_get_drvdata(mux);
+	bool enable = false;
+
+	if (state->data && state->alt && state->alt->svid == USB_TYPEC_DP_SID && state->alt->active)
+		enable = true;
+
+	if (qcom->utmi_clk != enable) {
+		dwc3_qcom_select_utmi_clk(qcom, enable);
+		qcom->utmi_clk = enable;
+	}
+
+	return 0;
+}
+
 static int dwc3_qcom_setup_role_switch(struct dwc3_qcom *qcom)
 {
 	struct usb_role_switch_desc dwc3_role_switch = {NULL};
+	struct typec_mux_desc mux_desc = { };
 
 	dwc3_role_switch.fwnode = dev_fwnode(qcom->dev);
 	dwc3_role_switch.set = dwc3_qcom_usb_role_switch_set;
@@ -352,6 +376,13 @@ static int dwc3_qcom_setup_role_switch(struct dwc3_qcom *qcom)
 	qcom->role_sw = usb_role_switch_register(qcom->dev, &dwc3_role_switch);
 	if (IS_ERR(qcom->role_sw))
 		return PTR_ERR(qcom->role_sw);
+
+	mux_desc.fwnode = dev_fwnode(qcom->dev);
+	mux_desc.drvdata = qcom;
+	mux_desc.set = dwc3_qcom_typec_mux_set;
+	qcom->typec_mux = typec_mux_register(qcom->dev, &mux_desc);
+	if (IS_ERR(qcom->typec_mux))
+		return PTR_ERR(qcom->typec_mux);
 
 	return 0;
 }
@@ -489,8 +520,25 @@ static irqreturn_t qcom_dwc3_resume_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static void dwc3_qcom_select_utmi_clk(struct dwc3_qcom *qcom)
+static void dwc3_qcom_select_utmi_clk(struct dwc3_qcom *qcom, bool enable)
 {
+	// TODO: check this
+	if (!enable) {
+		writel(0x4, qcom->qscratch_base+QSCRATCH_GENERAL_CFG);
+
+#if 0
+		dwc3_qcom_setbits(qcom->qscratch_base, QSCRATCH_GENERAL_CFG,
+			PIPE_UTMI_CLK_DIS);
+
+		usleep_range(100, 1000);
+
+		dwc3_qcom_clrbits(qcom->qscratch_base, QSCRATCH_GENERAL_CFG,
+			PIPE_UTMI_CLK_SEL | PIPE3_PHYSTATUS_SW);
+#endif
+
+		return;
+	}
+
 	/* Configure dwc3 to use UTMI clock as PIPE clock not present */
 	dwc3_qcom_setbits(qcom->qscratch_base, QSCRATCH_GENERAL_CFG,
 			  PIPE_UTMI_CLK_DIS);
@@ -882,7 +930,7 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 	ignore_pipe_clk = device_property_read_bool(dev,
 				"qcom,select-utmi-as-pipe-clk");
 	if (ignore_pipe_clk)
-		dwc3_qcom_select_utmi_clk(qcom);
+		dwc3_qcom_select_utmi_clk(qcom, true);
 
 	if (np)
 		ret = dwc3_qcom_of_register_core(pdev);
