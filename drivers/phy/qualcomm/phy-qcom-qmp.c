@@ -2965,8 +2965,8 @@ static int qcom_qmp_phy_configure_dp_phy(struct qmp_phy *qphy)
 		pixel_freq = 2700000000UL / 2;
 		break;
 	case 5400:
-		phy_vco_div = 0x2;
-		pixel_freq = 5400000000UL / 4;
+		phy_vco_div = 0x1;
+		pixel_freq = 5400000000UL / 2;
 		break;
 	case 8100:
 		phy_vco_div = 0x0;
@@ -3761,6 +3761,7 @@ static int qcom_qmp_dp_pixel_clk_determine_rate(struct clk_hw *hw,
 	switch (req->rate) {
 	case 1620000000UL / 2:
 	case 2700000000UL / 2:
+	case 5400000000UL / 2:
 	/* 5.4 and 8.1 GHz are same link rate as 2.7GHz, i.e. div 4 and div 6 */
 		return 0;
 	default:
@@ -3785,7 +3786,7 @@ qcom_qmp_dp_pixel_clk_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
 	case 2700:
 		return 2700000000UL / 2;
 	case 5400:
-		return 5400000000UL / 4;
+		return 5400000000UL / 2;
 	case 8100:
 		return 8100000000UL / 6;
 	default:
