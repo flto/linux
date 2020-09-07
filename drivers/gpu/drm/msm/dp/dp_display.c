@@ -274,6 +274,8 @@ dp_panel_read_sink_caps(struct msm_dp *dp)
 	return 0;
 }
 
+extern int _orientation_hack;
+
 static int
 dp_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 {
@@ -287,6 +289,8 @@ dp_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 	/* also: state->mode ? */
 	dp_altmode =
 		(data && state->alt && state->alt->svid == USB_TYPEC_DP_SID && state->alt->active);
+
+	_orientation_hack = typec_altmode_get_orientation(state->alt) == TYPEC_ORIENTATION_REVERSE;
 
 	if (!dp_altmode) {
 		if (dp->phy_init) {
