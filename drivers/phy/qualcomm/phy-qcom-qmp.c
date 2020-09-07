@@ -3047,6 +3047,8 @@ static int qcom_qmp_dp_phy_calibrate(struct phy *phy)
 	return 0;
 }
 
+int _orientation_hack;
+
 static int qcom_qmp_phy_com_init(struct qmp_phy *qphy)
 {
 	struct qcom_qmp *qmp = qphy->qmp;
@@ -3104,8 +3106,13 @@ static int qcom_qmp_phy_com_init(struct qmp_phy *qphy)
 			writel(USB3_MODE, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
 
 		/* CC2 */
-		if (cfg->is_dual_lane_phy)
-			writel(3, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
+		if (cfg->is_dual_lane_phy) {
+			// TODO: orientation in USB mode?
+			if (cfg->type == PHY_TYPE_DP)
+				writel(_orientation_hack ? 3 : 2, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
+			else
+				writel(0, dp_com + QPHY_V3_DP_COM_TYPEC_CTRL);
+		}
 
 		/* bring both QMP USB and QMP DP PHYs PCS block out of reset */
 		qphy_clrbits(dp_com, QPHY_V3_DP_COM_RESET_OVRD_CTRL,
