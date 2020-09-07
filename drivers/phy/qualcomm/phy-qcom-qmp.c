@@ -2044,7 +2044,7 @@ struct qcom_qmp {
 	struct qmp_phy **phys;
 
 	struct mutex phy_mutex;
-	int init_count;
+	bool dp_init, usb3_init, usb3_power_on;
 
 	struct reset_control *ufs_reset;
 };
@@ -3057,10 +3057,6 @@ static int qcom_qmp_phy_com_init(struct qmp_phy *qphy)
 	int ret, i;
 
 	mutex_lock(&qmp->phy_mutex);
-	if (qmp->init_count++) {
-		mutex_unlock(&qmp->phy_mutex);
-		return 0;
-	}
 
 	/* turn on regulator supplies */
 	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
@@ -3102,7 +3098,10 @@ static int qcom_qmp_phy_com_init(struct qmp_phy *qphy)
 			     SW_USB3PHY_RESET_MUX | SW_USB3PHY_RESET);
 
 		/* 4 lane DP mode */
-		writel(DP_MODE, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
+		if (cfg->type == PHY_TYPE_DP)
+			writel(DP_MODE, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
+		else
+			writel(USB3_MODE, dp_com + QPHY_V3_DP_COM_PHY_MODE_CTRL);
 
 		/* CC2 */
 		if (cfg->is_dual_lane_phy)
@@ -3153,10 +3152,6 @@ static int qcom_qmp_phy_com_exit(struct qmp_phy *qphy)
 	int i = cfg->num_resets;
 
 	mutex_lock(&qmp->phy_mutex);
-	if (--qmp->init_count) {
-		mutex_unlock(&qmp->phy_mutex);
-		return 0;
-	}
 
 	reset_control_assert(qmp->ufs_reset);
 	if (cfg->has_phy_com_ctrl) {
@@ -3180,6 +3175,9 @@ static int qcom_qmp_phy_com_exit(struct qmp_phy *qphy)
 	return 0;
 }
 
+static int qcom_qmp_phy_power_off(struct phy *phy);
+static int qcom_qmp_phy_exit(struct phy *phy);
+
 static int qcom_qmp_phy_init(struct phy *phy)
 {
 	struct qmp_phy *qphy = phy_get_drvdata(phy);
@@ -3187,6 +3185,31 @@ static int qcom_qmp_phy_init(struct phy *phy)
 	const struct qmp_phy_cfg *cfg = qphy->cfg;
 	int ret;
 	dev_vdbg(qmp->dev, "Initializing QMP phy\n");
+
+	/* when DP PHY is initialized, disable USB3 phy, and re-enable it
+	 * when qcom_qmp_phy_exit() is called for the DP phy
+	 * if trying to initialize USB3 phy while DP is initialized,
+	 * defer initializing it until the DP phy exits
+	 */
+	if (cfg->type == PHY_TYPE_DP) {
+		struct phy *phy = qmp->phys[0]->phy; /* assuming usb3 phy comes first */
+
+		if (qmp->usb3_power_on) {
+			qcom_qmp_phy_power_off(phy);
+			qmp->usb3_power_on = true;
+		}
+
+		if (qmp->usb3_init) {
+			qcom_qmp_phy_exit(phy);
+			qmp->usb3_init = true;
+		}
+
+		qmp->dp_init = true;
+	} else {
+		qmp->usb3_init = true;
+		if (qmp->dp_init)
+			return 0;
+	}
 
 	if (cfg->no_pcs_sw_reset) {
 		/*
@@ -3221,7 +3244,6 @@ static int qcom_qmp_phy_init(struct phy *phy)
 
 	if (cfg->type == PHY_TYPE_DP)
 		qcom_qmp_phy_dp_aux_init(qphy);
-
 	return 0;
 }
 
@@ -3237,6 +3259,12 @@ static int qcom_qmp_phy_power_on(struct phy *phy)
 	void __iomem *status;
 	unsigned int mask, val, ready;
 	int ret;
+
+	if (cfg->type != PHY_TYPE_DP) {
+		qmp->usb3_power_on = true;
+		if (qmp->dp_init)
+			return 0;
+	}
 
 	qcom_qmp_phy_serdes_init(qphy);
 
@@ -3358,6 +3386,8 @@ static int qcom_qmp_phy_power_off(struct phy *phy)
 			qphy_clrbits(qphy->pcs, QPHY_POWER_DOWN_CONTROL,
 					cfg->pwrdn_ctrl);
 		}
+
+		qphy->qmp->usb3_power_on = false;
 	}
 
 	return 0;
@@ -3367,11 +3397,32 @@ static int qcom_qmp_phy_exit(struct phy *phy)
 {
 	struct qmp_phy *qphy = phy_get_drvdata(phy);
 	const struct qmp_phy_cfg *cfg = qphy->cfg;
+	struct qcom_qmp *qmp = qphy->qmp;
+	int ret;
 
 	if (cfg->has_lane_rst)
 		reset_control_assert(qphy->lane_rst);
 
 	qcom_qmp_phy_com_exit(qphy);
+
+	if (cfg->type != PHY_TYPE_DP) {
+		qmp->usb3_init = false;
+		return 0;
+	}
+
+	qmp->dp_init = false;
+
+	qphy = qmp->phys[0]; /* assuming usb3 phy comes first */
+
+	if (qmp->usb3_init) {
+		ret = qcom_qmp_phy_init(qphy->phy);
+		WARN_ON(ret);
+	}
+
+	if (qmp->usb3_power_on) {
+		ret = qcom_qmp_phy_power_on(qphy->phy);
+		WARN_ON(ret);
+	}
 
 	return 0;
 }
@@ -3466,6 +3517,9 @@ static int __maybe_unused qcom_qmp_phy_runtime_suspend(struct device *dev)
 
 	dev_vdbg(dev, "Suspending QMP phy, mode:%d\n", qphy->mode);
 
+	return 0;
+#if 0
+
 	/* Supported only for USB3 PHY and luckily USB3 is the first phy */
 	if (cfg->type != PHY_TYPE_USB3)
 		return 0;
@@ -3481,6 +3535,7 @@ static int __maybe_unused qcom_qmp_phy_runtime_suspend(struct device *dev)
 	clk_bulk_disable_unprepare(cfg->num_clks, qmp->clks);
 
 	return 0;
+#endif
 }
 
 static int __maybe_unused qcom_qmp_phy_runtime_resume(struct device *dev)
@@ -3492,6 +3547,9 @@ static int __maybe_unused qcom_qmp_phy_runtime_resume(struct device *dev)
 
 	dev_vdbg(dev, "Resuming QMP phy, mode:%d\n", qphy->mode);
 
+	return 0;
+
+#if 0
 	/* Supported only for USB3 PHY and luckily USB3 is the first phy */
 	if (cfg->type != PHY_TYPE_USB3)
 		return 0;
@@ -3517,6 +3575,7 @@ static int __maybe_unused qcom_qmp_phy_runtime_resume(struct device *dev)
 	qcom_qmp_phy_disable_autonomous_mode(qphy);
 
 	return 0;
+#endif
 }
 
 static int qcom_qmp_phy_vreg_init(struct device *dev, const struct qmp_phy_cfg *cfg)
