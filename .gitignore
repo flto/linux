@@ -13,14 +13,12 @@
 .*
 *.a
 *.asn1.[ch]
-*.bin
 *.bz2
 *.c.[012]*.*
 *.dt.yaml
 *.dtb
 *.dtb.S
 *.dwo
-*.elf
 *.gcno
 *.gz
 *.i
