@@ -2608,7 +2608,6 @@
 			      <0 0x088e8000 0 0x38>;
 			reg-names = "reg-base", "dp_com";
 			status = "disabled";
-			#clock-cells = <1>;
 			#address-cells = <2>;
 			#size-cells = <2>;
 			ranges;
