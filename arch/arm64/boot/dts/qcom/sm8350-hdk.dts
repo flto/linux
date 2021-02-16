@@ -14,7 +14,7 @@
 	compatible = "qcom,sm8350-hdk", "qcom,sm8350";
 
 	aliases {
-		serial0 = &uart2;
+		serial0 = &uart3;
 	};
 
 	chosen {
@@ -219,7 +219,7 @@
 	firmware-name = "qcom/sm8350/modem.mbn";
 };
 
-&qupv3_id_1 {
+&qupv3_id_0 {
 	status = "okay";
 };
 
@@ -232,7 +232,7 @@
 	gpio-reserved-ranges = <52 8>;
 };
 
-&uart2 {
+&uart3 {
 	status = "okay";
 };
 
