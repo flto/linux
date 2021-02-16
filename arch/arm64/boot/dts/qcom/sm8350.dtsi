@@ -467,7 +467,7 @@
 			ranges;
 			status = "disabled";
 
-			uart2: serial@98c000 {
+			uart3: serial@98c000 {
 				compatible = "qcom,geni-debug-uart";
 				reg = <0 0x0098c000 0 0x4000>;
 				clock-names = "se";
