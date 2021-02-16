@@ -1885,10 +1885,10 @@ static int a6xx_set_supported_hw(struct device *dev, struct adreno_rev rev)
 
 	ret = adreno_read_speedbin(dev, &speedbin);
 	/*
-	 * -ENOENT means that the platform doesn't support speedbin which is
-	 * fine
+	 * -ENOENT means no speed bin in device tree,
+	 * -EOPNOTSUPP means kernel was built without CONFIG_NVMEM
 	 */
-	if (ret == -ENOENT) {
+	if (ret == -ENOENT || ret == -EOPNOTSUPP) {
 		return 0;
 	} else if (ret) {
 		DRM_DEV_ERROR(dev,
