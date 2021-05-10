@@ -1342,14 +1342,14 @@ static int tcpm_ams_start(struct tcpm_port *port, enum tcpm_ams ams)
 			break;
 		}
 	} else {
-		if (port->negotiated_rev >= PD_REV30 &&
+		/*if (port->negotiated_rev >= PD_REV30 &&
 		    !tcpm_sink_tx_ok(port) &&
 		    ams != SOFT_RESET_AMS &&
 		    ams != HARD_RESET) {
 			port->upcoming_state = INVALID_STATE;
 			tcpm_log(port, "Sink TX No Go");
 			return -EAGAIN;
-		}
+		}*/
 
 		port->ams = ams;
 

@@ -821,12 +821,7 @@ dwc3_qcom_create_urs_usb_platdev(struct device *dev)
 static void *dwc3_qcom_find_usb_connector_match(struct fwnode_handle *fwnode,
 						const char *id, void *data)
 {
-	if (!fwnode_property_match_string(fwnode, "compatible",
-					  "gpio-usb-b-connector") ||
-	    !fwnode_property_match_string(fwnode, "compatible",
-					  "usb-c-connector"))
-		return fwnode;
-	return 0;
+	return fwnode;
 }
 
 static bool dwc3_qcom_find_usb_connector(struct platform_device *pdev)
