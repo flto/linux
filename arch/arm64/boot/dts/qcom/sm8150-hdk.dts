@@ -7,6 +7,7 @@
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/usb/pd.h>
 #include "sm8150.dtsi"
 #include "pm8150.dtsi"
 #include "pm8150b.dtsi"
@@ -392,6 +393,20 @@
 
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <126 4>;
+
+	fsa_usbc_ana_en: fsa_usbc_ana_en {
+		mux {
+			pins = "gpio100";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio100";
+			drive-strength = <2>;
+			bias-disable;
+			output-low;
+		};
+	};
 };
 
 &uart2 {
@@ -448,6 +463,14 @@
 
 &usb_1 {
 	status = "okay";
+	usb-role-switch;
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	port {
+		dwc3_drd_switch: endpoint@0 {
+			remote-endpoint = <&usb3_role>;
+		};
+	};
 };
 
 &usb_2 {
@@ -455,9 +478,89 @@
 };
 
 &usb_1_dwc3 {
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	usb-role-switch;
 };
 
 &usb_2_dwc3 {
 	dr_mode = "host";
+};
+
+&pm8150b_vbus {
+	status = "okay";
+};
+
+&pm8150b_tcpm {
+	status = "okay";
+
+	vdd-pdphy-supply = <&vreg_l2a_3p1>;
+	vbus-supply = <&pm8150b_vbus>;
+	connector {
+		power-role = "dual";
+		data-role = "dual";
+		try-power-role = "sink";
+		source-pdos = <PDO_FIXED(5000, 1500, PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+		  PDO_FIXED_USB_COMM)>;
+		sink-pdos = <PDO_FIXED(5000, 300, PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+		  PDO_FIXED_USB_COMM)>;
+		op-sink-microwatt = <15000000>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@1 {
+				reg = <1>;
+				usb3_role: endpoint@0 {
+					remote-endpoint = <&dwc3_drd_switch>;
+				};
+				dp_mode_out: endpoint@1 {
+					remote-endpoint = <&dp_mode>;
+				};
+				fsa_mode_out: endpoint@2 {
+					remote-endpoint = <&fsa_mode>;
+				};
+			};
+		};
+	};
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&msm_dp {
+	status = "okay";
+
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	port {
+		dp_mode: endpoint@0 {
+			remote-endpoint = <&dp_mode_out>;
+		};
+	};
+};
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&i2c4 {
+	status = "okay";
+	fsa4480: fsa4480@43 {
+		compatible = "fairchild,fsa4480";
+		reg = <0x43>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&fsa_usbc_ana_en>;
+		mode-switch;
+		svid = /bits/ 16 <0xff01>;
+		port {
+			fsa_mode: endpoint@0 {
+				remote-endpoint = <&fsa_mode_out>;
+			};
+		};
+	};
 };
