@@ -7,6 +7,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/usb/pd.h>
 #include "sm8350.dtsi"
 
 / {
@@ -258,11 +259,19 @@
 
 &usb_1 {
 	status = "okay";
+	usb-role-switch;
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	port {
+		dwc3_drd_switch: endpoint@0 {
+			remote-endpoint = <&usb3_role>;
+		};
+	};
 };
 
 &usb_1_dwc3 {
-	/* TODO: Define USB-C connector properly */
-	dr_mode = "peripheral";
+	dr_mode = "otg";
+	usb-role-switch;
 };
 
 &usb_1_hsphy {
@@ -307,13 +316,81 @@
 };
 
 /* PINCTRL - additions to nodes defined in sm8350.dtsi */
-
 &tlmm {
 	usb_hub_enabled_state: usb-hub-enabled-state {
 		pins = "gpio42";
 		function = "gpio";
-
 		drive-strength = <2>;
 		output-low;
+	};
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&msm_dp {
+	status = "okay";
+
+	mode-switch;
+	svid = /bits/ 16 <0xff01>;
+	port {
+		dp_mode: endpoint@0 {
+			remote-endpoint = <&dp_mode_out>;
+		};
+	};
+};
+
+&pmic_glink {
+	connector {
+		compatible = "usb-c-connector";
+		power-role = "dual";
+		data-role = "dual";
+		try-power-role = "sink";
+		source-pdos = <PDO_FIXED(5000, 1500, PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+		  PDO_FIXED_USB_COMM)>;
+		sink-pdos = <PDO_FIXED(5000, 300, PDO_FIXED_DUAL_ROLE | PDO_FIXED_DATA_SWAP |
+		  PDO_FIXED_USB_COMM)>;
+		op-sink-microwatt = <15000000>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@1 {
+				reg = <1>;
+				usb3_role: endpoint@0 {
+					remote-endpoint = <&dwc3_drd_switch>;
+				};
+				dp_mode_out: endpoint@2 {
+					remote-endpoint = <&dp_mode>;
+				};
+				fsa_mode_out: endpoint@3 {
+					remote-endpoint = <&fsa_mode>;
+				};
+			};
+		};
+	};
+};
+
+&qupv3_id_1 {
+	status = "okay";
+};
+
+&i2c13 {
+	status = "okay";
+	fsa4480: fsa4480@42 {
+		compatible = "fairchild,fsa4480";
+		reg = <0x42>;
+		mode-switch;
+		svid = /bits/ 16 <0xff01>;
+		port {
+			fsa_mode: endpoint@0 {
+				remote-endpoint = <&fsa_mode_out>;
+			};
+		};
 	};
 };
