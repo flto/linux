@@ -32,17 +32,28 @@ struct fsa4480 {
 	u8 switch_control, switch_settings;
 };
 
+static struct fsa4480 *_fsa;
+
+#if 0
 static int
 fsa_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
+#else
+int fsa_typec_mux_set(bool orientation);
+int fsa_typec_mux_set(bool orientation)
+#endif
 {
-	struct fsa4480 *fsa = typec_mux_get_drvdata(mux);
+	struct fsa4480 *fsa = _fsa;//typec_mux_get_drvdata(mux);
 	u8 switch_control, switch_settings;
 
-	if (!state->alt)
-		return 0;
+	printk("fsa_typec_mux_set\n");
 
-	if (state->alt->svid == USB_TYPEC_DP_SID && state->alt->active) {
-		if (typec_altmode_get_orientation(state->alt) == TYPEC_ORIENTATION_REVERSE)
+	//if (!state->alt)
+	//	return 0;
+
+	if (1) {
+	//if (state->alt->svid == USB_TYPEC_DP_SID && state->alt->active) {
+		if (orientation)
+		//if (typec_altmode_get_orientation(state->alt) == TYPEC_ORIENTATION_REVERSE)
 			switch_control = 0x78;
 		else
 			switch_control = 0x18;
@@ -85,16 +96,20 @@ fsa4480_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (!fsa)
 		return -ENOMEM;
 
+	_fsa = fsa;
+
 	fsa->regmap = devm_regmap_init_i2c(client, &fsa4480_regmap_config);
 	if (IS_ERR(fsa->regmap))
 		return PTR_ERR(fsa->regmap);
 
+#if 0
 	mux_desc.fwnode = dev->fwnode;
 	mux_desc.drvdata = fsa;
 	mux_desc.set = fsa_typec_mux_set;
 	fsa->typec_mux = typec_mux_register(dev, &mux_desc);
 	if (IS_ERR(fsa->typec_mux))
 		return PTR_ERR(fsa->typec_mux);
+#endif
 
 	i2c_set_clientdata(client, fsa);
 
@@ -117,7 +132,7 @@ static int fsa4480_remove(struct i2c_client *i2c)
 {
 	struct fsa4480 *fsa = i2c_get_clientdata(i2c);
 
-	typec_mux_unregister(fsa->typec_mux);
+	//typec_mux_unregister(fsa->typec_mux);
 
 	return 0;
 }
