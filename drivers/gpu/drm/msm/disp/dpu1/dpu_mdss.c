@@ -13,6 +13,7 @@
 #define DPU_HW_VER_501	0x50000001
 #define DPU_HW_VER_600	0x60000000
 #define DPU_HW_VER_620	0x62000000 /* sc7180 v1.0 */
+#define DPU_HW_VER_700	0x70000000 /* sm8350 */
 #include <linux/interconnect.h>
 
 #define to_dpu_mdss(x) container_of(x, struct dpu_mdss, base)
@@ -168,6 +169,7 @@ static int dpu_mdss_enable(struct msm_mdss *mdss)
 		writel_relaxed(0x420, dpu_mdss->mmio + UBWC_STATIC);
 		break;
 	case DPU_HW_VER_600:
+	case DPU_HW_VER_700:
 		/* TODO: 0x102e for LP_DDR4 */
 		writel_relaxed(0x103e, dpu_mdss->mmio + UBWC_STATIC);
 		writel_relaxed(2, dpu_mdss->mmio + UBWC_CTRL_2);

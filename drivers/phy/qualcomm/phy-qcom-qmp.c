@@ -1111,17 +1111,17 @@ static const struct qmp_phy_init_tbl qmp_v4_dp_serdes_tbl_hbr3[] = {
 };
 
 static const struct qmp_phy_init_tbl qmp_v4_dp_tx_tbl[] = {
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_VMODE_CTRL1, 0x40),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_PRE_STALL_LDO_BOOST_EN, 0x30),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_INTERFACE_SELECT, 0x3b),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_CLKBUF_ENABLE, 0x0f),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_RESET_TSYNC_EN, 0x03),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_TRAN_DRVR_EMP_EN, 0x0f),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_PARRATE_REC_DETECT_IDLE_EN, 0x00),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_INTERFACE_MODE, 0x00),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_RES_CODE_LANE_OFFSET_TX, 0x11),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_RES_CODE_LANE_OFFSET_RX, 0x11),
-	QMP_PHY_INIT_CFG(QSERDES_V4_TX_BAND, 0x04),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_VMODE_CTRL1, 0x40),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_PRE_STALL_LDO_BOOST_EN, 0x30),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_INTERFACE_SELECT, 0x3b),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_CLKBUF_ENABLE, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_RESET_TSYNC_EN, 0x03),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_TRAN_DRVR_EMP_EN, 0x0f),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_PARRATE_REC_DETECT_IDLE_EN, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_INTERFACE_MODE, 0x00),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_RES_CODE_LANE_OFFSET_TX, 0x11),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_RES_CODE_LANE_OFFSET_RX, 0x11),
+	QMP_PHY_INIT_CFG(QSERDES_V5_TX_BAND, 0x04),
 };
 
 static const struct qmp_phy_init_tbl qmp_v3_usb3_rx_tbl[] = {
@@ -3354,6 +3354,11 @@ static const struct qmp_phy_cfg sm8350_usb3_uniphy_cfg = {
 	.pwrdn_delay_max	= POWER_DOWN_DELAY_US_MAX,
 };
 
+static const struct qmp_phy_combo_cfg sm8350_usb3dpphy_cfg = {
+	.usb_cfg		= &sm8350_usb3phy_cfg,
+	.dp_cfg			= &sm8150_dpphy_cfg,
+};
+
 static void qcom_qmp_phy_configure_lane(void __iomem *base,
 					const unsigned int *regs,
 					const struct qmp_phy_init_tbl tbl[],
@@ -3498,17 +3503,17 @@ static void qcom_qmp_phy_dp_aux_init(struct qmp_phy *qphy)
 /* TODO: different v4 values ? */
 
 static const u8 qmp_dp_v3_pre_emphasis_hbr_rbr[4][4] = {
-	{ 0x00, 0x0c, 0x14, 0x19 },
-	{ 0x00, 0x0b, 0x12, 0xff },
-	{ 0x00, 0x0b, 0xff, 0xff },
-	{ 0x04, 0xff, 0xff, 0xff }
+	{0x00, 0x0C, 0x15, 0x1B}, /* pe0, 0 db */
+	{0x02, 0x0E, 0x16, 0xFF}, /* pe1, 3.5 db */
+	{0x02, 0x11, 0xFF, 0xFF}, /* pe2, 6.0 db */
+	{0x04, 0xFF, 0xFF, 0xFF}  /* pe3, 9.5 db */
 };
 
 static const u8 qmp_dp_v3_voltage_swing_hbr_rbr[4][4] = {
-	{ 0x08, 0x0f, 0x16, 0x1f },
-	{ 0x11, 0x1e, 0x1f, 0xff },
-	{ 0x19, 0x1f, 0xff, 0xff },
-	{ 0x1f, 0xff, 0xff, 0xff }
+	{0x02, 0x12, 0x16, 0x1A}, /* sw0, 0.4v  */
+	{0x09, 0x19, 0x1F, 0xFF}, /* sw1, 0.6v */
+	{0x10, 0x1F, 0xFF, 0xFF}, /* sw1, 0.8v */
+	{0x1F, 0xFF, 0xFF, 0xFF}  /* sw1, 1.2v */
 };
 
 static void qcom_qmp_phy_configure_dp_tx(struct qmp_phy *qphy)
@@ -3627,6 +3632,8 @@ static int qcom_qmp_phy_configure_dp_phy(struct qmp_phy *qphy)
 		return -EINVAL;
 	}
 	writel(phy_vco_div, qphy->pcs + QSERDES_V4_DP_PHY_VCO_DIV);
+
+	printk("pixel_freq=%ld %d\n", pixel_freq, (int) dp_opts->link_rate);
 
 	clk_set_rate(dp_clks->dp_link_hw.clk, dp_opts->link_rate * 100000);
 	clk_set_rate(dp_clks->dp_pixel_hw.clk, pixel_freq);
@@ -4812,6 +4819,9 @@ static const struct of_device_id qcom_qmp_phy_of_match_table[] = {
 		.compatible = "qcom,sm8350-qmp-usb3-phy",
 		.data = &sm8350_usb3phy_cfg,
 	}, {
+		.compatible = "qcom,sm8350-qmp-usb3-dp-phy",
+		/* It's a combo phy */
+	}, {
 		.compatible = "qcom,sm8350-qmp-usb3-uni-phy",
 		.data = &sm8350_usb3_uniphy_cfg,
 	},
@@ -4829,6 +4839,9 @@ static const struct of_device_id qcom_qmp_combo_phy_of_match_table[] = {
 	}, {
 		.compatible = "qcom,sm8250-qmp-usb3-dp-phy",
 		.data = &sm8250_usb3dpphy_cfg,
+	}, {
+		.compatible = "qcom,sm8350-qmp-usb3-dp-phy",
+		.data = &sm8350_usb3dpphy_cfg,
 	},
 	{ }
 };

@@ -261,7 +261,9 @@ dp_panel_read_sink_caps(struct msm_dp *dp)
 }
 
 extern int _orientation_hack;
+static struct msm_dp *_dp;
 
+#if 0
 static int
 dp_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 {
@@ -278,6 +280,16 @@ dp_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 		_orientation_hack =
 			typec_altmode_get_orientation(state->alt) == TYPEC_ORIENTATION_REVERSE;
 	}
+#else
+int dp_typec_mux_set(bool orientation, bool dp_enabled, bool dp_connected, bool hpd_irq);
+
+int dp_typec_mux_set(bool orientation, bool dp_enabled, bool dp_connected, bool hpd_irq)
+{
+	struct msm_dp *dp = _dp;
+	u8 link_status[DP_LINK_STATUS_SIZE], updated;
+	int ret;
+	_orientation_hack = orientation;
+#endif
 
 	//printk("dp_typec_mux_set: %d %d %ld\n", dp_enabled, dp_connected,
 	//       (data ? (data->status & DP_STATUS_IRQ_HPD) : -1));
@@ -302,7 +314,7 @@ dp_typec_mux_set(struct typec_mux *mux, struct typec_mux_state *state)
 
 	// TODO: (data->status & DP_STATUS_IRQ_HPD)
 
-	bool hpd_irq = (data && (data->status & DP_STATUS_IRQ_HPD));
+	//bool hpd_irq = (data && (data->status & DP_STATUS_IRQ_HPD));
 	if (dp->connected == dp_connected && !hpd_irq)
 		goto unlock;
 
@@ -365,12 +377,16 @@ static int dp_display_bind(struct device *dev, struct device *master, void *data
 	if (!dp)
 		return -ENOMEM;
 
+	_dp = dp;
+
+#if 0
 	mux_desc.fwnode = dev->fwnode;
 	mux_desc.drvdata = dp;
 	mux_desc.set = dp_typec_mux_set;
 	dp->typec_mux = typec_mux_register(dev, &mux_desc);
 	if (IS_ERR(dp->typec_mux))
 		return PTR_ERR(dp->typec_mux);
+#endif
 
 	dp->pdev = pdev;
 
@@ -507,6 +523,7 @@ static int dp_display_remove(struct platform_device *pdev)
 static const struct of_device_id dp_dt_match[] = {
 	{.compatible = "qcom,sm8150-dp"},
 	{.compatible = "qcom,sm8250-dp"},
+	{.compatible = "qcom,sm8350-dp"},
 	{}
 };
 

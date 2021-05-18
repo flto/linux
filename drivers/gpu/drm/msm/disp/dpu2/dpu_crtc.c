@@ -91,6 +91,10 @@ intf_timings(struct dpu_kms *dpu, u32 i, const struct drm_display_mode *mode,
 		dpu_write(dpu, INTF_PROG_FETCH_START(i), 0);//is_dsc ? 0x1A0CC1 : 0x1B2731);
 		dpu_write(dpu, INTF_CONFIG(i), 0x00800000);
 		dpu_write(dpu, INTF_CONFIG2(i), 0);
+	} else {
+		dpu_write(dpu, INTF_CONFIG(i), 0x60800000);
+		dpu_write(dpu, INTF_CONFIG2(i), 0x10);
+		dpu_write(dpu, INTF_DISPLAY_DATA_HCTL(i), ha_end << 16 | ha_start);
 	}
 }
 
@@ -313,6 +317,7 @@ dpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *old_state)
 	u32 merge3d_active = 0;
 	u32 ctl_flush = CTL_FLUSH_MASK_CTL;
 	u32 mixer_op_mode = 0;
+	u32 fetch_pipe_active = 0;
 
 	unsigned i, num_mixers, num_mixercfg;
 
@@ -406,9 +411,13 @@ dpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *old_state)
 			/* sspp state */
 			dpu_plane_update(dpu, id, &s);
 			ctl_flush |= CTL_FLUSH_SSPP(id);
+
+			if (id >= 4)
+				fetch_pipe_active |= BIT(id - 4);
+			else
+				fetch_pipe_active |= BIT(id + 16);
 		}
 	}
-
 
 	for (i = c->lm; i < c->lm + num_mixers; i++) {
 		u32 cfg_index = i - c->lm;//num_mixercfg > 1 ? (i >= c->lm + num_mixers/2) : 0;
@@ -489,7 +498,8 @@ dpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *old_state)
 		dpu_write(dpu, CTL_MERGE_3D_FLUSH(c->ctl), 0x7); /* bitmask of MERGE3D flushed */
 	}
 
-	dpu_write(dpu, CTL_TOP(c->ctl), 0); /* BIT(17) for command mode */
+	dpu_write(dpu, CTL_FETCH_PIPE_ACTIVE(c->ctl), fetch_pipe_active);
+	dpu_write(dpu, CTL_TOP(c->ctl), 0xf0000000); /* BIT(17) for command mode */
 
 	dpu_toggle_start_irq(dpu, c->ctl, true);
 	dpu_write(dpu, CTL_FLUSH(c->ctl), ctl_flush);

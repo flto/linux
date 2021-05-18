@@ -493,10 +493,17 @@ static int rpmsg_dev_probe(struct device *dev)
 	struct rpmsg_channel_info chinfo = {};
 	struct rpmsg_endpoint *ept = NULL;
 	int err;
+	static int x;
+	// defer probe after rpdrv->probe() doesn't actually work, avoid it
+	if (!strcmp(rpdrv->drv.name, "qcom,pmic-glink")) {
+		if (++x < 2)
+			return -EPROBE_DEFER;
+	}
 
 	err = dev_pm_domain_attach(dev, true);
 	if (err)
 		goto out;
+
 
 	if (rpdrv->callback) {
 		strncpy(chinfo.name, rpdev->id.name, RPMSG_NAME_SIZE);
@@ -517,7 +524,7 @@ static int rpmsg_dev_probe(struct device *dev)
 	err = rpdrv->probe(rpdev);
 	if (err) {
 		dev_err(dev, "%s: failed: %d\n", __func__, err);
-		if (ept)
+		if (ept && err != -EPROBE_DEFER)
 			rpmsg_destroy_ept(ept);
 		goto out;
 	}
