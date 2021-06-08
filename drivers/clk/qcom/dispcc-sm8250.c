@@ -38,8 +38,12 @@ enum {
 	P_DSI1_PHY_PLL_OUT_DSICLK,
 };
 
-static struct pll_vco vco_table[] = {
+static const struct pll_vco vco_table[] = {
 	{ 249600000, 2000000000, 0 },
+};
+
+static const struct pll_vco lucid_5lpe_vco[] = {
+	{ 249600000, 1750000000, 0 },
 };
 
 static struct alpha_pll_config disp_cc_pll0_config = {
@@ -1224,6 +1228,7 @@ static const struct of_device_id disp_cc_sm8250_match_table[] = {
 	{ .compatible = "qcom,sc8180x-dispcc" },
 	{ .compatible = "qcom,sm8150-dispcc" },
 	{ .compatible = "qcom,sm8250-dispcc" },
+	{ .compatible = "qcom,sm8350-dispcc" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, disp_cc_sm8250_match_table);
@@ -1236,20 +1241,10 @@ static int disp_cc_sm8250_probe(struct platform_device *pdev)
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
-	/* note: trion == lucid, except for the prepare() op */
-	BUILD_BUG_ON(CLK_ALPHA_PLL_TYPE_TRION != CLK_ALPHA_PLL_TYPE_LUCID);
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,sc8180x-dispcc") ||
-	    of_device_is_compatible(pdev->dev.of_node, "qcom,sm8150-dispcc")) {
-		disp_cc_pll0_config.config_ctl_hi_val = 0x00002267;
-		disp_cc_pll0_config.config_ctl_hi1_val = 0x00000024;
-		disp_cc_pll0_config.user_ctl_hi1_val = 0x000000D0;
-		disp_cc_pll0_init.ops = &clk_alpha_pll_trion_ops;
-		disp_cc_pll1_config.config_ctl_hi_val = 0x00002267;
-		disp_cc_pll1_config.config_ctl_hi1_val = 0x00000024;
-		disp_cc_pll1_config.user_ctl_hi1_val = 0x000000D0;
-		disp_cc_pll1_init.ops = &clk_alpha_pll_trion_ops;
-	}
-
+	/* sm8350 note: downstream has a clk_lucid_5lpe_pll_configure, which
+	 * does not write the PLL_UPDATE_BYPASS bit in PLL_MODE.
+	 * It should not hurt sm8350 to have this extra write.
+	 */
 	clk_lucid_pll_configure(&disp_cc_pll0, regmap, &disp_cc_pll0_config);
 	clk_lucid_pll_configure(&disp_cc_pll1, regmap, &disp_cc_pll1_config);
 
@@ -1270,8 +1265,86 @@ static struct platform_driver disp_cc_sm8250_driver = {
 	},
 };
 
+static struct clk_rcg2 * const __initconst disp_cc_sm8250_rcgs[] = {
+	&disp_cc_mdss_byte0_clk_src,
+	&disp_cc_mdss_byte1_clk_src,
+	&disp_cc_mdss_dp_aux1_clk_src,
+	&disp_cc_mdss_dp_aux_clk_src,
+	&disp_cc_mdss_dp_link1_clk_src,
+	&disp_cc_mdss_dp_link_clk_src,
+	&disp_cc_mdss_dp_pixel1_clk_src,
+	&disp_cc_mdss_dp_pixel2_clk_src,
+	&disp_cc_mdss_dp_pixel_clk_src,
+	&disp_cc_mdss_edp_aux_clk_src,
+	&disp_cc_mdss_edp_gtc_clk_src,
+	&disp_cc_mdss_edp_link_clk_src,
+	&disp_cc_mdss_edp_pixel_clk_src,
+	&disp_cc_mdss_esc0_clk_src,
+	&disp_cc_mdss_mdp_clk_src,
+	&disp_cc_mdss_pclk0_clk_src,
+	&disp_cc_mdss_pclk1_clk_src,
+	&disp_cc_mdss_rot_clk_src,
+	&disp_cc_mdss_vsync_clk_src,
+	&disp_cc_mdss_ahb_clk_src,
+};
+
+static struct clk_regmap_div * const __initconst disp_cc_sm8250_divs[] = {
+	&disp_cc_mdss_byte0_div_clk_src,
+	&disp_cc_mdss_byte1_div_clk_src,
+	&disp_cc_mdss_dp_link1_div_clk_src,
+	&disp_cc_mdss_dp_link_div_clk_src,
+};
+
+static bool __init disp_cc_is_compatible(const char *compatible)
+{
+	struct device_node *node = of_find_compatible_node(NULL, NULL, compatible);
+
+	of_node_put(node);
+	return node != NULL;
+}
+
 static int __init disp_cc_sm8250_init(void)
 {
+	if (disp_cc_is_compatible("qcom,sm8150-dispcc") ||
+	    disp_cc_is_compatible("qcom,sc8180x-dispcc")) {
+		BUILD_BUG_ON(CLK_ALPHA_PLL_TYPE_TRION != CLK_ALPHA_PLL_TYPE_LUCID);
+		disp_cc_pll0_config.config_ctl_hi_val = 0x00002267;
+		disp_cc_pll0_config.config_ctl_hi1_val = 0x00000024;
+		disp_cc_pll0_config.user_ctl_hi1_val = 0x000000d0;
+		disp_cc_pll0_init.ops = &clk_alpha_pll_trion_ops;
+		disp_cc_pll1_config.config_ctl_hi_val = 0x00002267;
+		disp_cc_pll1_config.config_ctl_hi1_val = 0x00000024;
+		disp_cc_pll1_config.user_ctl_hi1_val = 0x000000d0;
+		disp_cc_pll1_init.ops = &clk_alpha_pll_trion_ops;
+	} else if (disp_cc_is_compatible("qcom,sm8350-dispcc")) {
+		unsigned int i;
+
+		for (i = 0; i < ARRAY_SIZE(disp_cc_sm8250_rcgs); i++)
+			disp_cc_sm8250_rcgs[i]->cmd_rcgr -= 4;
+
+		for (i = 0; i < ARRAY_SIZE(disp_cc_sm8250_divs); i++) {
+			disp_cc_sm8250_divs[i]->reg -= 4;
+			disp_cc_sm8250_divs[i]->width = 4;
+		}
+
+		disp_cc_mdss_ahb_clk.halt_reg -= 4;
+		disp_cc_mdss_ahb_clk.clkr.enable_reg -= 4;
+
+		disp_cc_mdss_ahb_clk_src.cmd_rcgr = 0x22a0;
+
+		disp_cc_pll0_config.config_ctl_hi1_val = 0x2a9a699c;
+		disp_cc_pll0_config.test_ctl_hi1_val = 0x01800000;
+		disp_cc_pll0_init.ops = &clk_alpha_pll_lucid_5lpe_ops;
+		disp_cc_pll0.vco_table = lucid_5lpe_vco;
+		disp_cc_pll1_config.config_ctl_hi1_val = 0x2a9a699c;
+		disp_cc_pll1_config.test_ctl_hi1_val = 0x01800000;
+		disp_cc_pll1_init.ops = &clk_alpha_pll_lucid_5lpe_ops;
+		disp_cc_pll1.vco_table = lucid_5lpe_vco;
+
+		disp_cc_sm8250_clocks[DISP_CC_MDSS_EDP_GTC_CLK] = NULL;
+		disp_cc_sm8250_clocks[DISP_CC_MDSS_EDP_GTC_CLK_SRC] = NULL;
+	}
+
 	return platform_driver_register(&disp_cc_sm8250_driver);
 }
 subsys_initcall(disp_cc_sm8250_init);
