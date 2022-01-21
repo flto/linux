@@ -9,8 +9,8 @@
 #include "sm8450.dtsi"
 
 / {
-	model = "Qualcomm Technologies, Inc. SM8450 QRD";
-	compatible = "qcom,sm8450-qrd", "qcom,sm8450";
+	model = "Qualcomm Technologies, Inc. SM8450 HDK";
+	compatible = "qcom,sm8450-hdk", "qcom,sm8450";
 
 	aliases {
 		serial0 = &uart7;
@@ -398,6 +398,20 @@
 	status = "okay";
 };
 
+&sdhc_2 {
+	status = "okay";
+
+	cd-gpios = <&tlmm 92 GPIO_ACTIVE_HIGH>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_on>;
+	pinctrl-1 = <&sdc2_off>;
+	vmmc-supply = <&vreg_l9c_2p96>;
+	vqmmc-supply = <&vreg_l6c_1p8>;
+	bus-width = <4>;
+	no-sdio;
+	no-emmc;
+};
+
 &tlmm {
 	gpio-reserved-ranges = <28 4>, <36 4>;
 
@@ -423,6 +437,57 @@
 		};
 	};
 
+	sdc2_on: sdc2_on {
+		clk {
+			pins = "sdc2_clk";
+			bias-disable;
+			drive-strength = <16>;
+		};
+
+		cmd {
+			pins = "sdc2_cmd";
+			bias-pull-up;
+			drive-strength = <10>;
+		};
+
+		data {
+			pins = "sdc2_data";
+			bias-pull-up;
+			drive-strength = <10>;
+		};
+
+		sd-cd {
+			pins = "gpio92";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
+
+	sdc2_off: sdc2_off {
+		clk {
+			pins = "sdc2_clk";
+			bias-disable;
+			drive-strength = <2>;
+		};
+
+		cmd {
+			pins = "sdc2_cmd";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+
+		data {
+			pins = "sdc2_data";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+
+		sd-cd {
+			pins = "gpio92";
+			bias-pull-up;
+			drive-strength = <2>;
+		};
+	};
 };
 
 &uart7 {
