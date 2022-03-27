@@ -8,19 +8,20 @@ http://github.com/freedreno/envytools/
 git clone https://github.com/freedreno/envytools.git
 
 The rules-ng-ng source files this header was generated from are:
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno.xml                     (    594 bytes, from 2021-01-30 18:25:22)
-- /home/robclark/tmp/mesa/src/freedreno/registers/freedreno_copyright.xml        (   1572 bytes, from 2020-12-31 19:26:32)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/a2xx.xml                (  90810 bytes, from 2021-06-21 15:24:24)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/adreno_common.xml       (  14609 bytes, from 2021-11-24 23:05:10)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/adreno_pm4.xml          (  69086 bytes, from 2022-03-03 16:41:33)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/a3xx.xml                (  84231 bytes, from 2021-11-24 23:05:10)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/a4xx.xml                ( 113358 bytes, from 2022-01-31 23:06:21)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/a5xx.xml                ( 149512 bytes, from 2022-01-31 23:06:21)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/a6xx.xml                ( 184954 bytes, from 2022-03-03 16:41:33)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/a6xx_gmu.xml            (  11331 bytes, from 2021-07-22 15:21:56)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/ocmem.xml               (   1773 bytes, from 2021-01-30 18:25:22)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/adreno_control_regs.xml (   6038 bytes, from 2021-07-22 15:21:56)
-- /home/robclark/tmp/mesa/src/freedreno/registers/adreno/adreno_pipe_regs.xml    (   2924 bytes, from 2021-07-22 15:21:56)
+- freedreno/registers/adreno.xml                     (    627 bytes, from 2022-03-27 15:04:47)
+- freedreno/registers/freedreno_copyright.xml        (   1572 bytes, from 2020-11-18 00:17:12)
+- freedreno/registers/adreno/a2xx.xml                (  90810 bytes, from 2021-08-06 17:44:41)
+- freedreno/registers/adreno/adreno_common.xml       (  14631 bytes, from 2022-03-27 14:52:08)
+- freedreno/registers/adreno/adreno_pm4.xml          (  70177 bytes, from 2022-03-27 20:02:31)
+- freedreno/registers/adreno/a3xx.xml                (  84231 bytes, from 2021-08-27 13:03:56)
+- freedreno/registers/adreno/a4xx.xml                ( 113474 bytes, from 2022-03-22 19:23:46)
+- freedreno/registers/adreno/a5xx.xml                ( 149512 bytes, from 2022-03-21 16:05:18)
+- freedreno/registers/adreno/a6xx.xml                ( 184954 bytes, from 2022-03-22 19:23:46)
+- freedreno/registers/adreno/a6xx_gmu.xml            (  11331 bytes, from 2021-08-06 17:44:41)
+- freedreno/registers/adreno/a7xx.xml                (  20004 bytes, from 2022-03-27 20:01:42)
+- freedreno/registers/adreno/ocmem.xml               (   1773 bytes, from 2020-11-18 00:17:12)
+- freedreno/registers/adreno/adreno_control_regs.xml (   6038 bytes, from 2022-03-22 19:23:46)
+- freedreno/registers/adreno/adreno_pipe_regs.xml    (   2924 bytes, from 2022-03-22 19:23:46)
 
 Copyright (C) 2013-2022 by the following authors:
 - Rob Clark <robdclark@gmail.com> (robclark)
@@ -301,6 +302,8 @@ enum adreno_pm4_type3_packets {
 	CP_REG_WRITE = 109,
 	CP_START_BIN = 80,
 	CP_END_BIN = 81,
+	CP_WAIT_TIMESTAMP = 20,
+	CP_THREAD_CONTROL = 23,
 };
 
 enum adreno_state_block {
@@ -480,6 +483,12 @@ enum reg_tracker {
 	TRACK_CNTL_REG = 1,
 	TRACK_RENDER_CNTL = 2,
 	UNK_EVENT_WRITE = 4,
+};
+
+enum cp_thread {
+	CP_SET_THREAD_BR = 1,
+	CP_SET_THREAD_BV = 2,
+	CP_SET_THREAD_BOTH = 3,
 };
 
 #define REG_CP_LOAD_STATE_0					0x00000000
@@ -2360,6 +2369,34 @@ static inline uint32_t CP_SMMU_TABLE_UPDATE_3_CONTEXTBANK(uint32_t val)
 #define REG_CP_START_BIN_PREFIX_DWORDS				0x00000003
 
 #define REG_CP_START_BIN_BODY_DWORDS				0x00000004
+
+#define REG_CP_THREAD_CONTROL_0					0x00000000
+#define CP_THREAD_CONTROL_0_THREAD__MASK			0x00000003
+#define CP_THREAD_CONTROL_0_THREAD__SHIFT			0
+static inline uint32_t CP_THREAD_CONTROL_0_THREAD(enum cp_thread val)
+{
+	return ((val) << CP_THREAD_CONTROL_0_THREAD__SHIFT) & CP_THREAD_CONTROL_0_THREAD__MASK;
+}
+#define CP_THREAD_CONTROL_0_CONCURRENT_BIN_DISABLE		0x08000000
+#define CP_THREAD_CONTROL_0_SYNC_THREADS			0x80000000
+
+#define REG_CP_WAIT_TIMESTAMP_0					0x00000000
+#define CP_WAIT_TIMESTAMP_0_REF__MASK				0x00000003
+#define CP_WAIT_TIMESTAMP_0_REF__SHIFT				0
+static inline uint32_t CP_WAIT_TIMESTAMP_0_REF(uint32_t val)
+{
+	return ((val) << CP_WAIT_TIMESTAMP_0_REF__SHIFT) & CP_WAIT_TIMESTAMP_0_REF__MASK;
+}
+#define CP_WAIT_TIMESTAMP_0_MEMSPACE__MASK			0x00000010
+#define CP_WAIT_TIMESTAMP_0_MEMSPACE__SHIFT			4
+static inline uint32_t CP_WAIT_TIMESTAMP_0_MEMSPACE(uint32_t val)
+{
+	return ((val) << CP_WAIT_TIMESTAMP_0_MEMSPACE__SHIFT) & CP_WAIT_TIMESTAMP_0_MEMSPACE__MASK;
+}
+
+#define REG_CP_WAIT_TIMESTAMP_ADDR				0x00000001
+
+#define REG_CP_WAIT_TIMESTAMP_VALUE				0x00000003
 
 
 #endif /* ADRENO_PM4_XML */
