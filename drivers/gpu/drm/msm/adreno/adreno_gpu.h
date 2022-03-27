@@ -429,6 +429,10 @@ static inline uint32_t get_wptr(struct msm_ringbuffer *ring)
 	((1 << 30) | (1 << 29) | \
 	((ilog2((_len)) & 0x1F) << 24) | (((_reg) << 2) & 0xFFFFF))
 
+#define A6XX_PROTECT_NORDWR(_reg, _len) \
+	((1 << 31) | \
+	(((_len) & 0x3FFF) << 18) | ((_reg) & 0x3FFFF))
+
 /*
  * Same as above, but allow reads over the range. For areas of mixed use (such
  * as performance counters) this allows us to protect a much larger range with a
@@ -438,6 +442,8 @@ static inline uint32_t get_wptr(struct msm_ringbuffer *ring)
 	((1 << 29) \
 	((ilog2((_len)) & 0x1F) << 24) | (((_reg) << 2) & 0xFFFFF))
 
+#define A6XX_PROTECT_RDONLY(_reg, _len) \
+	((((_len) & 0x3FFF) << 18) | ((_reg) & 0x3FFFF))
 
 #define gpu_poll_timeout(gpu, addr, val, cond, interval, timeout) \
 	readl_poll_timeout((gpu)->mmio + ((addr) << 2), val, cond, \
