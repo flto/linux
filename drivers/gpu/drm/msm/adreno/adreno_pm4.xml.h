@@ -12,7 +12,7 @@ The rules-ng-ng source files this header was generated from are:
 - freedreno/registers/freedreno_copyright.xml        (   1572 bytes, from 2020-11-18 00:17:12)
 - freedreno/registers/adreno/a2xx.xml                (  90810 bytes, from 2021-08-06 17:44:41)
 - freedreno/registers/adreno/adreno_common.xml       (  14631 bytes, from 2022-03-27 14:52:08)
-- freedreno/registers/adreno/adreno_pm4.xml          (  70177 bytes, from 2022-03-27 20:02:31)
+- freedreno/registers/adreno/adreno_pm4.xml          (  69699 bytes, from 2022-03-27 20:17:52)
 - freedreno/registers/adreno/a3xx.xml                (  84231 bytes, from 2021-08-27 13:03:56)
 - freedreno/registers/adreno/a4xx.xml                ( 113474 bytes, from 2022-03-22 19:23:46)
 - freedreno/registers/adreno/a5xx.xml                ( 149512 bytes, from 2022-03-21 16:05:18)
@@ -2379,24 +2379,6 @@ static inline uint32_t CP_THREAD_CONTROL_0_THREAD(enum cp_thread val)
 }
 #define CP_THREAD_CONTROL_0_CONCURRENT_BIN_DISABLE		0x08000000
 #define CP_THREAD_CONTROL_0_SYNC_THREADS			0x80000000
-
-#define REG_CP_WAIT_TIMESTAMP_0					0x00000000
-#define CP_WAIT_TIMESTAMP_0_REF__MASK				0x00000003
-#define CP_WAIT_TIMESTAMP_0_REF__SHIFT				0
-static inline uint32_t CP_WAIT_TIMESTAMP_0_REF(uint32_t val)
-{
-	return ((val) << CP_WAIT_TIMESTAMP_0_REF__SHIFT) & CP_WAIT_TIMESTAMP_0_REF__MASK;
-}
-#define CP_WAIT_TIMESTAMP_0_MEMSPACE__MASK			0x00000010
-#define CP_WAIT_TIMESTAMP_0_MEMSPACE__SHIFT			4
-static inline uint32_t CP_WAIT_TIMESTAMP_0_MEMSPACE(uint32_t val)
-{
-	return ((val) << CP_WAIT_TIMESTAMP_0_MEMSPACE__SHIFT) & CP_WAIT_TIMESTAMP_0_MEMSPACE__MASK;
-}
-
-#define REG_CP_WAIT_TIMESTAMP_ADDR				0x00000001
-
-#define REG_CP_WAIT_TIMESTAMP_VALUE				0x00000003
 
 
 #endif /* ADRENO_PM4_XML */
