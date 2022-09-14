@@ -2936,11 +2936,12 @@
 			iommus = <&apps_smmu 0x4a0 0x0>;
 			qcom,dll-config = <0x0007642c>;
 			qcom,ddr-config = <0x80040868>;
-			power-domains = <&rpmhpd SM8250_CX>;
-			operating-points-v2 = <&sdhc2_opp_table>;
+			//power-domains = <&rpmhpd SM8250_CX>;
+			//operating-points-v2 = <&sdhc2_opp_table>;
 
 			status = "disabled";
 
+#if 0
 			sdhc2_opp_table: opp-table {
 				compatible = "operating-points-v2";
 
@@ -2964,6 +2965,7 @@
 					required-opps = <&rpmhpd_opp_svs_l1>;
 				};
 			};
+#endif
 		};
 
 		dc_noc: interconnect@90c0000 {
@@ -4542,6 +4544,32 @@
 				};
 			};
 
+			sdc2_active_state: sdc2-active {
+				clk {
+					pins = "sdc2_clk";
+					drive-strength = <16>;
+					bias-disable;
+				};
+
+				cmd {
+					pins = "sdc2_cmd";
+					drive-strength = <16>;
+					bias-pull-up;
+				};
+
+				data {
+					pins = "sdc2_data";
+					drive-strength = <16>;
+					bias-pull-up;
+				};
+
+				sd-cd {
+					pins = "gpio77";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+			};
+
 			sdc2_sleep_state: sdc2-sleep {
 				clk {
 					pins = "sdc2_clk";
@@ -4557,6 +4585,12 @@
 
 				data {
 					pins = "sdc2_data";
+					drive-strength = <2>;
+					bias-pull-up;
+				};
+
+				sd-cd {
+					pins = "gpio77";
 					drive-strength = <2>;
 					bias-pull-up;
 				};

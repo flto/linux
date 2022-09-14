@@ -441,6 +441,20 @@
 	status = "okay";
 };
 
+&sdhc_2 {
+	status = "okay";
+
+	cd-gpios = <&tlmm 77 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sdc2_active_state>;
+	pinctrl-1 = <&sdc2_sleep_state>;
+	vmmc-supply = <&vreg_l9c_2p96>;
+	vqmmc-supply = <&vreg_s4a_1p8>;
+	bus-width = <4>;
+	no-sdio;
+	no-emmc;
+};
+
 &tlmm {
 	gpio-reserved-ranges = <28 4>, <40 4>;
 
