@@ -17,6 +17,7 @@ properties:
   compatible:
     enum:
       - qcom,sc8280xp-qmp-usb3-uni-phy
+      - qcom,sm8550-qmp-usb3-phy
 
   reg:
     maxItems: 1
