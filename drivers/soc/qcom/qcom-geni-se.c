@@ -904,6 +904,8 @@ static int geni_se_probe(struct platform_device *pdev)
 			return -EINVAL;
 
 		wrapper->num_clks = min_t(unsigned int, desc->num_clks, MAX_CLKS);
+		if (wrapper->num_clks < desc->num_clks)
+			dev_warn(dev, "too much clocks described in DT\n");
 
 		for (i = 0; i < wrapper->num_clks; ++i)
 			wrapper->clks[i].id = desc->clks[i];
