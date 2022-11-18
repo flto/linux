@@ -47,14 +47,6 @@ properties:
       - qcom,sm8250-adsp-pas
       - qcom,sm8250-cdsp-pas
       - qcom,sm8250-slpi-pas
-      - qcom,sm8350-adsp-pas
-      - qcom,sm8350-cdsp-pas
-      - qcom,sm8350-slpi-pas
-      - qcom,sm8350-mpss-pas
-      - qcom,sm8450-adsp-pas
-      - qcom,sm8450-cdsp-pas
-      - qcom,sm8450-mpss-pas
-      - qcom,sm8450-slpi-pas
 
   reg:
     maxItems: 1
@@ -127,14 +119,6 @@ allOf:
               - qcom,sm8250-adsp-pas
               - qcom,sm8250-cdsp-pas
               - qcom,sm8250-slpi-pas
-              - qcom,sm8350-adsp-pas
-              - qcom,sm8350-cdsp-pas
-              - qcom,sm8350-slpi-pas
-              - qcom,sm8350-mpss-pas
-              - qcom,sm8450-adsp-pas
-              - qcom,sm8450-cdsp-pas
-              - qcom,sm8450-slpi-pas
-              - qcom,sm8450-mpss-pas
     then:
       properties:
         clocks:
@@ -244,12 +228,6 @@ allOf:
               - qcom,sm8250-adsp-pas
               - qcom,sm8250-cdsp-pas
               - qcom,sm8250-slpi-pas
-              - qcom,sm8350-adsp-pas
-              - qcom,sm8350-cdsp-pas
-              - qcom,sm8350-slpi-pas
-              - qcom,sm8450-adsp-pas
-              - qcom,sm8450-cdsp-pas
-              - qcom,sm8450-slpi-pas
     then:
       properties:
         interrupts:
@@ -268,8 +246,6 @@ allOf:
               - qcom,sdx55-mpss-pas
               - qcom,sm6350-mpss-pas
               - qcom,sm8150-mpss-pas
-              - qcom,sm8350-mpss-pas
-              - qcom,sm8450-mpss-pas
     then:
       properties:
         interrupts:
@@ -369,8 +345,6 @@ allOf:
               - qcom,sdx55-mpss-pas
               - qcom,sm6350-mpss-pas
               - qcom,sm8150-mpss-pas
-              - qcom,sm8350-mpss-pas
-              - qcom,sm8450-mpss-pas
     then:
       properties:
         power-domains:
@@ -394,10 +368,6 @@ allOf:
               - qcom,sm8150-slpi-pas
               - qcom,sm8250-adsp-pas
               - qcom,sm8250-slpi-pas
-              - qcom,sm8350-adsp-pas
-              - qcom,sm8350-slpi-pas
-              - qcom,sm8450-adsp-pas
-              - qcom,sm8450-slpi-pas
     then:
       properties:
         power-domains:
@@ -408,24 +378,6 @@ allOf:
           items:
             - const: lcx
             - const: lmx
-
-  - if:
-      properties:
-        compatible:
-          contains:
-            enum:
-              - qcom,sm8350-cdsp-pas
-              - qcom,sm8450-cdsp-pas
-    then:
-      properties:
-        power-domains:
-          items:
-            - description: CX power domain
-            - description: MXC power domain
-        power-domain-names:
-          items:
-            - const: cx
-            - const: mxc
 
   - if:
       properties:
