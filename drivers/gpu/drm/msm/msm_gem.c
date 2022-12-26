@@ -408,8 +408,10 @@ put_iova_spaces(struct drm_gem_object *obj, bool close)
 	list_for_each_entry(vma, &msm_obj->vmas, list) {
 		if (vma->aspace) {
 			msm_gem_vma_purge(vma);
-			if (close)
+			if (close) {
+				msm_gem_unpin_locked(obj);
 				msm_gem_vma_close(vma);
+			}
 		}
 	}
 }
@@ -451,6 +453,10 @@ static struct msm_gem_vma *get_vma_locked(struct drm_gem_object *obj,
 			del_vma(vma);
 			return ERR_PTR(ret);
 		}
+
+		/* always pin vma */
+		ret = msm_gem_pin_vma_locked(obj, vma);
+		WARN_ON(ret);
 	} else {
 		GEM_WARN_ON(vma->iova < range_start);
 		GEM_WARN_ON((vma->iova + obj->size) > range_end);
@@ -598,9 +604,6 @@ static int clear_iova(struct drm_gem_object *obj,
 
 	if (!vma)
 		return 0;
-
-	if (msm_gem_vma_inuse(vma))
-		return -EBUSY;
 
 	msm_gem_vma_purge(vma);
 	msm_gem_vma_close(vma);
@@ -981,11 +984,10 @@ void msm_gem_describe(struct drm_gem_object *obj, struct seq_file *m,
 			} else {
 				name = comm = NULL;
 			}
-			seq_printf(m, " [%s%s%s: aspace=%p, %08llx,%s,inuse=%d]",
+			seq_printf(m, " [%s%s%s: aspace=%p, %08llx,%s]",
 				name, comm ? ":" : "", comm ? comm : "",
 				vma->aspace, vma->iova,
-				vma->mapped ? "mapped" : "unmapped",
-				msm_gem_vma_inuse(vma));
+				vma->mapped ? "mapped" : "unmapped");
 			kfree(comm);
 		}
 
