@@ -71,11 +71,25 @@ void msm_submitqueue_destroy(struct kref *kref)
 	struct msm_gpu_submitqueue *queue = container_of(kref,
 		struct msm_gpu_submitqueue, ref);
 
+
 	idr_destroy(&queue->fence_idr);
 
 	msm_file_private_put(queue->ctx);
 
 	kfree(queue);
+}
+
+int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id, signed long timeout);
+
+static void msm_submitqueue_wait_idle(struct msm_gpu_submitqueue *queue)
+{
+	int ret;
+	long timeout;
+
+	/* wait for any submits to finish, to block until GEM objects are unused */
+	do {
+		ret = wait_fence(queue, queue->last_fence, 5 * HZ);
+	} while (ret == -ERESTARTSYS);
 }
 
 struct msm_gpu_submitqueue *msm_submitqueue_get(struct msm_file_private *ctx,
@@ -114,6 +128,8 @@ void msm_submitqueue_close(struct msm_file_private *ctx)
 	 */
 	list_for_each_entry_safe(entry, tmp, &ctx->submitqueues, node) {
 		list_del(&entry->node);
+		/* wait outside of destroy so it doesn't get deferred to submit retire */
+		msm_submitqueue_wait_idle(entry);
 		msm_submitqueue_put(entry);
 	}
 }

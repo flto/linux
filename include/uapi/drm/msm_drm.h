@@ -209,6 +209,8 @@ struct drm_msm_gem_submit_reloc {
 #define MSM_SUBMIT_CMD_CTX_RESTORE_BUF 0x0003
 struct drm_msm_gem_submit_cmd {
 	__u32 type;           /* in, one of MSM_SUBMIT_CMD_x */
+	//__u32 submit_iova_lo;
+	//__u32 submit_iova_hi;
 	__u32 submit_idx;     /* in, index of submit_bo cmdstream buffer */
 	__u32 submit_offset;  /* in, offset into submit_bo */
 	__u32 size;           /* in, cmdstream size */

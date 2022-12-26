@@ -78,13 +78,6 @@ struct msm_gem_object {
 	uint32_t flags;
 
 	/**
-	 * madv: are the backing pages purgeable?
-	 *
-	 * Protected by obj lock and LRU lock
-	 */
-	uint8_t madv;
-
-	/**
 	 * count of active vmap'ing
 	 */
 	uint8_t vmap_count;
@@ -107,20 +100,12 @@ struct msm_gem_object {
 	struct drm_mm_node *vram_node;
 
 	char name[32]; /* Identifier to print for the debugfs files */
-
-	/**
-	 * pin_count: Number of times the pages are pinned
-	 *
-	 * Protected by LRU lock.
-	 */
-	int pin_count;
 };
 #define to_msm_bo(x) container_of(x, struct msm_gem_object, base)
 
 uint64_t msm_gem_mmap_offset(struct drm_gem_object *obj);
 int msm_gem_pin_vma_locked(struct drm_gem_object *obj, struct msm_gem_vma *vma);
 void msm_gem_unpin_locked(struct drm_gem_object *obj);
-void msm_gem_unpin_active(struct drm_gem_object *obj);
 struct msm_gem_vma *msm_gem_get_vma_locked(struct drm_gem_object *obj,
 					   struct msm_gem_address_space *aspace);
 int msm_gem_get_iova(struct drm_gem_object *obj,
@@ -216,33 +201,6 @@ msm_gem_assert_locked(struct drm_gem_object *obj)
 	);
 }
 
-/* imported/exported objects are not purgeable: */
-static inline bool is_unpurgeable(struct msm_gem_object *msm_obj)
-{
-	return msm_obj->base.import_attach || msm_obj->pin_count;
-}
-
-static inline bool is_purgeable(struct msm_gem_object *msm_obj)
-{
-	return (msm_obj->madv == MSM_MADV_DONTNEED) && msm_obj->sgt &&
-			!is_unpurgeable(msm_obj);
-}
-
-static inline bool is_vunmapable(struct msm_gem_object *msm_obj)
-{
-	msm_gem_assert_locked(&msm_obj->base);
-	return (msm_obj->vmap_count == 0) && msm_obj->vaddr;
-}
-
-static inline bool is_unevictable(struct msm_gem_object *msm_obj)
-{
-	return is_unpurgeable(msm_obj) || msm_obj->vaddr;
-}
-
-void msm_gem_purge(struct drm_gem_object *obj);
-void msm_gem_evict(struct drm_gem_object *obj);
-void msm_gem_vunmap(struct drm_gem_object *obj);
-
 /* Created per submit-ioctl, to track bo's and cmdstream bufs, etc,
  * associated with the cmdstream submission for synchronization (and
  * make it easier to unwind when things go wrong, etc).
@@ -275,29 +233,12 @@ struct msm_gem_submit {
 	bool in_rb;         /* "sudo" mode, copy cmds into RB */
 	struct msm_ringbuffer *ring;
 	unsigned int nr_cmds;
-	unsigned int nr_bos;
 	u32 ident;	   /* A "identifier" for the submit for logging */
 	struct {
 		uint32_t type;
 		uint32_t size;  /* in dwords */
 		uint64_t iova;
-		uint32_t offset;/* in dwords */
-		uint32_t idx;   /* cmdstream buffer idx in bos[] */
-		uint32_t nr_relocs;
-		struct drm_msm_gem_submit_reloc *relocs;
-	} *cmd;  /* array of size nr_cmds */
-	struct {
-/* make sure these don't conflict w/ MSM_SUBMIT_BO_x */
-#define BO_VALID	0x8000	/* is current addr in cmdstream correct/valid? */
-#define BO_LOCKED	0x4000	/* obj lock is held */
-#define BO_PINNED	0x2000	/* obj (pages) is pinned and on active list */
-		uint32_t flags;
-		union {
-			struct drm_gem_object *obj;
-			uint32_t handle;
-		};
-		uint64_t iova;
-	} bos[];
+	} cmd[];  /* array of size nr_cmds */
 };
 
 static inline struct msm_gem_submit *to_msm_submit(struct drm_sched_job *job)
@@ -326,7 +267,7 @@ static inline bool
 should_dump(struct msm_gem_submit *submit, int idx)
 {
 	extern bool rd_full;
-	return rd_full || (submit->bos[idx].flags & MSM_SUBMIT_BO_DUMP);
+	return rd_full;
 }
 
 #endif /* __MSM_GEM_H__ */
