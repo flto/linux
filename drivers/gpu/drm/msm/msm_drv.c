@@ -913,8 +913,7 @@ static int msm_ioctl_gem_info(struct drm_device *dev, void *data,
 	return ret;
 }
 
-static int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id,
-		      ktime_t timeout, uint32_t flags)
+int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id, signed long timeout, uint32_t flags)
 {
 	struct dma_fence *fence;
 	int ret;
@@ -945,7 +944,7 @@ static int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id,
 	if (flags & MSM_WAIT_FENCE_BOOST)
 		dma_fence_set_deadline(fence, ktime_get());
 
-	ret = dma_fence_wait_timeout(fence, true, timeout_to_jiffies(&timeout));
+	ret = dma_fence_wait_timeout(fence, true, timeout);
 	if (ret == 0) {
 		ret = -ETIMEDOUT;
 	} else if (ret != -ERESTARTSYS) {
@@ -963,6 +962,7 @@ static int msm_ioctl_wait_fence(struct drm_device *dev, void *data,
 	struct msm_drm_private *priv = dev->dev_private;
 	struct drm_msm_wait_fence *args = data;
 	struct msm_gpu_submitqueue *queue;
+	ktime_t timeout;
 	int ret;
 
 	if (args->flags & ~MSM_WAIT_FENCE_FLAGS) {
@@ -977,7 +977,8 @@ static int msm_ioctl_wait_fence(struct drm_device *dev, void *data,
 	if (!queue)
 		return -ENOENT;
 
-	ret = wait_fence(queue, args->fence, to_ktime(args->timeout), args->flags);
+	timeout = to_ktime(args->timeout);
+	ret = wait_fence(queue, args->fence, timeout_to_jiffies(&timeout), args->flags);
 
 	msm_submitqueue_put(queue);
 

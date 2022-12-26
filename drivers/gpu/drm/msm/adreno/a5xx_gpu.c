@@ -79,6 +79,7 @@ static void a5xx_submit_in_rb(struct msm_gpu *gpu, struct msm_gem_submit *submit
 				break;
 			fallthrough;
 		case MSM_SUBMIT_CMD_BUF:
+#if 0
 			/* copy commands into RB: */
 			obj = submit->bos[submit->cmd[i].idx].obj;
 			dwords = submit->cmd[i].size;
@@ -104,7 +105,7 @@ static void a5xx_submit_in_rb(struct msm_gpu *gpu, struct msm_gem_submit *submit
 			}
 
 			msm_gem_put_vaddr(&obj->base);
-
+#endif
 			break;
 		}
 	}

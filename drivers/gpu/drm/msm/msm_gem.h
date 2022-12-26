@@ -64,7 +64,6 @@ struct msm_gem_vma {
 	struct msm_gem_address_space *aspace;
 	struct list_head list;    /* node in msm_gem_object::vmas */
 	bool mapped;
-	int inuse;
 	uint32_t fence_mask;
 	uint32_t fence[MSM_GPU_MAX_RINGS];
 	struct msm_fence_context *fctx[MSM_GPU_MAX_RINGS];
@@ -73,7 +72,6 @@ struct msm_gem_vma {
 struct msm_gem_vma *msm_gem_vma_new(struct msm_gem_address_space *aspace);
 int msm_gem_vma_init(struct msm_gem_vma *vma, int size,
 		u64 range_start, u64 range_end);
-bool msm_gem_vma_inuse(struct msm_gem_vma *vma);
 void msm_gem_vma_purge(struct msm_gem_vma *vma);
 void msm_gem_vma_unpin(struct msm_gem_vma *vma);
 void msm_gem_vma_unpin_fenced(struct msm_gem_vma *vma, struct msm_fence_context *fctx);
@@ -282,31 +280,12 @@ struct msm_gem_submit {
 	bool in_rb;         /* "sudo" mode, copy cmds into RB */
 	struct msm_ringbuffer *ring;
 	unsigned int nr_cmds;
-	unsigned int nr_bos;
 	u32 ident;	   /* A "identifier" for the submit for logging */
 	struct {
 		uint32_t type;
 		uint32_t size;  /* in dwords */
 		uint64_t iova;
-		uint32_t offset;/* in dwords */
-		uint32_t idx;   /* cmdstream buffer idx in bos[] */
-		uint32_t nr_relocs;
-		struct drm_msm_gem_submit_reloc *relocs;
-	} *cmd;  /* array of size nr_cmds */
-	struct {
-/* make sure these don't conflict w/ MSM_SUBMIT_BO_x */
-#define BO_VALID	0x8000	/* is current addr in cmdstream correct/valid? */
-#define BO_LOCKED	0x4000	/* obj lock is held */
-#define BO_OBJ_PINNED	0x2000	/* obj (pages) is pinned and on active list */
-#define BO_VMA_PINNED	0x1000	/* vma (virtual address) is pinned */
-		uint32_t flags;
-		union {
-			struct msm_gem_object *obj;
-			uint32_t handle;
-		};
-		uint64_t iova;
-		struct msm_gem_vma *vma;
-	} bos[];
+	} cmd[];  /* array of size nr_cmds */
 };
 
 static inline struct msm_gem_submit *to_msm_submit(struct drm_sched_job *job)
@@ -335,7 +314,7 @@ static inline bool
 should_dump(struct msm_gem_submit *submit, int idx)
 {
 	extern bool rd_full;
-	return rd_full || (submit->bos[idx].flags & MSM_SUBMIT_BO_DUMP);
+	return rd_full;
 }
 
 #endif /* __MSM_GEM_H__ */

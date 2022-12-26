@@ -66,10 +66,17 @@ void __msm_file_private_destroy(struct kref *kref)
 	kfree(ctx);
 }
 
+int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id, signed long timeout);
+
 void msm_submitqueue_destroy(struct kref *kref)
 {
 	struct msm_gpu_submitqueue *queue = container_of(kref,
 		struct msm_gpu_submitqueue, ref);
+	int ret;
+
+	/* wait for any submits to finish, to block until GEM objects are unused */
+	ret = wait_fence(queue, queue->last_fence, 5 * HZ);
+	WARN_ON(ret);
 
 	idr_destroy(&queue->fence_idr);
 
