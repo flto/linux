@@ -7,15 +7,6 @@ ccflags-$(CONFIG_DRM_MSM_DP) += -I $(srctree)/$(src)/dp
 msm-y := \
 	adreno/adreno_device.o \
 	adreno/adreno_gpu.o \
-	adreno/a2xx_gpu.o \
-	adreno/a3xx_gpu.o \
-	adreno/a4xx_gpu.o \
-	adreno/a5xx_gpu.o \
-	adreno/a5xx_power.o \
-	adreno/a5xx_preempt.o \
-	adreno/a6xx_gpu.o \
-	adreno/a6xx_gmu.o \
-	adreno/a6xx_hfi.o \
 	adreno/a7xx_gpu.o \
 
 msm-$(CONFIG_DRM_MSM_HDMI) += \
@@ -100,7 +91,6 @@ msm-y += \
 	msm_fence.o \
 	msm_gem.o \
 	msm_gem_prime.o \
-	msm_gem_shrinker.o \
 	msm_gem_submit.o \
 	msm_gem_vma.o \
 	msm_gpu.o \
@@ -117,8 +107,6 @@ msm-y += \
 
 msm-$(CONFIG_DEBUG_FS) += adreno/a5xx_debugfs.o \
 	dp/dp_debug.o
-
-msm-$(CONFIG_DRM_MSM_GPU_STATE)	+= adreno/a6xx_gpu_state.o
 
 msm-$(CONFIG_DRM_MSM_DP)+= dp/dp_aux.o \
 	dp/dp_catalog.o \

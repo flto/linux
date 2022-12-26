@@ -144,62 +144,6 @@ struct msm_drm_private {
 	struct list_head objects;
 	struct mutex obj_lock;
 
-	/**
-	 * lru:
-	 *
-	 * The various LRU's that a GEM object is in at various stages of
-	 * it's lifetime.  Objects start out in the unbacked LRU.  When
-	 * pinned (for scannout or permanently mapped GPU buffers, like
-	 * ringbuffer, memptr, fw, etc) it moves to the pinned LRU.  When
-	 * unpinned, it moves into willneed or dontneed LRU depending on
-	 * madvise state.  When backing pages are evicted (willneed) or
-	 * purged (dontneed) it moves back into the unbacked LRU.
-	 *
-	 * The dontneed LRU is considered by the shrinker for objects
-	 * that are candidate for purging, and the willneed LRU is
-	 * considered for objects that could be evicted.
-	 */
-	struct {
-		/**
-		 * unbacked:
-		 *
-		 * The LRU for GEM objects without backing pages allocated.
-		 * This mostly exists so that objects are always is one
-		 * LRU.
-		 */
-		struct drm_gem_lru unbacked;
-
-		/**
-		 * pinned:
-		 *
-		 * The LRU for pinned GEM objects
-		 */
-		struct drm_gem_lru pinned;
-
-		/**
-		 * willneed:
-		 *
-		 * The LRU for unpinned GEM objects which are in madvise
-		 * WILLNEED state (ie. can be evicted)
-		 */
-		struct drm_gem_lru willneed;
-
-		/**
-		 * dontneed:
-		 *
-		 * The LRU for unpinned GEM objects which are in madvise
-		 * DONTNEED state (ie. can be purged)
-		 */
-		struct drm_gem_lru dontneed;
-
-		/**
-		 * lock:
-		 *
-		 * Protects manipulation of all of the LRUs.
-		 */
-		struct mutex lock;
-	} lru;
-
 	struct workqueue_struct *wq;
 
 	unsigned int num_crtcs;
@@ -216,9 +160,6 @@ struct msm_drm_private {
 		struct drm_mm mm;
 		spinlock_t lock; /* Protects drm_mm node allocation/removal */
 	} vram;
-
-	struct notifier_block vmap_notifier;
-	struct shrinker *shrinker;
 
 	struct drm_atomic_state *pm_state;
 

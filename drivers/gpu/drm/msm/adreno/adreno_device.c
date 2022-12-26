@@ -21,6 +21,7 @@ MODULE_PARM_DESC(allow_vram_carveout, "Allow using VRAM Carveout, in place of IO
 module_param_named(allow_vram_carveout, allow_vram_carveout, bool, 0600);
 
 static const struct adreno_info gpulist[] = {
+#if 0
 	{
 		.chip_ids = ADRENO_CHIP_IDS(0x02000000),
 		.family = ADRENO_2XX_GEN1,
@@ -493,6 +494,8 @@ static const struct adreno_info gpulist[] = {
 		.hwcg = a690_hwcg,
 		.address_space_size = SZ_16G,
 	}, {
+#endif
+	{
 		.chip_ids = ADRENO_CHIP_IDS(0x07000001),
 		.revn = 730,
 		.fw = {

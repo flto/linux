@@ -184,31 +184,6 @@ static const struct file_operations msm_kms_fops = {
  * Other debugfs:
  */
 
-static unsigned long last_shrink_freed;
-
-static int
-shrink_get(void *data, u64 *val)
-{
-	*val = last_shrink_freed;
-
-	return 0;
-}
-
-static int
-shrink_set(void *data, u64 val)
-{
-	struct drm_device *dev = data;
-
-	last_shrink_freed = msm_gem_shrinker_shrink(dev, val);
-
-	return 0;
-}
-
-DEFINE_DEBUGFS_ATTRIBUTE(shrink_fops,
-			 shrink_get, shrink_set,
-			 "0x%08llx\n");
-
-
 static int msm_gem_show(struct seq_file *m, void *arg)
 {
 	struct drm_info_node *node = m->private;
@@ -330,9 +305,6 @@ void msm_debugfs_init(struct drm_minor *minor)
 
 	debugfs_create_bool("disable_err_irq", 0600, minor->debugfs_root,
 		&priv->disable_err_irq);
-
-	debugfs_create_file("shrink", S_IRWXU, minor->debugfs_root,
-		dev, &shrink_fops);
 
 	gpu_devfreq = debugfs_create_dir("devfreq", minor->debugfs_root);
 

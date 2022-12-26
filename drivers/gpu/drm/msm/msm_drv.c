@@ -87,8 +87,6 @@ static int msm_drm_uninit(struct device *dev)
 
 	flush_workqueue(priv->wq);
 
-	msm_gem_shrinker_cleanup(ddev);
-
 	msm_perf_debugfs_cleanup(priv);
 	msm_rd_debugfs_cleanup(priv);
 
@@ -234,15 +232,6 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv)
 	INIT_LIST_HEAD(&priv->objects);
 	mutex_init(&priv->obj_lock);
 
-	/*
-	 * Initialize the LRUs:
-	 */
-	mutex_init(&priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.unbacked, &priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.pinned,   &priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.willneed, &priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.dontneed, &priv->lru.lock);
-
 	/* Teach lockdep about lock ordering wrt. shrinker: */
 	fs_reclaim_acquire(GFP_KERNEL);
 	might_lock(&priv->lru.lock);
@@ -264,10 +253,6 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv)
 	ret = component_bind_all(dev, ddev);
 	if (ret)
 		goto err_deinit_vram;
-
-	ret = msm_gem_shrinker_init(ddev);
-	if (ret)
-		goto err_msm_uninit;
 
 	if (priv->kms_init) {
 		ret = msm_drm_kms_init(dev, drv);
@@ -361,10 +346,14 @@ static int msm_open(struct drm_device *dev, struct drm_file *file)
 	return context_init(dev, file);
 }
 
-static void context_close(struct msm_file_private *ctx)
+static void msm_preclose(struct drm_device *dev, struct drm_file *file)
 {
+	struct msm_file_private *ctx = file->driver_priv;
+
+	/* note: this must happen before releasing gem objects,
+	 * to avoid unecessary iova faults on crash/forced termination
+	 */
 	msm_submitqueue_close(ctx);
-	msm_file_private_put(ctx);
 }
 
 static void msm_postclose(struct drm_device *dev, struct drm_file *file)
@@ -379,7 +368,7 @@ static void msm_postclose(struct drm_device *dev, struct drm_file *file)
 	if (priv->gpu)
 		msm_file_private_set_sysprof(ctx, priv->gpu, 0);
 
-	context_close(ctx);
+	msm_file_private_put(ctx);
 }
 
 /*
@@ -635,8 +624,7 @@ static int msm_ioctl_gem_info(struct drm_device *dev, void *data,
 	return ret;
 }
 
-static int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id,
-		      ktime_t timeout, uint32_t flags)
+int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id, signed long timeout, uint32_t flags)
 {
 	struct dma_fence *fence;
 	int ret;
@@ -667,7 +655,7 @@ static int wait_fence(struct msm_gpu_submitqueue *queue, uint32_t fence_id,
 	if (flags & MSM_WAIT_FENCE_BOOST)
 		dma_fence_set_deadline(fence, ktime_get());
 
-	ret = dma_fence_wait_timeout(fence, true, timeout_to_jiffies(&timeout));
+	ret = dma_fence_wait_timeout(fence, true, timeout);
 	if (ret == 0) {
 		ret = -ETIMEDOUT;
 	} else if (ret != -ERESTARTSYS) {
@@ -685,6 +673,7 @@ static int msm_ioctl_wait_fence(struct drm_device *dev, void *data,
 	struct msm_drm_private *priv = dev->dev_private;
 	struct drm_msm_wait_fence *args = data;
 	struct msm_gpu_submitqueue *queue;
+	ktime_t timeout;
 	int ret;
 
 	if (args->flags & ~MSM_WAIT_FENCE_FLAGS) {
@@ -699,7 +688,8 @@ static int msm_ioctl_wait_fence(struct drm_device *dev, void *data,
 	if (!queue)
 		return -ENOENT;
 
-	ret = wait_fence(queue, args->fence, to_ktime(args->timeout), args->flags);
+	timeout = to_ktime(args->timeout);
+	ret = wait_fence(queue, args->fence, timeout_to_jiffies(&timeout), args->flags);
 
 	msm_submitqueue_put(queue);
 
@@ -805,6 +795,7 @@ static const struct drm_driver msm_driver = {
 				DRIVER_MODESET |
 				DRIVER_SYNCOBJ,
 	.open               = msm_open,
+	.preclose           = msm_preclose,
 	.postclose          = msm_postclose,
 	.dumb_create        = msm_gem_dumb_create,
 	.dumb_map_offset    = msm_gem_dumb_map_offset,
