@@ -40,10 +40,50 @@ static bool a7xx_idle(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
 	return true;
 }
 
+static void a7xx_set_pagetable(struct msm_gpu *gpu,
+		struct msm_ringbuffer *ring, struct msm_file_private *ctx)
+{
+	phys_addr_t ttbr;
+	u32 asid;
+
+	if (ctx->seqno == gpu->cur_ctx_seqno)
+		return;
+
+	if (msm_iommu_pagetable_params(ctx->aspace->mmu, &ttbr, &asid))
+		return;
+
+	/*
+	 * Enable/disable concurrent binning for pagetable switch and
+	 * set the thread to BR since only BR can execute the pagetable
+	 * switch packets.
+	 */
+	/* Sync both threads and enable BR only */
+	OUT_PKT7(ring, CP_THREAD_CONTROL, 1);
+	OUT_RING(ring, CP_THREAD_CONTROL_0_SYNC_THREADS | CP_SET_THREAD_BR);
+
+	/* CP switches the pagetable and flushes the Caches */
+	OUT_PKT7(ring, CP_SMMU_TABLE_UPDATE, 3);
+	OUT_RING(ring, CP_SMMU_TABLE_UPDATE_0_TTBR0_LO(lower_32_bits(ttbr)));
+	OUT_RING(ring,
+		CP_SMMU_TABLE_UPDATE_1_TTBR0_HI(upper_32_bits(ttbr)) |
+		CP_SMMU_TABLE_UPDATE_1_ASID(asid));
+	OUT_RING(ring, CP_SMMU_TABLE_UPDATE_2_CONTEXTIDR(0));
+
+	/*
+	 * Sync both threads after switching pagetables and enable BR only
+	 * to make sure BV doesn't race ahead while BR is still switching
+	 * pagetables.
+	 */
+	OUT_PKT7(ring, CP_THREAD_CONTROL, 1);
+	OUT_RING(ring, CP_THREAD_CONTROL_0_SYNC_THREADS | CP_SET_THREAD_BR);
+}
+
 static void a7xx_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 {
 	struct msm_ringbuffer *ring = submit->ring;
 	unsigned int i;
+
+	a7xx_set_pagetable(gpu, ring, submit->queue->ctx);
 
 	OUT_PKT7(ring, CP_THREAD_CONTROL, 1);
 	OUT_RING(ring, CP_SET_THREAD_BOTH);
@@ -745,6 +785,21 @@ static struct msm_gpu_state *a7xx_gpu_state_get(struct msm_gpu *gpu)
 	return state;
 }
 
+static struct msm_gem_address_space *
+a7xx_create_private_address_space(struct msm_gpu *gpu)
+{
+	struct msm_mmu *mmu;
+
+	mmu = msm_iommu_pagetable_create(gpu->aspace->mmu);
+
+	if (IS_ERR(mmu))
+		return ERR_CAST(mmu);
+
+	return msm_gem_address_space_create(mmu,
+		"gpu", 0x100000000ULL,
+		adreno_private_address_space_size(gpu));
+}
+
 static uint32_t a7xx_get_rptr(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
 {
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
@@ -771,6 +826,7 @@ static const struct adreno_gpu_funcs funcs = {
 		.gpu_state_get = a7xx_gpu_state_get,
 		.gpu_state_put = adreno_gpu_state_put,
 		.create_address_space = adreno_create_address_space,
+		.create_private_address_space = a7xx_create_private_address_space,
 		.get_rptr = a7xx_get_rptr,
 	},
 	.get_timestamp = a7xx_get_timestamp,
