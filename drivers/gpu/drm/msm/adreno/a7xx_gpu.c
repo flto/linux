@@ -5,6 +5,7 @@
 #include "msm_mmu.h"
 #include "msm_gpu_trace.h"
 #include "a7xx_gpu.h"
+#include "msm_kgsl.h"
 
 #include <linux/bitfield.h>
 
@@ -80,8 +81,11 @@ static void a7xx_set_pagetable(struct msm_gpu *gpu,
 
 static void a7xx_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 {
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
 	struct msm_ringbuffer *ring = submit->ring;
 	unsigned int i;
+	u64 timestamp_iova;
 
 	a7xx_set_pagetable(gpu, ring, submit->queue->ctx);
 
@@ -90,6 +94,16 @@ static void a7xx_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 
 	OUT_PKT7(ring, CP_SET_MARKER, 1);
 	OUT_RING(ring, 0x101); /* IFPC disable */
+
+	// TODO: kgsl expects soptimestamp to be filled
+#if 0
+	cmds[index++] = cp_type7_packet(CP_MEM_WRITE, 3);
+	cmds[index++] = lower_32_bits(CTXT_SOPTIMESTAMP(device,
+				drawctxt));
+	cmds[index++] = upper_32_bits(CTXT_SOPTIMESTAMP(device,
+				drawctxt));
+	cmds[index++] = timestamp;
+#endif
 
 	OUT_PKT7(ring, CP_SET_MARKER, 1);
 	OUT_RING(ring, 0x00d); /* IB1LIST start */
@@ -151,9 +165,17 @@ static void a7xx_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 	OUT_RING(ring, upper_32_bits(rbmemptr(ring, bv_fence)));
 	OUT_RING(ring, submit->seqno);
 
-	/* write the ringbuffer timestamp */
+	/* write the ctx timestamp (for kgsl memstore) */
+	timestamp_iova = a7xx_gpu->shadow_iova + KGSL_MEMSTORE_OFFSET(submit->queue->id, eoptimestamp);
 	OUT_PKT7(ring, CP_EVENT_WRITE, 4);
 	OUT_RING(ring, CACHE_CLEAN | BIT(31) | BIT(27));
+	OUT_RING(ring, lower_32_bits(timestamp_iova));
+	OUT_RING(ring, upper_32_bits(timestamp_iova));
+	OUT_RING(ring, submit->timestamp);
+
+	/* write the ringbuffer timestamp */
+	OUT_PKT7(ring, CP_EVENT_WRITE, 4);
+	OUT_RING(ring, CACHE_CLEAN | BIT(27));
 	OUT_RING(ring, lower_32_bits(rbmemptr(ring, fence)));
 	OUT_RING(ring, upper_32_bits(rbmemptr(ring, fence)));
 	OUT_RING(ring, submit->seqno);
@@ -580,16 +602,17 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A7XX_CP_RB_CNTL, MSM_GPU_RB_CNTL_DEFAULT);
 
 	if (!a7xx_gpu->shadow_bo) {
-		a7xx_gpu->shadow = msm_gem_kernel_new(gpu->dev,
-			sizeof(u32) * gpu->nr_rings,
+		a7xx_gpu->memstore = msm_gem_kernel_new(gpu->dev,
+			KGSL_MEMSTORE_SIZE, // sizeof(u32) * gpu->nr_rings for shadow
 			MSM_BO_WC | MSM_BO_MAP_PRIV,
 			gpu->aspace, &a7xx_gpu->shadow_bo,
 			&a7xx_gpu->shadow_iova);
 
-		if (IS_ERR(a7xx_gpu->shadow))
-			return PTR_ERR(a7xx_gpu->shadow);
+		if (IS_ERR(a7xx_gpu->memstore))
+			return PTR_ERR(a7xx_gpu->memstore);
 
 		msm_gem_object_set_name(a7xx_gpu->shadow_bo, "shadow");
+		a7xx_gpu->shadow = (void*) a7xx_gpu->memstore + KGLS_MEMSTORE_CTX_SIZE; // shadow after memstore
 	}
 
 	/* reset ringbuffer state */
@@ -867,4 +890,26 @@ struct msm_gpu *a7xx_gpu_init(struct drm_device *dev)
 	}
 
 	return &adreno_gpu->base;
+}
+
+uint64_t a7xx_gpu_shadow_iova(struct msm_gpu *gpu)
+{
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
+	return a7xx_gpu->shadow_iova;
+}
+
+struct drm_gem_object *a7xx_gpu_shadow_bo(struct msm_gpu *gpu)
+{
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
+	return a7xx_gpu->shadow_bo;
+}
+
+void a7xx_reset_memstore(struct msm_gpu *gpu, uint32_t ctx_id)
+{
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
+	uint32_t *eoptimestamp = a7xx_gpu->memstore + KGSL_MEMSTORE_OFFSET(ctx_id, eoptimestamp);
+	*eoptimestamp = 0;
 }

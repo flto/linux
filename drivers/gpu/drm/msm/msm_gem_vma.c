@@ -121,7 +121,7 @@ struct msm_gem_vma *msm_gem_vma_new(struct msm_gem_address_space *aspace)
 }
 
 /* Initialize a new vma and allocate an iova for it */
-int msm_gem_vma_init(struct msm_gem_vma *vma, int size,
+int msm_gem_vma_init(struct msm_gem_vma *vma, int size, uint32_t align,
 		u64 range_start, u64 range_end)
 {
 	struct msm_gem_address_space *aspace = vma->aspace;
@@ -135,7 +135,7 @@ int msm_gem_vma_init(struct msm_gem_vma *vma, int size,
 
 	spin_lock(&aspace->lock);
 	ret = drm_mm_insert_node_in_range(&aspace->mm, &vma->node,
-					  size, PAGE_SIZE, 0,
+					  size, max(1ul << align, PAGE_SIZE), 0,
 					  range_start, range_end, 0);
 	spin_unlock(&aspace->lock);
 

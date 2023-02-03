@@ -16,11 +16,15 @@ struct a7xx_gpu {
 	struct drm_gem_object *shadow_bo;
 	uint64_t shadow_iova;
 	uint32_t *shadow;
+	void *memstore;
 };
 
 #define to_a7xx_gpu(x) container_of(x, struct a7xx_gpu, base)
 
-#define shadowptr(_a7xx_gpu, _ring) ((_a7xx_gpu)->shadow_iova + \
+#define KGSL_MEMSTORE_SIZE SZ_32K
+#define KGLS_MEMSTORE_CTX_SIZE (40*768) // size reserved for per-context memstore
+
+#define shadowptr(_a7xx_gpu, _ring) ((_a7xx_gpu)->shadow_iova + KGLS_MEMSTORE_CTX_SIZE + \
 		((_ring)->id * sizeof(uint32_t)))
 
 #endif /* __A7XX_GPU_H__ */

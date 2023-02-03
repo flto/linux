@@ -1081,6 +1081,8 @@ err_drm_gem_object_put:
 }
 EXPORT_SYMBOL(drm_gem_mmap_obj);
 
+int kgsl_mmap(struct drm_file *priv, struct drm_device *dev, struct vm_area_struct *vma);
+
 /**
  * drm_gem_mmap - memory map routine for GEM objects
  * @filp: DRM file pointer
@@ -1106,6 +1108,9 @@ int drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	if (drm_dev_is_unplugged(dev))
 		return -ENODEV;
+
+	if (vma->vm_pgoff < DRM_FILE_PAGE_OFFSET_START)
+		return kgsl_mmap(priv, dev, vma);
 
 	drm_vma_offset_lock_lookup(dev->vma_offset_manager);
 	node = drm_vma_offset_exact_lookup_locked(dev->vma_offset_manager,
