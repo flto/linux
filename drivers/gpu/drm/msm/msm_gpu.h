@@ -362,8 +362,7 @@ struct msm_gpu_perfcntr {
  */
 struct msm_file_private {
 	rwlock_t queuelock;
-	struct list_head submitqueues;
-	int queueid;
+	struct msm_gpu_submitqueue *queue[32];
 	struct msm_gem_address_space *aspace;
 	struct kref ref;
 	int seqno;
@@ -476,6 +475,13 @@ static inline int msm_gpu_convert_priority(struct msm_gpu *gpu, int prio,
 	return 0;
 }
 
+struct kgsl_fence {
+	struct dma_fence base;
+	spinlock_t lock;
+	struct list_head node;
+	uint32_t timestamp;
+};
+
 /**
  * struct msm_gpu_submitqueues - Userspace created context.
  *
@@ -502,18 +508,22 @@ static inline int msm_gpu_convert_priority(struct msm_gpu *gpu, int prio,
  * @entity:    the submit job-queue
  */
 struct msm_gpu_submitqueue {
-	int id;
 	u32 flags;
 	u32 ring_nr;
 	int faults;
 	uint32_t last_fence;
 	struct msm_file_private *ctx;
-	struct list_head node;
 	struct idr fence_idr;
 	struct spinlock idr_lock;
 	struct mutex lock;
 	struct kref ref;
 	struct drm_sched_entity *entity;
+
+	uint32_t timestamp;
+	uint32_t timestamp_retired;
+	struct spinlock fence_lock;
+	struct list_head fences;
+	wait_queue_head_t waitqueue;
 };
 
 struct msm_gpu_state_bo {
@@ -617,6 +627,8 @@ int msm_submitqueue_remove(struct msm_file_private *ctx, u32 id);
 void msm_submitqueue_close(struct msm_file_private *ctx);
 
 void msm_submitqueue_destroy(struct kref *kref);
+
+void msm_submitqueue_retire_timestamp(struct msm_gpu_submitqueue *queue, u32 timestamp);
 
 int msm_file_private_set_sysprof(struct msm_file_private *ctx,
 				 struct msm_gpu *gpu, int sysprof);

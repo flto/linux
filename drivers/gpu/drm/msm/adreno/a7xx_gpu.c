@@ -581,7 +581,7 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 
 	if (!a7xx_gpu->shadow_bo) {
 		a7xx_gpu->shadow = msm_gem_kernel_new(gpu->dev,
-			sizeof(u32) * gpu->nr_rings,
+			4096, // memstore + sizeof(u32) * gpu->nr_rings,
 			MSM_BO_WC | MSM_BO_MAP_PRIV,
 			gpu->aspace, &a7xx_gpu->shadow_bo,
 			&a7xx_gpu->shadow_iova);
@@ -590,6 +590,7 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 			return PTR_ERR(a7xx_gpu->shadow);
 
 		msm_gem_object_set_name(a7xx_gpu->shadow_bo, "shadow");
+		a7xx_gpu->shadow = (void*) a7xx_gpu->shadow + 0x800; // offset for memstore
 	}
 
 	/* reset ringbuffer state */
@@ -867,4 +868,18 @@ struct msm_gpu *a7xx_gpu_init(struct drm_device *dev)
 	}
 
 	return &adreno_gpu->base;
+}
+
+uint64_t a7xx_gpu_shadow_iova(struct msm_gpu *gpu)
+{
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
+	return a7xx_gpu->shadow_iova;
+}
+
+struct drm_gem_object *a7xx_gpu_shadow_bo(struct msm_gpu *gpu)
+{
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
+	return a7xx_gpu->shadow_bo;
 }

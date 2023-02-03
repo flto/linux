@@ -70,7 +70,12 @@ void msm_submitqueue_destroy(struct kref *kref)
 {
 	struct msm_gpu_submitqueue *queue = container_of(kref,
 		struct msm_gpu_submitqueue, ref);
+	struct kgsl_fence *fence, *tmp;
 
+	list_for_each_entry_safe(fence, tmp, &queue->fences, node) {
+		dma_fence_signal(&fence->base);
+		dma_fence_put(&fence->base);
+	}
 
 	idr_destroy(&queue->fence_idr);
 
@@ -90,6 +95,34 @@ static void msm_submitqueue_wait_idle(struct msm_gpu_submitqueue *queue)
 	do {
 		ret = wait_fence(queue, queue->last_fence, 5 * HZ);
 	} while (ret == -ERESTARTSYS);
+
+	do {
+		timeout = wait_event_interruptible_timeout(queue->waitqueue,
+				queue->timestamp_retired >= queue->timestamp,
+				5 * HZ);
+	} while (timeout == -ERESTARTSYS);
+	WARN_ON(timeout == 0);
+}
+
+void msm_submitqueue_retire_timestamp(struct msm_gpu_submitqueue *queue, u32 timestamp)
+{
+	struct kgsl_fence *fence, *tmp;
+	unsigned long flags;
+
+	spin_lock_irqsave(&queue->fence_lock, flags);
+	list_for_each_entry_safe(fence, tmp, &queue->fences, node) {
+		if (timestamp < fence->timestamp)
+			continue;
+		dma_fence_signal(&fence->base);
+		dma_fence_put(&fence->base);
+		list_del(&fence->node);
+	}
+	WARN_ON(timestamp < queue->timestamp_retired);
+	queue->timestamp_retired = timestamp;
+	spin_unlock_irqrestore(&queue->fence_lock, flags);
+
+	wmb(); /* make sure timestamp_retired write goes through */
+	wake_up_interruptible(&queue->waitqueue);
 }
 
 struct msm_gpu_submitqueue *msm_submitqueue_get(struct msm_file_private *ctx,
@@ -97,18 +130,17 @@ struct msm_gpu_submitqueue *msm_submitqueue_get(struct msm_file_private *ctx,
 {
 	struct msm_gpu_submitqueue *entry;
 
-	if (!ctx)
+	if (!ctx || id >= ARRAY_SIZE(ctx->queue))
 		return NULL;
 
 	read_lock(&ctx->queuelock);
 
-	list_for_each_entry(entry, &ctx->submitqueues, node) {
-		if (entry->id == id) {
-			kref_get(&entry->ref);
-			read_unlock(&ctx->queuelock);
+	entry = ctx->queue[id];
+	if (entry) {
+		kref_get(&entry->ref);
+		read_unlock(&ctx->queuelock);
 
-			return entry;
-		}
+		return entry;
 	}
 
 	read_unlock(&ctx->queuelock);
@@ -117,7 +149,8 @@ struct msm_gpu_submitqueue *msm_submitqueue_get(struct msm_file_private *ctx,
 
 void msm_submitqueue_close(struct msm_file_private *ctx)
 {
-	struct msm_gpu_submitqueue *entry, *tmp;
+	struct msm_gpu_submitqueue *entry;
+	u32 i;
 
 	if (!ctx)
 		return;
@@ -126,8 +159,12 @@ void msm_submitqueue_close(struct msm_file_private *ctx)
 	 * No lock needed in close and there won't
 	 * be any more user ioctls coming our way
 	 */
-	list_for_each_entry_safe(entry, tmp, &ctx->submitqueues, node) {
-		list_del(&entry->node);
+	for (i = 0; i < ARRAY_SIZE(ctx->queue); i++) {
+		entry = ctx->queue[i];
+		ctx->queue[i] = NULL;
+		if (!entry)
+			continue;
+
 		/* wait outside of destroy so it doesn't get deferred to submit retire */
 		msm_submitqueue_wait_idle(entry);
 		msm_submitqueue_put(entry);
@@ -177,7 +214,7 @@ int msm_submitqueue_create(struct drm_device *drm, struct msm_file_private *ctx,
 	struct msm_drm_private *priv = drm->dev_private;
 	struct msm_gpu_submitqueue *queue;
 	enum drm_sched_priority sched_prio;
-	unsigned ring_nr;
+	unsigned ring_nr, i;
 	int ret;
 
 	if (!ctx)
@@ -210,16 +247,26 @@ int msm_submitqueue_create(struct drm_device *drm, struct msm_file_private *ctx,
 	write_lock(&ctx->queuelock);
 
 	queue->ctx = msm_file_private_get(ctx);
-	queue->id = ctx->queueid++;
-
-	if (id)
-		*id = queue->id;
 
 	idr_init(&queue->fence_idr);
 	spin_lock_init(&queue->idr_lock);
 	mutex_init(&queue->lock);
 
-	list_add_tail(&queue->node, &ctx->submitqueues);
+	queue->timestamp = 0;
+	queue->timestamp_retired = 0;
+	spin_lock_init(&queue->fence_lock);
+	INIT_LIST_HEAD(&queue->fences);
+	init_waitqueue_head(&queue->waitqueue);
+
+	for (i = 0; i < ARRAY_SIZE(ctx->queue); i++) {
+		if (ctx->queue[i])
+			continue;
+
+		if (id)
+			*id = i;
+		ctx->queue[i] = queue;
+		break;
+	}
 
 	write_unlock(&ctx->queuelock);
 
@@ -302,19 +349,18 @@ int msm_submitqueue_remove(struct msm_file_private *ctx, u32 id)
 	 * id 0 is the "default" queue and can't be destroyed
 	 * by the user
 	 */
-	if (!id)
+	if (!id || id >= ARRAY_SIZE(ctx->queue))
 		return -ENOENT;
 
 	write_lock(&ctx->queuelock);
 
-	list_for_each_entry(entry, &ctx->submitqueues, node) {
-		if (entry->id == id) {
-			list_del(&entry->node);
-			write_unlock(&ctx->queuelock);
+	entry = ctx->queue[id];
+	ctx->queue[id] = NULL;
+	if (entry) {
+		write_unlock(&ctx->queuelock);
 
-			msm_submitqueue_put(entry);
-			return 0;
-		}
+		msm_submitqueue_put(entry);
+		return 0;
 	}
 
 	write_unlock(&ctx->queuelock);

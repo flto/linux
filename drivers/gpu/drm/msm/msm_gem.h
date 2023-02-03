@@ -20,6 +20,7 @@
 /* Additional internal-use only BO flags: */
 #define MSM_BO_STOLEN        0x10000000    /* try to use stolen/splash memory */
 #define MSM_BO_MAP_PRIV      0x20000000    /* use IOMMU_PRIV when mapping */
+#define MSM_VBO_NO_MAP_ZERO  0x40000000    /* don't map zero page in vbo */
 
 struct msm_gem_address_space {
 	const char *name;
@@ -66,7 +67,7 @@ struct msm_gem_vma {
 };
 
 struct msm_gem_vma *msm_gem_vma_new(struct msm_gem_address_space *aspace);
-int msm_gem_vma_init(struct msm_gem_vma *vma, int size,
+int msm_gem_vma_init(struct msm_gem_vma *vma, int size, uint32_t align,
 		u64 range_start, u64 range_end);
 void msm_gem_vma_purge(struct msm_gem_vma *vma);
 int msm_gem_vma_map(struct msm_gem_vma *vma, int prot, struct sg_table *sgt, int size);
@@ -225,6 +226,7 @@ struct msm_gem_submit {
 	 */
 	struct dma_fence *user_fence;
 
+	uint32_t timestamp; /* queue timestamp */
 	int fence_id;       /* key into queue->fence_idr */
 	struct msm_gpu_submitqueue *queue;
 	struct pid *pid;    /* submitting process */
@@ -269,5 +271,15 @@ should_dump(struct msm_gem_submit *submit, int idx)
 	extern bool rd_full;
 	return rd_full;
 }
+
+struct drm_gem_object *msm_gem_vbo_new(struct drm_device *dev, u64 size, u32 flags,
+		struct msm_gem_address_space *aspace);
+int msm_gem_is_vbo(struct drm_gem_object *obj);
+int msm_gem_vbo_get_iova(struct drm_gem_object *obj,
+		struct msm_gem_address_space *aspace, uint64_t *iova);
+void msm_gem_vbo_bind(struct drm_gem_object *vbo, struct drm_gem_object *obj,
+		u64 src_offset, u64 dst_offset, u64 length);
+void msm_gem_vbo_unbind(struct drm_gem_object *vbo, struct drm_gem_object *obj, u64 offset, u64 length);
+
 
 #endif /* __MSM_GEM_H__ */
