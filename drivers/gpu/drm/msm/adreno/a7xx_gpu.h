@@ -20,7 +20,7 @@ struct a7xx_gpu {
 
 #define to_a7xx_gpu(x) container_of(x, struct a7xx_gpu, base)
 
-#define shadowptr(_a7xx_gpu, _ring) ((_a7xx_gpu)->shadow_iova + \
+#define shadowptr(_a7xx_gpu, _ring) ((_a7xx_gpu)->shadow_iova + 0x800 + \
 		((_ring)->id * sizeof(uint32_t)))
 
 #endif /* __A7XX_GPU_H__ */
