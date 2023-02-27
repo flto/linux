@@ -4447,4 +4447,11 @@
 			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
 			     <GIC_PPI 12 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>;
 	};
+
+	dummy: dummy {};
+        __symbols__ {
+		soc = "/dummy";
+		arch_timer = "/dummy";
+		qcom_tzlog = "/dummy";
+	};
 };
