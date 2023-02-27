@@ -13,7 +13,6 @@
 #include "pm8550ve.dtsi"
 #include "pm8550vs.dtsi"
 #include "pmk8550.dtsi"
-#include "pmr735d.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SM8550 MTP";

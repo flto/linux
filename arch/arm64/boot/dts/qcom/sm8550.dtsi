@@ -18,6 +18,7 @@
 #include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
 #include <dt-bindings/phy/phy-qcom-qmp.h>
 #include <dt-bindings/thermal/thermal.h>
+#include <dt-bindings/clock/qcom,gpucc-sm8550.h>
 
 / {
 	interrupt-parent = <&intc>;
@@ -58,6 +59,24 @@
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
 		};
+	};
+
+	// note: GX depends on these two rails (gfx and mxc)
+	// gpucc has a defer hack to make sure these are turned on first
+	vdd_gfx: vdd-gfx {
+		compatible = "regulator-fixed-domain";
+		power-domains = <&rpmhpd SM8550_GFX>;
+		required-opps = <&rpmhpd_opp_nom>;
+		regulator-name = "GFX";
+		regulator-always-on;
+	};
+
+	vdd_mxc: vdd-mxc {
+		compatible = "regulator-fixed-domain";
+		power-domains = <&rpmhpd SM8550_MXC>;
+		required-opps = <&rpmhpd_opp_nom>;
+		regulator-name = "MXC";
+		regulator-always-on;
 	};
 
 	cpus {
@@ -1953,6 +1972,92 @@
 			#reset-cells = <1>;
 		};
 
+		gpu: gpu@3d00000 {
+			compatible = "qcom,adreno-720.1", "qcom,adreno",
+				"amd,imageon"; // for headless gpu
+
+			reg = <0 0x03d00000 0 0x90000>;
+			reg-names = "kgsl_3d0_reg_memory";
+
+			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
+
+			iommus = <&adreno_smmu 0 0>, <&adreno_smmu 1 0>;
+
+			clocks = <&gpucc GPU_CC_AHB_CLK>,
+				 <&gpucc GPU_CC_CX_GMU_CLK>,
+				 <&gpucc GPU_CC_CXO_CLK>,
+				 <&gcc GCC_DDRSS_GPU_AXI_CLK>,
+				 <&gcc GCC_GPU_MEMNOC_GFX_CLK>,
+				 <&gpucc GPU_CC_GX_GFX3D_CLK>;
+			clock-names = "ahb", "gmu", "cxo", "axi", "memnoc", "core";
+
+			interconnects = <&gem_noc MASTER_GFX3D 0 &mc_virt SLAVE_EBI1 0>;
+			interconnect-names = "gfx-mem";
+
+			zap-shader {
+				memory-region = <&gpu_micro_code_mem>;
+			};
+		};
+
+		gpucc: clock-controller@3d90000 {
+			compatible = "qcom,sm8550-gpucc";
+			reg = <0 0x03d90000 0 0xa000>;
+			clocks = <&rpmhcc RPMH_CXO_CLK>,
+				 <&gcc GCC_GPU_GPLL0_CLK_SRC>,
+				 <&gcc GCC_GPU_GPLL0_DIV_CLK_SRC>;
+			clock-names = "bi_tcxo",
+				      "gcc_gpu_gpll0_clk_src",
+				      "gcc_gpu_gpll0_div_clk_src";
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			#power-domain-cells = <1>;
+
+			vdd-supply = <&vdd_gfx>;
+		};
+
+		adreno_smmu: iommu@3da0000 {
+			compatible = "arm,mmu-500", "qcom,smmu-500", "qcom,adreno-smmu";
+			reg = <0 0x03da0000 0 0x40000>;
+			#iommu-cells = <2>;
+			#global-interrupts = <1>;
+
+			dma-coherent;
+
+			interrupts = <GIC_SPI 673 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 677 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 678 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 679 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 680 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 681 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 682 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 683 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 684 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 685 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 686 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 687 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 422 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 476 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 574 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 575 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 576 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 577 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 659 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 661 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 664 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 665 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 666 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 668 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 669 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 699 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&gpucc GPU_CC_AHB_CLK>,
+				 <&gcc GCC_GPU_MEMNOC_GFX_CLK>,
+				 <&gcc GCC_GPU_SNOC_DVM_GFX_CLK>,
+				 <&gpucc GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK>; // needed?
+			clock-names = "ahb", "bus", "iface", "vote_smmu";
+
+			power-domains = <&gpucc GPU_CX_GDSC>;
+		};
+
 		remoteproc_mpss: remoteproc@4080000 {
 			compatible = "qcom,sm8550-mpss-pas";
 			reg = <0x0 0x04080000 0x0 0x4040>;
@@ -3067,7 +3172,7 @@
 		};
 
 		apps_smmu: iommu@15000000 {
-			compatible = "qcom,sm8550-smmu-500", "qcom,smmu-500", "arm,mmu-500";
+			compatible = "arm,mmu-500";
 			reg = <0 0x15000000 0 0x100000>;
 			#iommu-cells = <2>;
 			#global-interrupts = <1>;
