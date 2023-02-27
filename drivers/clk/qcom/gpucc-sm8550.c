@@ -39,8 +39,8 @@ static const struct pll_vco lucid_ole_vco[] = {
 };
 
 static const struct alpha_pll_config gpu_cc_pll0_config = {
-	.l = 0x0d,
-	.alpha = 0x0,
+	.l = 36,
+	.alpha = 0,
 	.config_ctl_val = 0x20485699,
 	.config_ctl_hi_val = 0x00182261,
 	.config_ctl_hi1_val = 0x82aa299c,
@@ -473,31 +473,76 @@ static struct clk_branch gpu_cc_sleep_clk = {
 	},
 };
 
-static struct gdsc gpu_cc_cx_gdsc = {
-	.gdscr = 0x9108,
-	.gds_hw_ctrl = 0x953c,
-	.en_rest_wait_val = 0x2,
-	.en_few_wait_val = 0x2,
-	.clk_dis_wait_val = 0xf,
-	.pd = {
-		.name = "gpu_cc_cx_gdsc",
-	},
-	.pwrsts = PWRSTS_OFF_ON,
-	.flags = RETAIN_FF_ENABLE | VOTABLE,
+// maybe same as gpu_cc_parent_map_1?
+static const struct parent_map gpu_cc_parent_map_4[] = {
+	{ P_BI_TCXO, 0 },
+	{ P_GPU_CC_PLL0_OUT_MAIN, 1 },
 };
 
-static struct gdsc gpu_cc_gx_gdsc = {
-	.gdscr = 0x905c,
-	.clamp_io_ctrl = 0x9504,
-	.en_rest_wait_val = 0x2,
-	.en_few_wait_val = 0x2,
-	.clk_dis_wait_val = 0xf,
+static const struct clk_parent_data gpu_cc_parent_data_4[] = {
+	{ .fw_name = "bi_tcxo" },
+	{ .hw = &gpu_cc_pll0.clkr.hw },
+};
+
+static const struct freq_tbl ftbl_gpu_cc_gx_gfx3d_clk_src[] = {
+	F(19200000, P_BI_TCXO, 1, 0, 0),
+	F(36*19200000, P_GPU_CC_PLL0_OUT_MAIN, 1, 0, 0),
+	//F(748800000, P_GPU_CC_PLL0_OUT_MAIN, 1, 0, 0),
+	{ }
+};
+
+static struct clk_rcg2 gpu_cc_gx_gfx3d_src = {
+	.cmd_rcgr = 0x9070,
+	.mnd_width = 0,
+	.hid_width = 5,
+	.parent_map = gpu_cc_parent_map_4,
+	.freq_tbl = ftbl_gpu_cc_gx_gfx3d_clk_src,
+	.clkr.hw.init = &(struct clk_init_data){
+		.name = "gpu_cc_gx_gfx3d_src",
+		.parent_data = gpu_cc_parent_data_4,
+		.num_parents = ARRAY_SIZE(gpu_cc_parent_data_4),
+		.flags = CLK_SET_RATE_PARENT,
+		.ops = &clk_rcg2_ops,
+	},
+};
+
+static struct clk_branch gpu_cc_gx_gfx3d_clk = {
+	.halt_reg = 0x90a8,
+	.halt_check = BRANCH_HALT,
+	.clkr = {
+		.enable_reg = 0x90a8,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gpu_cc_gx_gfx3d_clk",
+			.parent_hws = (const struct clk_hw*[]){
+				&gpu_cc_gx_gfx3d_src.clkr.hw,
+			},
+			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+static struct gdsc gpu_cx_gdsc = {
+	.gdscr = 0x9108,
+	.gds_hw_ctrl = 0x953c,
 	.pd = {
-		.name = "gpu_cc_gx_gdsc",
-		.power_on = gdsc_gx_do_nothing_enable,
+		.name = "gpu_cx_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = CLAMP_IO | POLL_CFG_GDSCR | RETAIN_FF_ENABLE,
+	.flags = VOTABLE | ALWAYS_ON,
+};
+
+static struct gdsc gpu_gx_gdsc = {
+	.gdscr = 0x905c,
+	.clamp_io_ctrl = 0x9504,
+	.pd = {
+		.name = "gpu_gx_gdsc",
+	},
+	.pwrsts = PWRSTS_OFF_ON,
+	.flags = CLAMP_IO | AON_RESET | POLL_CFG_GDSCR | ALWAYS_ON,
+	.supply = "vdd",
 };
 
 static struct clk_regmap *gpu_cc_sm8550_clocks[] = {
@@ -520,13 +565,9 @@ static struct clk_regmap *gpu_cc_sm8550_clocks[] = {
 	[GPU_CC_PLL0] = &gpu_cc_pll0.clkr,
 	[GPU_CC_PLL1] = &gpu_cc_pll1.clkr,
 	[GPU_CC_SLEEP_CLK] = &gpu_cc_sleep_clk.clkr,
-	[GPU_CC_XO_CLK_SRC] = &gpu_cc_xo_clk_src.clkr,
-	[GPU_CC_XO_DIV_CLK_SRC] = &gpu_cc_xo_div_clk_src.clkr,
-};
 
-static struct gdsc *gpu_cc_sm8550_gdscs[] = {
-	[GPU_CC_CX_GDSC] = &gpu_cc_cx_gdsc,
-	[GPU_CC_GX_GDSC] = &gpu_cc_gx_gdsc,
+	[GPU_CC_GX_GFX3D_CLK_SRC] = &gpu_cc_gx_gfx3d_src.clkr,
+	[GPU_CC_GX_GFX3D_CLK] = &gpu_cc_gx_gfx3d_clk.clkr,
 };
 
 static const struct qcom_reset_map gpu_cc_sm8550_resets[] = {
@@ -538,6 +579,11 @@ static const struct qcom_reset_map gpu_cc_sm8550_resets[] = {
 	[GPUCC_GPU_CC_GMU_BCR] = { 0x9314 },
 	[GPUCC_GPU_CC_GX_BCR] = { 0x9058 },
 	[GPUCC_GPU_CC_XO_BCR] = { 0x9000 },
+};
+
+static struct gdsc *gpu_cc_sm8550_gdscs[] = {
+	[GPU_CC_CX_GDSC] = &gpu_cx_gdsc,
+	[GPU_CC_GX_GDSC] = &gpu_gx_gdsc,
 };
 
 static const struct regmap_config gpu_cc_sm8550_regmap_config = {
@@ -568,6 +614,10 @@ static int gpu_cc_sm8550_probe(struct platform_device *pdev)
 {
 	struct regmap *regmap;
 
+	static int x;
+	if (x++ < 4)
+		return -EPROBE_DEFER;
+
 	regmap = qcom_cc_map(pdev, &gpu_cc_sm8550_desc);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
@@ -575,16 +625,14 @@ static int gpu_cc_sm8550_probe(struct platform_device *pdev)
 	clk_lucid_ole_pll_configure(&gpu_cc_pll0, regmap, &gpu_cc_pll0_config);
 	clk_lucid_ole_pll_configure(&gpu_cc_pll1, regmap, &gpu_cc_pll1_config);
 
-	/*
-	 * Keep clocks always enabled:
-	 *	gpu_cc_cxo_aon_clk
-	 *	gpu_cc_demet_clk
-	 */
-	regmap_update_bits(regmap, 0x9004, BIT(0), BIT(0));
-	regmap_update_bits(regmap, 0x900c, BIT(0), BIT(0));
+	/* clear GX-related reset bits */
+	regmap_update_bits(regmap, 0x9058, BIT(0), 0);
+	regmap_update_bits(regmap, 0x9358, BIT(0), 0);
+	regmap_update_bits(regmap, 0x958c, BIT(0), 0);
 
 	return qcom_cc_really_probe(pdev, &gpu_cc_sm8550_desc, regmap);
 }
+
 
 static struct platform_driver gpu_cc_sm8550_driver = {
 	.probe = gpu_cc_sm8550_probe,

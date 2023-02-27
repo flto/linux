@@ -11,7 +11,6 @@
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/kernel.h>
 #include <linux/of_address.h>
-#include <linux/pm_opp.h>
 #include <linux/slab.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/nvmem-consumer.h>
@@ -971,48 +970,6 @@ void adreno_wait_ring(struct msm_ringbuffer *ring, uint32_t ndwords)
 			ring->id);
 }
 
-static int adreno_get_pwrlevels(struct device *dev,
-		struct msm_gpu *gpu)
-{
-	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
-	unsigned long freq = ULONG_MAX;
-	struct dev_pm_opp *opp;
-	int ret;
-
-	gpu->fast_rate = 0;
-
-	/* devm_pm_opp_of_add_table may error out but will still create an OPP table */
-	ret = devm_pm_opp_of_add_table(dev);
-	if (ret == -ENODEV) {
-		/* Special cases for ancient hw with ancient DT bindings */
-		if (adreno_is_a2xx(adreno_gpu)) {
-			dev_warn(dev, "Unable to find the OPP table. Falling back to 200 MHz.\n");
-			dev_pm_opp_add(dev, 200000000, 0);
-		} else if (adreno_is_a320(adreno_gpu)) {
-			dev_warn(dev, "Unable to find the OPP table. Falling back to 450 MHz.\n");
-			dev_pm_opp_add(dev, 450000000, 0);
-		} else {
-			DRM_DEV_ERROR(dev, "Unable to find the OPP table\n");
-			return -ENODEV;
-		}
-	} else if (ret) {
-		DRM_DEV_ERROR(dev, "Unable to set the OPP table\n");
-		return ret;
-	}
-
-	/* Find the fastest defined rate */
-	opp = dev_pm_opp_find_freq_floor(dev, &freq);
-	if (IS_ERR(opp))
-		return PTR_ERR(opp);
-
-	gpu->fast_rate = freq;
-	dev_pm_opp_put(opp);
-
-	DBG("fast_rate=%u, slow_rate=27000000", gpu->fast_rate);
-
-	return 0;
-}
-
 int adreno_gpu_ocmem_init(struct device *dev, struct adreno_gpu *adreno_gpu,
 			  struct adreno_ocmem *adreno_ocmem)
 {
@@ -1069,31 +1026,12 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	struct msm_gpu *gpu = &adreno_gpu->base;
 	const char *gpu_name;
 	u32 speedbin;
-	int ret;
 
 	adreno_gpu->funcs = funcs;
 	adreno_gpu->info = config->info;
 	adreno_gpu->chip_id = config->chip_id;
 
 	gpu->allow_relocs = config->info->family < ADRENO_6XX_GEN1;
-
-	/* Only handle the core clock when GMU is not in use (or is absent). */
-	if (adreno_has_gmu_wrapper(adreno_gpu) ||
-	    adreno_gpu->info->family < ADRENO_6XX_GEN1) {
-		/*
-		 * This can only be done before devm_pm_opp_of_add_table(), or
-		 * dev_pm_opp_set_config() will WARN_ON()
-		 */
-		if (IS_ERR(devm_clk_get(dev, "core"))) {
-			/*
-			 * If "core" is absent, go for the legacy clock name.
-			 * If we got this far in probing, it's a given one of
-			 * them exists.
-			 */
-			devm_pm_opp_set_clkname(dev, "core_clk");
-		} else
-			devm_pm_opp_set_clkname(dev, "core");
-	}
 
 	if (adreno_read_speedbin(dev, &speedbin) || !speedbin)
 		speedbin = 0xffff;
@@ -1108,9 +1046,7 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 
 	adreno_gpu_config.nr_rings = nr_rings;
 
-	ret = adreno_get_pwrlevels(dev, gpu);
-	if (ret)
-		return ret;
+	gpu->fast_rate = 36*19200000;
 
 	pm_runtime_set_autosuspend_delay(dev,
 		adreno_gpu->info->inactive_period);
