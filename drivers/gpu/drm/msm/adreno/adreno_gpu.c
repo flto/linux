@@ -997,7 +997,8 @@ static int adreno_get_pwrlevels(struct device *dev,
 			dev_pm_opp_add(dev, 450000000, 0);
 		} else {
 			DRM_DEV_ERROR(dev, "Unable to find the OPP table\n");
-			return -ENODEV;
+			dev_pm_opp_add(dev, 36*19200000, 0); // 691.2MHz (hardcoded clock rate in clk driver)
+			//return -ENODEV;
 		}
 	} else if (ret) {
 		DRM_DEV_ERROR(dev, "Unable to set the OPP table\n");
