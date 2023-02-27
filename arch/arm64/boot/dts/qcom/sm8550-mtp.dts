@@ -21,6 +21,7 @@
 	model = "Qualcomm Technologies, Inc. SM8550 MTP";
 	compatible = "qcom,sm8550-mtp", "qcom,sm8550";
 	chassis-type = "handset";
+	qcom,msm-id = <0x218 0x20000>;
 
 	aliases {
 		serial0 = &uart7;
