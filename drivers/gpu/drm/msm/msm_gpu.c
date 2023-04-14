@@ -421,7 +421,7 @@ static void recover_worker(struct kthread_work *work)
 		msm_update_fence(ring->fctx, fence);
 	}
 
-	if (msm_gpu_active(gpu)) {
+	if (true) { //msm_gpu_active(gpu)) {
 		/* retire completed submits, plus the one that hung: */
 		retire_submits(gpu);
 
