@@ -693,6 +693,15 @@ static int adsp_probe(struct platform_device *pdev)
 	if (ret < 0 && ret != -EINVAL)
 		return ret;
 
+	// workaround: defer until firmware is available
+	if (!strcmp(fw_name, "qcom/sm8550/adsp.mbn") || !strcmp(fw_name, "qcom/sm8650/adsp.mbn")) {
+		const struct firmware *firmware_p;
+		ret = request_firmware(&firmware_p, fw_name, &pdev->dev);
+		if (ret < 0)
+			return -EPROBE_DEFER;
+		release_firmware(firmware_p);
+	}
+
 	if (desc->dtb_firmware_name) {
 		dtb_fw_name = desc->dtb_firmware_name;
 		ret = of_property_read_string_index(pdev->dev.of_node, "firmware-name", 1,
