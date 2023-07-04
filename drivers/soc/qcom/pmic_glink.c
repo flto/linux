@@ -104,12 +104,22 @@ int pmic_glink_send(struct pmic_glink_client *client, void *data, size_t len)
 }
 EXPORT_SYMBOL_GPL(pmic_glink_send);
 
+static void pmic_glink_state_notify_clients(struct pmic_glink *pg);
+
 static int pmic_glink_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 				     int len, void *priv, u32 addr)
 {
 	struct pmic_glink_client *client;
 	struct pmic_glink_hdr *hdr;
 	struct pmic_glink *pg = dev_get_drvdata(&rpdev->dev);
+	static int one_time;
+
+	/* avoids need for pd-mapper */
+	if (!one_time) {
+		pg->pdr_state = SERVREG_SERVICE_STATE_UP;
+		pmic_glink_state_notify_clients(pg);
+		one_time = 1;
+	}
 
 	if (len < sizeof(*hdr)) {
 		dev_warn(pg->dev, "ignoring truncated message\n");
