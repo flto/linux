@@ -2008,7 +2008,7 @@
 		gpucc: clock-controller@3d90000 {
 			compatible = "qcom,sm8550-gpucc";
 			reg = <0 0x03d90000 0 0xa000>;
-			clocks = <&rpmhcc RPMH_CXO_CLK>,
+			clocks = <&bi_tcxo_div2>,
 				 <&gcc GCC_GPU_GPLL0_CLK_SRC>,
 				 <&gcc GCC_GPU_GPLL0_DIV_CLK_SRC>;
 			clock-names = "bi_tcxo",
