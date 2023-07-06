@@ -6,6 +6,7 @@
 
 #include <linux/msi.h>
 #include <linux/pci.h>
+#include <linux/firmware.h>
 
 #include "core.h"
 #include "debug.h"
@@ -349,17 +350,24 @@ static void ath12k_mhi_op_write_reg(struct mhi_controller *mhi_cntrl,
 
 int ath12k_mhi_register(struct ath12k_pci *ab_pci)
 {
+	const struct firmware *fw;
 	struct ath12k_base *ab = ab_pci->ab;
 	struct mhi_controller *mhi_ctrl;
 	int ret;
 
-	mhi_ctrl = mhi_alloc_controller();
-	if (!mhi_ctrl)
-		return -ENOMEM;
-
 	ath12k_core_create_firmware_path(ab, ATH12K_AMSS_FILE,
 					 ab_pci->amss_path,
 					 sizeof(ab_pci->amss_path));
+
+	/* HACK: make sure firmware is available before trying to init MHI */
+	ret = firmware_request_nowarn(&fw, ab_pci->amss_path, ab->dev);
+	if (ret)
+		return -EPROBE_DEFER;
+	release_firmware(fw);
+
+	mhi_ctrl = mhi_alloc_controller();
+	if (!mhi_ctrl)
+		return -ENOMEM;
 
 	ab_pci->mhi_ctrl = mhi_ctrl;
 	mhi_ctrl->cntrl_dev = ab->dev;
