@@ -1471,6 +1471,8 @@ void __weak free_initmem(void)
 	free_initmem_default(POISON_FREE_INITMEM);
 }
 
+void driver_deferred_probe_trigger(void);
+
 static int __ref kernel_init(void *unused)
 {
 	int ret;
@@ -1491,6 +1493,9 @@ static int __ref kernel_init(void *unused)
 	exit_boot_config();
 	free_initmem();
 	mark_readonly();
+
+	/* ath11k defer hack: probe again now that rootfs is mounted */
+	driver_deferred_probe_trigger();
 
 	/*
 	 * Kernel mappings are now finalized - update the userspace page-table
