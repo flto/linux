@@ -1455,7 +1455,8 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 
 	ret = ath12k_mhi_register(ab_pci);
 	if (ret) {
-		ath12k_err(ab, "failed to register mhi: %d\n", ret);
+		if (ret != -EPROBE_DEFER)
+			ath12k_err(ab, "failed to register mhi: %d\n", ret);
 		goto err_irq_affinity_cleanup;
 	}
 
@@ -1507,11 +1508,11 @@ err_hal_srng_deinit:
 err_mhi_unregister:
 	ath12k_mhi_unregister(ab_pci);
 
-err_pci_msi_free:
-	ath12k_pci_msi_free(ab_pci);
-
 err_irq_affinity_cleanup:
 	ath12k_pci_set_irq_affinity_hint(ab_pci, NULL);
+
+err_pci_msi_free:
+	ath12k_pci_msi_free(ab_pci);
 
 err_pci_free_region:
 	ath12k_pci_free_region(ab_pci);
