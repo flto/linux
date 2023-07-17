@@ -188,6 +188,25 @@
 		regulator-always-on;
 		regulator-boot-on;
 	};
+
+	wlan_regulator: wlan-regulator {
+		compatible = "regulator-wlan";
+		regulator-name = "wlan";
+
+		enable-gpio = <&tlmm 80 GPIO_ACTIVE_HIGH>;
+
+		supply-count = <6>;
+
+		vin0-supply = <&vreg_l15b_1p8>;		// vdd-wlan-io
+		vin1-supply = <&vreg_s5g_0p8>;		// vdd-wlan
+		vin2-supply = <&vreg_s2g_0p8>;		// vdd-wlan-aon
+		vin3-supply = <&vreg_s4e_0p9>;		// vdd-wlan-dig
+		vin4-supply = <&vreg_s6g_1p8>;		// vdd-wlan-rfa1
+		vin5-supply = <&vreg_s4g_1p3>;		// vdd-wlan-rfa2
+
+		clocks = <&rpmhcc RPMH_RF_CLK1>;
+		clock-names = "TCXOI";
+	};
 };
 
 &apps_rsc {
@@ -361,8 +380,8 @@
 
 		vreg_s4e_0p9: smps4 {
 			regulator-name = "vreg_s4e_0p9";
-			regulator-min-microvolt = <904000>;
-			regulator-max-microvolt = <984000>;
+			regulator-min-microvolt = <952000>;
+			regulator-max-microvolt = <952000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
@@ -456,8 +475,8 @@
 
 		vreg_s2g_0p8: smps2 {
 			regulator-name = "vreg_s2g_0p8";
-			regulator-min-microvolt = <800000>;
-			regulator-max-microvolt = <1000000>;
+			regulator-min-microvolt = <984000>;
+			regulator-max-microvolt = <984000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
@@ -470,22 +489,22 @@
 
 		vreg_s4g_1p3: smps4 {
 			regulator-name = "vreg_s4g_1p3";
-			regulator-min-microvolt = <1200000>;
+			regulator-min-microvolt = <1352000>;
 			regulator-max-microvolt = <1352000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_s5g_0p8: smps5 {
 			regulator-name = "vreg_s5g_0p8";
-			regulator-min-microvolt = <500000>;
-			regulator-max-microvolt = <1004000>;
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_s6g_1p8: smps6 {
 			regulator-name = "vreg_s6g_1p8";
-			regulator-min-microvolt = <1800000>;
-			regulator-max-microvolt = <2000000>;
+			regulator-min-microvolt = <1904000>;
+			regulator-max-microvolt = <1904000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
@@ -608,6 +627,8 @@
 };
 
 &pcie0 {
+	vdda-supply = <&wlan_regulator>;
+
 	wake-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
 	perst-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
 
@@ -860,4 +881,20 @@
 
 &xo_board {
 	clock-frequency = <76800000>;
+};
+
+&pmk8550_gpios {
+	pinctrl-0 = <&alt_sleep_clk_default>;
+	pinctrl-names = "default";
+
+	alt_sleep_clk {
+		alt_sleep_clk_default: alt_sleep_clk_default {
+			pins = "gpio3";
+			function = "func1";
+			input-disable;
+			output-enable;
+			bias-disable;
+			power-source = <0>;
+		};
+	};
 };

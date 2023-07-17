@@ -1961,7 +1961,7 @@ static int ath12k_qmi_host_cap_send(struct ath12k_base *ab)
 		 * non-qualcomm platforms should select internal sleep
 		 * clock.
 		 */
-		req.nm_modem |= SLEEP_CLOCK_SELECT_INTERNAL_BIT;
+		//req.nm_modem |= SLEEP_CLOCK_SELECT_INTERNAL_BIT;
 		req.nm_modem |= PLATFORM_CAP_PCIE_GLOBAL_RESET;
 
 		ath12k_host_cap_parse_mlo(&req);

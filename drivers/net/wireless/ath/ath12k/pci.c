@@ -1264,7 +1264,8 @@ static int ath12k_pci_probe(struct pci_dev *pdev,
 
 	ret = ath12k_mhi_register(ab_pci);
 	if (ret) {
-		ath12k_err(ab, "failed to register mhi: %d\n", ret);
+		if (ret != -EPROBE_DEFER)
+			ath12k_err(ab, "failed to register mhi: %d\n", ret);
 		goto err_pci_msi_free;
 	}
 
