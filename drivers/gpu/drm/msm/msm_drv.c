@@ -228,8 +228,6 @@ static int msm_drm_uninit(struct device *dev)
 			kthread_destroy_worker(priv->event_thread[i].worker);
 	}
 
-	msm_gem_shrinker_cleanup(ddev);
-
 	drm_kms_helper_poll_fini(ddev);
 
 	msm_perf_debugfs_cleanup(priv);
@@ -429,15 +427,6 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv)
 	INIT_LIST_HEAD(&priv->objects);
 	mutex_init(&priv->obj_lock);
 
-	/*
-	 * Initialize the LRUs:
-	 */
-	mutex_init(&priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.unbacked, &priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.pinned,   &priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.willneed, &priv->lru.lock);
-	drm_gem_lru_init(&priv->lru.dontneed, &priv->lru.lock);
-
 	/* Teach lockdep about lock ordering wrt. shrinker: */
 	fs_reclaim_acquire(GFP_KERNEL);
 	might_lock(&priv->lru.lock);
@@ -460,8 +449,6 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv)
 	ret = drm_aperture_remove_framebuffers(drv);
 	if (ret)
 		goto err_msm_uninit;
-
-	msm_gem_shrinker_init(ddev);
 
 	if (priv->kms_init) {
 		ret = priv->kms_init(ddev);
