@@ -669,7 +669,7 @@
 };
 
 &sdhc_2 {
-	cd-gpios = <&pm8550_gpios 12 GPIO_ACTIVE_LOW>;
+	cd-gpios = <&pm8550_gpios 12 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&sdc2_default &sdc2_card_det_n>;
 	pinctrl-1 = <&sdc2_sleep &sdc2_card_det_n>;
