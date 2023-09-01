@@ -36,6 +36,8 @@ struct packet_router {
 	struct workqueue_struct *rxwq;
 	struct work_struct rx_work;
 	struct list_head rx_list;
+	struct work_struct init_work;
+	struct workqueue_struct *initwq;
 };
 
 struct apr_rx_buf {
@@ -518,8 +520,6 @@ static void of_register_apr_devices(struct device *dev, const char *svc_path)
 {
 	struct packet_router *apr = dev_get_drvdata(dev);
 	struct device_node *node;
-	const char *service_path;
-	int ret;
 
 	for_each_child_of_node(dev->of_node, node) {
 		u32 svc_id;
@@ -536,7 +536,7 @@ static void of_register_apr_devices(struct device *dev, const char *svc_path)
 		 * this case we register any apr devices with a matching
 		 * qcom,protection-domain.
 		 */
-
+#if 0
 		ret = of_property_read_string_index(node, "qcom,protection-domain",
 						    1, &service_path);
 		if (svc_path) {
@@ -552,6 +552,7 @@ static void of_register_apr_devices(struct device *dev, const char *svc_path)
 			if (ret == 0)
 				continue;
 		}
+#endif
 
 		if (of_property_read_u32(node, "reg", &svc_id))
 			continue;
@@ -589,6 +590,13 @@ static void apr_pd_status(int state, char *svc_path, void *priv)
 		device_for_each_child(apr->dev, svc_path, apr_remove_device);
 		break;
 	}
+}
+
+static void apr_init_work(struct work_struct *work)
+{
+	struct packet_router *apr = container_of(work, struct packet_router, init_work);
+
+	of_register_apr_devices(apr->dev, NULL);
 }
 
 static int apr_probe(struct rpmsg_device *rpdev)
@@ -643,7 +651,12 @@ static int apr_probe(struct rpmsg_device *rpdev)
 	if (ret)
 		goto handle_release;
 
-	of_register_apr_devices(dev, NULL);
+	/// XXX
+	apr->initwq = create_singlethread_workqueue("qcom_apr_init");
+	INIT_WORK(&apr->init_work, apr_init_work);
+	queue_work(apr->initwq, &apr->init_work);
+
+	//of_register_apr_devices(dev, NULL);
 
 	return 0;
 
