@@ -25,6 +25,7 @@
 		serial0 = &uart7;
 	};
 
+#if 0
 	wcd938x: audio-codec {
 		compatible = "qcom,wcd9385-codec";
 
@@ -50,6 +51,7 @@
 
 		#sound-dai-cells = <1>;
 	};
+#endif
 
 	chosen {
 		stdout-path = "serial0:115200n8";
@@ -99,21 +101,12 @@
 	};
 
 	sound {
-		compatible = "qcom,sm8550-sndcard", "qcom,sm8450-sndcard";
-		model = "SM8550-MTP";
+		compatible = "qcom,sm8550-sndcard", "qcom,sm8250-sndcard";
+		model = "SM8550-QRD";
 		audio-routing = "SpkrLeft IN", "WSA_SPK1 OUT",
-				"SpkrRight IN", "WSA_SPK2 OUT",
-				"IN1_HPHL", "HPHL_OUT",
-				"IN2_HPHR", "HPHR_OUT",
-				"AMIC2", "MIC BIAS2",
-				"VA DMIC0", "MIC BIAS1",
-				"VA DMIC1", "MIC BIAS1",
-				"VA DMIC2", "MIC BIAS3",
-				"TX DMIC0", "MIC BIAS1",
-				"TX DMIC1", "MIC BIAS2",
-				"TX DMIC2", "MIC BIAS3",
-				"TX SWR_ADC1", "ADC2_OUTPUT";
+				"SpkrRight IN", "WSA_SPK2 OUT";
 
+#if 0
 		wcd-playback-dai-link {
 			link-name = "WCD Playback";
 
@@ -145,6 +138,7 @@
 				sound-dai = <&q6apm>;
 			};
 		};
+#endif
 
 		wsa-dai-link {
 			link-name = "WSA Playback";
@@ -748,6 +742,7 @@
 	};
 };
 
+#if 0
 &swr1 {
 	status = "okay";
 
@@ -769,6 +764,7 @@
 		qcom,tx-port-mapping = <1 1 2 3>;
 	};
 };
+#endif
 
 &tlmm {
 	gpio-reserved-ranges = <32 8>;
