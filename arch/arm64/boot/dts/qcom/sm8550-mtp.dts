@@ -100,8 +100,8 @@
 	sound {
 		compatible = "qcom,sm8550-sndcard", "qcom,sm8250-sndcard";
 		model = "SM8550-QRD";
-		audio-routing = "SpkrLeft IN", "WSA_SPK1 OUT";
-				//"SpkrRight IN", "WSA_SPK2 OUT";
+		audio-routing = "SpkrLeft IN", "WSA_SPK1 OUT",
+				"SpkrRight IN", "WSA_SPK2 OUT";
 
 #if 0
 		wcd-playback-dai-link {
@@ -145,7 +145,7 @@
 			};
 
 			codec {
-				sound-dai = <&left_spkr>, <&swr0 0>, <&lpass_wsamacro 0>;
+				sound-dai = <&left_spkr>, <&right_spkr>, <&swr0 0>, <&lpass_wsamacro 0>;
 			};
 
 			platform {
@@ -695,7 +695,6 @@
 		vdd-io-supply = <&vreg_l3g_1p2>;
 	};
 
-#if 0
 	/* WSA8845 */
 	right_spkr: speaker@0,1 {
 		compatible = "sdw20217020400";
@@ -708,7 +707,6 @@
 		vdd-1p8-supply = <&vreg_l15b_1p8>;
 		vdd-io-supply = <&vreg_l3g_1p2>;
 	};
-#endif
 };
 
 #if 0
