@@ -516,7 +516,7 @@ static const struct adreno_info gpulist[] = {
 			[ADRENO_FW_SQE] = "a740_sqe.fw",
 		},
 		.gmem = 3 * SZ_1M,
-		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
+		.inactive_period = 30000, // 30 seconds
 		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT |
 			ADRENO_QUIRK_HAS_HW_APRIV,
 		.init = a7xx_gpu_init,

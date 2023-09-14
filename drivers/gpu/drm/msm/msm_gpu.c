@@ -391,35 +391,27 @@ static void recover_worker(struct kthread_work *work)
 	for (i = 0; i < gpu->nr_rings; i++) {
 		struct msm_ringbuffer *ring = gpu->rb[i];
 
-		uint32_t fence = ring->memptrs->fence;
-
 		/*
-		 * For the current (faulting?) ring/submit advance the fence by
-		 * one more to clear the faulting submit
+		 * Update all fences to the last one to pretend all submits completed
 		 */
-		if (ring == cur_ring)
-			ring->memptrs->fence = ++fence;
-
-		msm_update_fence(ring->fctx, fence);
+		msm_update_fence(ring->fctx, ring->fctx->last_fence);
 	}
 
 	if (true) { //msm_gpu_active(gpu)) {
-		/* retire completed submits, plus the one that hung: */
+		/* retire all submits */
 		retire_submits(gpu);
 
 		gpu->funcs->recover(gpu);
 
 		/*
-		 * Replay all remaining submits starting with highest priority
-		 * ring
+		 * Make sure all submits were retired
 		 */
 		for (i = 0; i < gpu->nr_rings; i++) {
 			struct msm_ringbuffer *ring = gpu->rb[i];
 			unsigned long flags;
 
 			spin_lock_irqsave(&ring->submit_lock, flags);
-			list_for_each_entry(submit, &ring->submits, node)
-				gpu->funcs->submit(gpu, submit);
+			WARN_ON(!list_empty(&ring->submits));
 			spin_unlock_irqrestore(&ring->submit_lock, flags);
 		}
 	}

@@ -499,6 +499,9 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 	struct a7xx_gpu *a7xx_gpu = to_a7xx_gpu(adreno_gpu);
 	int ret;
 
+	gpu_write(gpu, REG_A7XX_RBBM_SW_RESET_CMD, 1);
+	udelay(1000); // XXX: how to determine when reset is completed?
+
 	/* Set up GBIF registers */
 	gpu_write(gpu, REG_A7XX_GBIF_QSB_SIDE0, 0x00071620);
 	gpu_write(gpu, REG_A7XX_GBIF_QSB_SIDE1, 0x00071620);
@@ -589,6 +592,13 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 		msm_gem_object_set_name(a7xx_gpu->shadow_bo, "shadow");
 	}
 
+	/* reset ringbuffer state */
+	if (gpu_read(gpu, REG_A7XX_CP_RB_RPTR) != 0)
+		printk("RPTR is not zero\n");
+	a7xx_gpu->shadow[0] = 0;
+	gpu->rb[0]->cur = gpu->rb[0]->next = gpu->rb[0]->start;
+	gpu->rb[0]->memptrs->fence = gpu->rb[0]->fctx->last_fence;
+
 	gpu_write64(gpu, REG_A7XX_CP_RB_RPTR_ADDR, shadowptr(a7xx_gpu, gpu->rb[0]));
 
 	gpu->cur_ctx_seqno = 0;
@@ -646,15 +656,6 @@ static void a7xx_recover(struct msm_gpu *gpu)
 
 	if (hang_debug)
 		a7xx_dump(gpu);
-
-	gpu_write(gpu, REG_A7XX_RBBM_SW_RESET_CMD, 1);
-	/*
-	 * Do a dummy read to get a brief read cycle delay for the
-	 * reset to take effect
-	 * (does this work as expected for a7xx?)
-	 */
-	gpu_read(gpu, REG_A7XX_RBBM_SW_RESET_CMD);
-	gpu_write(gpu, REG_A7XX_RBBM_SW_RESET_CMD, 0);
 
 	gpu->needs_hw_init = true;
 	msm_gpu_hw_init(gpu);
