@@ -94,7 +94,11 @@ void ath12k_reg_free(struct ath12k_base *ab);
 void ath12k_regd_update_work(struct work_struct *work);
 struct ieee80211_regdomain *ath12k_reg_build_regd(struct ath12k_base *ab,
 						  struct ath12k_reg_info *reg_info,
-						  bool intersect);
+						  bool intersect,
+						  enum wmi_vdev_type vdev_type,
+						  enum ieee80211_ap_reg_power power_type);
+enum wmi_reg_6g_ap_type
+ath12k_ieee80211_ap_pwr_type_convert(enum ieee80211_ap_reg_power power_type);
 int ath12k_regd_update(struct ath12k *ar, bool init);
 int ath12k_reg_update_chan_list(struct ath12k *ar);
 

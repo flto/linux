@@ -2927,8 +2927,8 @@ struct ath12k_wmi_rx_reorder_queue_remove_arg {
 #define REG_RULE_MAX_BW				0x0000ffff
 #define REG_RULE_REG_PWR			0x00ff0000
 #define REG_RULE_ANT_GAIN			0xff000000
-#define REG_RULE_PSD_INFO			BIT(2)
-#define REG_RULE_PSD_EIRP			0xffff0000
+#define REG_RULE_PSD_INFO                       BIT(0)
+#define REG_RULE_PSD_EIRP                       0xff0000
 
 #define WMI_VDEV_PARAM_TXBF_SU_TX_BFEE BIT(0)
 #define WMI_VDEV_PARAM_TXBF_MU_TX_BFEE BIT(1)
@@ -3960,6 +3960,29 @@ enum {
 	WMI_REG_SET_CC_CHANGE_NOT_ALLOWED = 3,
 	WMI_REG_SET_CC_STATUS_NO_MEMORY = 4,
 	WMI_REG_SET_CC_STATUS_FAIL = 5,
+};
+
+enum reg_subdomains_6ghz {
+	EMPTY_6GHZ = 0x0,
+	FCC1_CLIENT_LPI_REGULAR_6GHZ = 0x01,
+	FCC1_CLIENT_SP_6GHZ = 0x02,
+	FCC1_AP_LPI_6GHZ = 0x03,
+	FCC1_CLIENT_LPI_SUBORDINATE = FCC1_AP_LPI_6GHZ,
+	FCC1_AP_SP_6GHZ = 0x04,
+	ETSI1_LPI_6GHZ = 0x10,
+	ETSI1_VLP_6GHZ = 0x11,
+	ETSI2_LPI_6GHZ = 0x12,
+	ETSI2_VLP_6GHZ = 0x13,
+	APL1_LPI_6GHZ = 0x20,
+	APL1_VLP_6GHZ = 0x21,
+};
+
+enum reg_super_domain_6ghz {
+	FCC1_6GHZ = 0x01,
+	ETSI1_6GHZ = 0x02,
+	ETSI2_6GHZ = 0x03,
+	APL1_6GHZ = 0x04,
+	FCC1_6GHZ_CL = 0x05,
 };
 
 #define WMI_REG_CLIENT_MAX 4

@@ -4437,6 +4437,119 @@ static struct ath12k_reg_rule
 	return reg_rule_ptr;
 }
 
+static char *ath12k_cc_status_to_str(enum ath12k_reg_cc_code code)
+{
+	switch (code) {
+	case REG_SET_CC_STATUS_PASS:
+		return "REG_SET_CC_STATUS_PASS";
+	case REG_CURRENT_ALPHA2_NOT_FOUND:
+		return "REG_CURRENT_ALPHA2_NOT_FOUND";
+	case REG_INIT_ALPHA2_NOT_FOUND:
+		return "REG_INIT_ALPHA2_NOT_FOUND";
+	case REG_SET_CC_CHANGE_NOT_ALLOWED:
+		return "REG_SET_CC_CHANGE_NOT_ALLOWED";
+	case REG_SET_CC_STATUS_NO_MEMORY:
+		return "REG_SET_CC_STATUS_NO_MEMORY";
+	case REG_SET_CC_STATUS_FAIL:
+		return "REG_SET_CC_STATUS_FAIL";
+	default:
+		return "unknown cc status";
+	}
+};
+
+static char *ath12k_super_reg_6ghz_to_str(enum reg_super_domain_6ghz domain_id)
+{
+	switch (domain_id) {
+	case FCC1_6GHZ:
+		return "FCC1_6GHZ";
+	case ETSI1_6GHZ:
+		return "ETSI1_6GHZ";
+	case ETSI2_6GHZ:
+		return "ETSI2_6GHZ";
+	case APL1_6GHZ:
+		return "APL1_6GHZ";
+	case FCC1_6GHZ_CL:
+		return "FCC1_6GHZ_CL";
+	default:
+		return "unknown domain id";
+	}
+}
+
+static char *ath12k_6ghz_client_type_to_str(enum wmi_reg_6g_client_type type)
+{
+	switch (type) {
+	case WMI_REG_DEFAULT_CLIENT:
+		return "DEFAULT CLIENT";
+	case WMI_REG_SUBORDINATE_CLIENT:
+		return "SUBORDINATE CLIENT";
+	default:
+		return "unknown client type";
+	}
+}
+
+static char *ath12k_6ghz_ap_type_to_str(enum wmi_reg_6g_ap_type type)
+{
+	switch (type) {
+	case WMI_REG_INDOOR_AP:
+		return "INDOOR AP";
+	case WMI_REG_STD_POWER_AP:
+		return "STANDARD POWER AP";
+	case WMI_REG_VLP_AP:
+		return "VERY LOW POWER AP";
+	default:
+		return "unknown AP type";
+	}
+}
+
+static char *ath12k_sub_reg_6ghz_to_str(enum reg_subdomains_6ghz sub_id)
+{
+	switch (sub_id) {
+	case FCC1_CLIENT_LPI_REGULAR_6GHZ:
+		return "FCC1_CLIENT_LPI_REGULAR_6GHZ";
+	case FCC1_CLIENT_SP_6GHZ:
+		return "FCC1_CLIENT_SP_6GHZ";
+	case FCC1_AP_LPI_6GHZ:
+		return "FCC1_AP_LPI_6GHZ/FCC1_CLIENT_LPI_SUBORDINATE";
+	case FCC1_AP_SP_6GHZ:
+		return "FCC1_AP_SP_6GHZ";
+	case ETSI1_LPI_6GHZ:
+		return "ETSI1_LPI_6GHZ";
+	case ETSI1_VLP_6GHZ:
+		return "ETSI1_VLP_6GHZ";
+	case ETSI2_LPI_6GHZ:
+		return "ETSI2_LPI_6GHZ";
+	case ETSI2_VLP_6GHZ:
+		return "ETSI2_VLP_6GHZ";
+	case APL1_LPI_6GHZ:
+		return "APL1_LPI_6GHZ";
+	case APL1_VLP_6GHZ:
+		return "APL1_VLP_6GHZ";
+	case EMPTY_6GHZ:
+		return "N/A";
+	default:
+		return "unknown sub reg id";
+	}
+}
+
+static void ath12k_print_reg_rule(struct ath12k_base *ab, char *prev,
+				  u32 num_reg_rules,
+				  struct ath12k_reg_rule *reg_rule_ptr)
+{
+	struct ath12k_reg_rule *reg_rule = reg_rule_ptr;
+	u32 count;
+
+	ath12k_dbg(ab, ATH12K_DBG_WMI, "%s reg rules number %d\n", prev, num_reg_rules);
+
+	for (count = 0; count < num_reg_rules; count++) {
+		ath12k_dbg(ab, ATH12K_DBG_WMI,
+			   "reg rule %d: (%d - %d @ %d) (%d, %d) (FLAGS %d) (psd flag %d EIRP %d dB/MHz)\n",
+			   count + 1, reg_rule->start_freq, reg_rule->end_freq,
+			   reg_rule->max_bw, reg_rule->ant_gain, reg_rule->reg_power,
+			   reg_rule->flags, reg_rule->psd_flag, reg_rule->psd_eirp);
+		reg_rule++;
+	}
+}
+
 static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 						   struct sk_buff *skb,
 						   struct ath12k_reg_info *reg_info)
@@ -4448,7 +4561,7 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 	u32 num_6g_reg_rules_ap[WMI_REG_CURRENT_MAX_AP_TYPE];
 	u32 num_6g_reg_rules_cl[WMI_REG_CURRENT_MAX_AP_TYPE][WMI_REG_MAX_CLIENT_TYPE];
 	u32 total_reg_rules = 0;
-	int ret, i, j;
+	int ret, i, j, skip_6ghz_rules_in_5ghz_rules = 0;
 
 	ath12k_dbg(ab, ATH12K_DBG_WMI, "processing regulatory ext channel list\n");
 
@@ -4550,6 +4663,13 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 	 * from 5G rules list.
 	 */
 	if (memcmp(reg_info->alpha2, "US", 2) == 0) {
+		ath12k_dbg(ab, ATH12K_DBG_WMI,
+			   "US 5 GHz reg rules number %d from fw",
+			   reg_info->num_5g_reg_rules);
+
+		if (reg_info->num_5g_reg_rules > REG_US_5G_NUM_REG_RULES)
+			skip_6ghz_rules_in_5ghz_rules = reg_info->num_5g_reg_rules -
+						    REG_US_5G_NUM_REG_RULES;
 		reg_info->num_5g_reg_rules = REG_US_5G_NUM_REG_RULES;
 		num_5g_reg_rules = reg_info->num_5g_reg_rules;
 	}
@@ -4582,6 +4702,10 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 		break;
 	}
 
+	ath12k_dbg(ab, ATH12K_DBG_WMI,
+		   "%s: status_code %s", __func__,
+		   ath12k_cc_status_to_str(reg_info->status_code));
+
 	reg_info->is_ext_reg_event = true;
 
 	reg_info->min_bw_2g = le32_to_cpu(ev->min_bw_2g);
@@ -4609,6 +4733,10 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 		reg_info->max_bw_6g_client[WMI_REG_VLP_AP][i] =
 			le32_to_cpu(ev->max_bw_6g_client_vlp[i]);
 	}
+
+	ath12k_dbg(ab, ATH12K_DBG_WMI,
+		   "%s: status_code %s", __func__,
+		   ath12k_cc_status_to_str(reg_info->status_code));
 
 	ath12k_dbg(ab, ATH12K_DBG_WMI,
 		   "%s:cc_ext %s dfs %d BW: min_2g %d max_2g %d min_5g %d max_5g %d phy_bitmap 0x%x",
@@ -4654,10 +4782,13 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 			ath12k_warn(ab, "Unable to Allocate memory for 2g rules\n");
 			return -ENOMEM;
 		}
+		ath12k_print_reg_rule(ab, "2 GHz",
+				      num_2g_reg_rules,
+				      reg_info->reg_rules_2g_ptr);
 	}
+	ext_wmi_reg_rule += num_2g_reg_rules;
 
 	if (num_5g_reg_rules) {
-		ext_wmi_reg_rule += num_2g_reg_rules;
 		reg_info->reg_rules_5g_ptr =
 			create_ext_reg_rules_from_wmi(num_5g_reg_rules,
 						      ext_wmi_reg_rule);
@@ -4667,9 +4798,18 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 			ath12k_warn(ab, "Unable to Allocate memory for 5g rules\n");
 			return -ENOMEM;
 		}
+		ath12k_print_reg_rule(ab, "5 GHz",
+				      num_5g_reg_rules,
+				      reg_info->reg_rules_5g_ptr);
 	}
 
-	ext_wmi_reg_rule += num_5g_reg_rules;
+	/* We have adjusted the number of 5 GHz reg rules via the hack above.
+	 * Here, we adjust that many extra rules which came with 5g reg rules
+	 * (for cc: US)
+	 *
+	 * NOTE: skip_6ghz_rules_in_5ghz_rules will be 0 for rest other cases.
+	 */
+	ext_wmi_reg_rule += num_5g_reg_rules + skip_6ghz_rules_in_5ghz_rules;
 
 	for (i = 0; i < WMI_REG_CURRENT_MAX_AP_TYPE; i++) {
 		reg_info->reg_rules_6g_ap_ptr[i] =
@@ -4682,10 +4822,17 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 			return -ENOMEM;
 		}
 
+		ath12k_print_reg_rule(ab, ath12k_6ghz_ap_type_to_str(i),
+				      num_6g_reg_rules_ap[i],
+				      reg_info->reg_rules_6g_ap_ptr[i]);
+
 		ext_wmi_reg_rule += num_6g_reg_rules_ap[i];
 	}
 
 	for (j = 0; j < WMI_REG_CURRENT_MAX_AP_TYPE; j++) {
+		ath12k_dbg(ab, ATH12K_DBG_WMI,
+			   "AP type %s", ath12k_6ghz_ap_type_to_str(j));
+
 		for (i = 0; i < WMI_REG_MAX_CLIENT_TYPE; i++) {
 			reg_info->reg_rules_6g_client_ptr[j][i] =
 				create_ext_reg_rules_from_wmi(num_6g_reg_rules_cl[j][i],
@@ -4696,6 +4843,10 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 				ath12k_warn(ab, "Unable to Allocate memory for 6g client rules\n");
 				return -ENOMEM;
 			}
+
+			ath12k_print_reg_rule(ab, ath12k_6ghz_client_type_to_str(i),
+					      num_6g_reg_rules_cl[j][i],
+					      reg_info->reg_rules_6g_client_ptr[j][i]);
 
 			ext_wmi_reg_rule += num_6g_reg_rules_cl[j][i];
 		}
@@ -4711,6 +4862,18 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 	reg_info->domain_code_6g_ap[WMI_REG_VLP_AP] =
 		le32_to_cpu(ev->domain_code_6g_ap_vlp);
 
+	ath12k_dbg(ab, ATH12K_DBG_WMI,
+		   "6 GHz reg info client type %s rnr_tpe_usable %d unspecified_ap_usable %d AP sub domain: lpi %s , sp %s , vlp %s\n",
+		   ath12k_6ghz_client_type_to_str(reg_info->client_type),
+		   reg_info->rnr_tpe_usable,
+		   reg_info->unspecified_ap_usable,
+		   ath12k_sub_reg_6ghz_to_str
+		   (le32_to_cpu(ev->domain_code_6g_ap_lpi)),
+		   ath12k_sub_reg_6ghz_to_str
+		   (le32_to_cpu(ev->domain_code_6g_ap_sp)),
+		   ath12k_sub_reg_6ghz_to_str
+		   (le32_to_cpu(ev->domain_code_6g_ap_vlp)));
+
 	for (i = 0; i < WMI_REG_MAX_CLIENT_TYPE; i++) {
 		reg_info->domain_code_6g_client[WMI_REG_INDOOR_AP][i] =
 			le32_to_cpu(ev->domain_code_6g_client_lpi[i]);
@@ -4718,12 +4881,18 @@ static int ath12k_pull_reg_chan_list_ext_update_ev(struct ath12k_base *ab,
 			le32_to_cpu(ev->domain_code_6g_client_sp[i]);
 		reg_info->domain_code_6g_client[WMI_REG_VLP_AP][i] =
 			le32_to_cpu(ev->domain_code_6g_client_vlp[i]);
+		ath12k_dbg(ab, ATH12K_DBG_WMI,
+			   "6 GHz AP BW: lpi %d - %d sp %d - %d vlp %d - %d\n",
+			   ev->min_bw_6g_ap_lpi, ev->max_bw_6g_ap_lpi,
+			   ev->min_bw_6g_ap_sp, ev->max_bw_6g_ap_sp,
+			   ev->min_bw_6g_ap_vlp, ev->max_bw_6g_ap_vlp);
 	}
 
 	reg_info->domain_code_6g_super_id = le32_to_cpu(ev->domain_code_6g_super_id);
 
-	ath12k_dbg(ab, ATH12K_DBG_WMI, "6g client_type: %d domain_code_6g_super_id: %d",
-		   reg_info->client_type, reg_info->domain_code_6g_super_id);
+	ath12k_dbg(ab, ATH12K_DBG_WMI, "6 GHz client_type: %s 6 GHz super domain %s",
+		   ath12k_6ghz_client_type_to_str(reg_info->client_type),
+		   ath12k_super_reg_6ghz_to_str(reg_info->domain_code_6g_super_id));
 
 	ath12k_dbg(ab, ATH12K_DBG_WMI, "processed regulatory ext channel list\n");
 
@@ -5493,7 +5662,8 @@ static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *sk
 	    !ath12k_reg_is_world_alpha((char *)reg_info->alpha2))
 		intersect = true;
 
-	regd = ath12k_reg_build_regd(ab, reg_info, intersect);
+	regd = ath12k_reg_build_regd(ab, reg_info, intersect,
+				     WMI_VDEV_TYPE_AP, IEEE80211_REG_UNSET_AP);
 	if (!regd) {
 		ath12k_warn(ab, "failed to build regd from reg_info\n");
 		goto fallback;
