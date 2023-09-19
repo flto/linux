@@ -5600,26 +5600,15 @@ static bool ath12k_reg_is_world_alpha(char *alpha)
 	return false;
 }
 
-static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *skb)
+static int ath12k_reg_handle_chan_list(struct ath12k_base *ab,
+				       struct ath12k_reg_info *reg_info,
+				       enum ieee80211_ap_reg_power power_type)
 {
-	struct ath12k_reg_info *reg_info = NULL;
-	struct ieee80211_regdomain *regd = NULL;
+	struct ieee80211_regdomain *regd;
 	bool intersect = false;
-	int ret = 0, pdev_idx, i, j;
+	int pdev_idx;
 	struct ath12k *ar;
-
-	reg_info = kzalloc(sizeof(*reg_info), GFP_ATOMIC);
-	if (!reg_info) {
-		ret = -ENOMEM;
-		goto fallback;
-	}
-
-	ret = ath12k_pull_reg_chan_list_ext_update_ev(ab, skb, reg_info);
-
-	if (ret) {
-		ath12k_warn(ab, "failed to extract regulatory info from received event\n");
-		goto fallback;
-	}
+	enum wmi_vdev_type vdev_type;
 
 	if (reg_info->status_code != REG_SET_CC_STATUS_PASS) {
 		/* In case of failure to set the requested ctry,
@@ -5627,7 +5616,7 @@ static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *sk
 		 * and return from here.
 		 */
 		ath12k_warn(ab, "Failed to set the requested Country regulatory setting\n");
-		goto mem_free;
+		return -EINVAL;
 	}
 
 	pdev_idx = reg_info->phy_id;
@@ -5639,9 +5628,8 @@ static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *sk
 		 */
 		if (ab->hw_params->single_pdev_only &&
 		    pdev_idx < ab->hw_params->num_rxmda_per_pdev)
-			goto mem_free;
-		else
-			goto fallback;
+			return -EINVAL;
+		goto fallback;
 	}
 
 	/* Avoid multiple overwrites to default regd, during core
@@ -5650,7 +5638,7 @@ static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *sk
 	if (ab->default_regd[pdev_idx] && !ab->new_regd[pdev_idx] &&
 	    !memcmp(ab->default_regd[pdev_idx]->alpha2,
 		    reg_info->alpha2, 2))
-		goto mem_free;
+		return -EINVAL;
 
 	/* Intersect new rules with default regd if a new country setting was
 	 * requested, i.e a default regd was already set during initialization
@@ -5662,8 +5650,13 @@ static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *sk
 	    !ath12k_reg_is_world_alpha((char *)reg_info->alpha2))
 		intersect = true;
 
-	regd = ath12k_reg_build_regd(ab, reg_info, intersect,
-				     WMI_VDEV_TYPE_AP, IEEE80211_REG_UNSET_AP);
+	ar = ab->pdevs[pdev_idx].ar;
+	vdev_type = ath12k_mac_get_ar_vdev_type(ar);
+	ath12k_dbg(ab, ATH12K_DBG_WMI,
+		   "wmi handle chan list power type %d vdev type %d intersect %d\n",
+		    power_type, vdev_type, intersect);
+
+	regd = ath12k_reg_build_regd(ab, reg_info, intersect, vdev_type, power_type);
 	if (!regd) {
 		ath12k_warn(ab, "failed to build regd from reg_info\n");
 		goto fallback;
@@ -5695,7 +5688,7 @@ static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *sk
 	ab->dfs_region = reg_info->dfs_region;
 	spin_unlock(&ab->base_lock);
 
-	goto mem_free;
+	return 0;
 
 fallback:
 	/* Fallback to older reg (by sending previous country setting
@@ -5707,17 +5700,39 @@ fallback:
 	 */
 	/* TODO: This is rare, but still should also be handled */
 	WARN_ON(1);
+	return -EINVAL;
+}
+
+static int ath12k_reg_chan_list_event(struct ath12k_base *ab, struct sk_buff *skb)
+{
+	struct ath12k_reg_info *reg_info;
+	int ret, i, j;
+
+	reg_info = kzalloc(sizeof(*reg_info), GFP_ATOMIC);
+	if (!reg_info)
+		return -ENOMEM;
+
+	ret = ath12k_pull_reg_chan_list_ext_update_ev(ab, skb, reg_info);
+
+	if (ret) {
+		ath12k_warn(ab, "failed to extract regulatory info from received event\n");
+		goto mem_free;
+	}
+
+	ret = ath12k_reg_handle_chan_list(ab, reg_info, IEEE80211_REG_UNSET_AP);
+	if (ret)
+		ath12k_warn(ab, "failed to process regulatory info from received event\n");
+
 mem_free:
 	if (reg_info) {
 		kfree(reg_info->reg_rules_2g_ptr);
 		kfree(reg_info->reg_rules_5g_ptr);
 		if (reg_info->is_ext_reg_event) {
-			for (i = 0; i < WMI_REG_CURRENT_MAX_AP_TYPE; i++)
+			for (i = 0; i < WMI_REG_CURRENT_MAX_AP_TYPE; i++) {
 				kfree(reg_info->reg_rules_6g_ap_ptr[i]);
-
-			for (j = 0; j < WMI_REG_CURRENT_MAX_AP_TYPE; j++)
-				for (i = 0; i < WMI_REG_MAX_CLIENT_TYPE; i++)
-					kfree(reg_info->reg_rules_6g_client_ptr[j][i]);
+				for (j = 0; j < WMI_REG_MAX_CLIENT_TYPE; j++)
+					kfree(reg_info->reg_rules_6g_client_ptr[i][j]);
+			}
 		}
 		kfree(reg_info);
 	}

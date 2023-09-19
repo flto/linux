@@ -584,6 +584,17 @@ struct ath12k *ath12k_mac_get_ar_by_vdev_id(struct ath12k_base *ab, u32 vdev_id)
 	return NULL;
 }
 
+enum wmi_vdev_type ath12k_mac_get_ar_vdev_type(struct ath12k *ar)
+{
+	struct ath12k_vif *arvif;
+
+	list_for_each_entry(arvif, &ar->arvifs, list) {
+		return arvif->vdev_type;
+	}
+
+	return WMI_VDEV_TYPE_UNSPEC;
+}
+
 struct ath12k *ath12k_mac_get_ar_by_pdev_id(struct ath12k_base *ab, u32 pdev_id)
 {
 	int i;
