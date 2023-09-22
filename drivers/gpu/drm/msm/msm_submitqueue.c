@@ -50,15 +50,6 @@ void __msm_file_private_destroy(struct kref *kref)
 {
 	struct msm_file_private *ctx = container_of(kref,
 		struct msm_file_private, ref);
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(ctx->entities); i++) {
-		if (!ctx->entities[i])
-			continue;
-
-		drm_sched_entity_destroy(ctx->entities[i]);
-		kfree(ctx->entities[i]);
-	}
 
 	msm_gem_address_space_put(ctx->aspace);
 	kfree(ctx->comm);
@@ -97,8 +88,10 @@ static void msm_submitqueue_wait_idle(struct msm_gpu_submitqueue *queue)
 
 	/* wait for any submits to finish, to block until GEM objects are unused */
 	do {
-		ret = wait_fence(queue, queue->last_fence, 5 * HZ);
+		ret = wait_fence(queue, queue->last_fence_submitted, 5 * HZ);
 	} while (ret == -ERESTARTSYS);
+	if (ret)
+		printk("msm_submitqueue_wait_idle timed out %d\n", ret);
 
 	do {
 		timeout = wait_event_interruptible_timeout(queue->waitqueue,
@@ -165,6 +158,15 @@ void msm_submitqueue_close(struct msm_file_private *ctx)
 
 	if (!ctx)
 		return;
+
+	/* cancel all jobs from this context that aren't yet submitted to HW */
+	for (i = 0; i < ARRAY_SIZE(ctx->entities); i++) {
+		if (!ctx->entities[i])
+			continue;
+
+		drm_sched_entity_destroy(ctx->entities[i]);
+		kfree(ctx->entities[i]);
+	}
 
 	/*
 	 * No lock needed in close and there won't

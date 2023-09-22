@@ -517,6 +517,7 @@ struct msm_gpu_submitqueue {
 	u32 ring_nr;
 	int faults;
 	uint32_t last_fence;
+	uint32_t last_fence_submitted;
 	struct msm_file_private *ctx;
 	struct idr fence_idr;
 	struct spinlock idr_lock;
