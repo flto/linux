@@ -846,6 +846,9 @@
 
 		pinctrl-0 = <&bt_default>;
 		pinctrl-names = "default";
+
+		// XXX needs to be different for each device
+		local-bd-address = [ 55 44 33 22 11 00 ];
 	};
 };
 
