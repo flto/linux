@@ -389,6 +389,8 @@ static void a7xx_set_cp_protect(struct msm_gpu *gpu)
 	count_max = 48;
 	BUILD_BUG_ON(ARRAY_SIZE(a730_protect) > 48);
 
+	// XXX a750 has new protect list
+
 	/*
 	 * Enable access protection to privileged registers, fault on an access
 	 * protect violation and select the last span to protect from the start
@@ -549,7 +551,7 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 	 * This needs to be done based on GMEM size to avoid overlap between
 	 * RB and UCHE GMEM range.
 	 */
-	if (adreno_is_revn(adreno_gpu, 740)) {
+	if (1) { // a740/a750
 		gpu_write64(gpu, REG_A7XX_UCHE_GMEM_RANGE_MIN, SZ_16M);
 		gpu_write64(gpu, REG_A7XX_UCHE_GMEM_RANGE_MAX, SZ_16M + 3 * SZ_1M - 1);
 	}
@@ -561,12 +563,17 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A7XX_CP_AHB_CNTL, 0x1);
 
 	/* Turn on performance counters */
+	// if (pwrup_lock->dynamic_list_len > 0)
 	gpu_write(gpu, REG_A7XX_RBBM_PERFCTR_CNTL, 0x1);
 
 	a7xx_set_ubwc_config(gpu);
 
 	gpu_write(gpu, REG_A7XX_RBBM_INTERFACE_HANG_INT_CNTL, BIT(30) | 0xcfffff);
 	gpu_write(gpu, REG_A7XX_UCHE_CLIENT_PF, BIT(7) | BIT(0));
+
+	// set GEN7_RB_CONTEXT_SWITCH_GMEM_SAVE_RESTORE=1 if preemption enabled
+
+	// set BIT(11) in RB_CMP_DBG_ECO_CNTL
 
 	a7xx_set_cp_protect(gpu);
 
@@ -575,6 +582,8 @@ static int a7xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A7XX_CP_APRIV_CNTL, A7XX_BR_APRIV_DEFAULT);
 	gpu_write(gpu, REG_A7XX_CP_BV_APRIV_CNTL, A7XX_APRIV_DEFAULT);
 	gpu_write(gpu, REG_A7XX_CP_LPAC_APRIV_CNTL, A7XX_APRIV_DEFAULT);
+
+	// pre-a750: set CHICKEN_DBG BIT(0) (for all 3 CP)
 
 	gpu_write(gpu, REG_A7XX_RBBM_SECVID_TSB_CNTL, 0);
 	gpu_write64(gpu, REG_A7XX_RBBM_SECVID_TSB_TRUSTED_BASE, 0);

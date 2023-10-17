@@ -318,10 +318,10 @@ long kgsl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		case KGSL_PROP_DEVICE_INFO: {
 			static const struct kgsl_devinfo prop = {
 				.device_id = 1, /* KGSL_DEVICE_3D0 + 1 ? */
-				.chip_id = 0x43050a01,
+				.chip_id = 0x43051401,
 				.mmu_enabled = 1,
 				.gmem_gpubaseaddr = 0,
-				.gpu_id = 740,
+				.gpu_id = 750,
 				.gmem_sizebytes = SZ_1M * 3,
 			};
 			if (get_prop.sizebytes != sizeof(prop))
@@ -338,7 +338,8 @@ long kgsl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			prop.gmem_vaddr = 0;
 		} break;
 		case KGSL_PROP_UCODE_VERSION: {
-			prop.ucode.pfp = 0x01740157; // XXX read from FW
+			// actuallty 0x01520159
+			prop.ucode.pfp = 0x01740159, //0x01740157; // XXX read from FW
 			prop.ucode.pm4 = 0;
 		} break;
 		case KGSL_PROP_HIGHEST_BANK_BIT: { prop.val = 16; } break;
@@ -355,8 +356,8 @@ long kgsl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		case KGSL_PROP_SECURE_CTXT_SUPPORT: { prop.val = 0; } break;
 		case KGSL_PROP_SPEED_BIN: { prop.val = 0; } break;
 		case KGSL_PROP_GAMING_BIN: { prop.val = 0; } break;
-		case KGSL_PROP_GPU_MODEL: { strcpy(prop.model.gpu_model, "Adreno740v2"); } break;
-		case KGSL_PROP_VK_DEVICE_ID: { prop.val = 0x43050a01; } break;
+		case KGSL_PROP_GPU_MODEL: { strcpy(prop.model.gpu_model, "Adreno750v2"); } break;
+		case KGSL_PROP_VK_DEVICE_ID: { prop.val = 0x43051401; } break;
 		case KGSL_PROP_IS_LPAC_ENABLED: { prop.val = 0; } break;
 		case KGSL_PROP_IS_RAYTRACING_ENABLED: { prop.val = 1; } break;
 		case KGSL_PROP_IS_FASTBLEND_ENABLED: { prop.val = 1; } break;

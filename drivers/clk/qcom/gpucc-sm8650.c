@@ -361,19 +361,6 @@ static struct clk_branch gpu_cc_freq_measure_clk = {
 	},
 };
 
-static struct clk_branch gpu_cc_gx_gfx3d_clk = {
-	.halt_reg = 0x90a8,
-	.halt_check = BRANCH_HALT,
-	.clkr = {
-		.enable_reg = 0x90a8,
-		.enable_mask = BIT(0),
-		.hw.init = &(struct clk_init_data){
-			.name = "gpu_cc_gx_gfx3d_clk",
-			.ops = &clk_branch2_ops,
-		},
-	},
-};
-
 static struct clk_branch gpu_cc_gx_gfx3d_rdvm_clk = {
 	.halt_reg = 0x90c8,
 	.halt_check = BRANCH_HALT,
@@ -537,6 +524,58 @@ static struct clk_branch gpu_cc_dpm_clk = {
 	},
 };
 
+// maybe same as gpu_cc_parent_map_1?
+static const struct parent_map gpu_cc_parent_map_4[] = {
+	{ P_BI_TCXO, 0 },
+	{ P_GPU_CC_PLL0_OUT_MAIN, 1 },
+};
+
+static const struct clk_parent_data gpu_cc_parent_data_4[] = {
+	{ .fw_name = "bi_tcxo" },
+	{ .hw = &gpu_cc_pll0.clkr.hw },
+};
+
+static const struct freq_tbl ftbl_gpu_cc_gx_gfx3d_clk_src[] = {
+	F(19200000, P_BI_TCXO, 1, 0, 0),
+	F(36*19200000, P_GPU_CC_PLL0_OUT_MAIN, 1, 0, 0),
+	//F(748800000, P_GPU_CC_PLL0_OUT_MAIN, 1, 0, 0),
+	{ }
+};
+
+static struct clk_rcg2 gpu_cc_gx_gfx3d_src = {
+	.cmd_rcgr = 0x9070,
+	.mnd_width = 0,
+	.hid_width = 5,
+	.parent_map = gpu_cc_parent_map_4,
+	.freq_tbl = ftbl_gpu_cc_gx_gfx3d_clk_src,
+	.clkr.hw.init = &(struct clk_init_data){
+		.name = "gpu_cc_gx_gfx3d_src",
+		.parent_data = gpu_cc_parent_data_4,
+		.num_parents = ARRAY_SIZE(gpu_cc_parent_data_4),
+		.flags = CLK_SET_RATE_PARENT,
+		.ops = &clk_rcg2_ops,
+	},
+};
+
+static struct clk_branch gpu_cc_gx_gfx3d_clk = {
+	.halt_reg = 0x90a8,
+	.halt_check = BRANCH_HALT,
+	.clkr = {
+		.enable_reg = 0x90a8,
+		.enable_mask = BIT(0),
+		.hw.init = &(struct clk_init_data){
+			.name = "gpu_cc_gx_gfx3d_clk",
+			.parent_hws = (const struct clk_hw*[]){
+				&gpu_cc_gx_gfx3d_src.clkr.hw,
+			},
+			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
+			.ops = &clk_branch2_ops,
+		},
+	},
+};
+
+
 static struct gdsc gpu_cx_gdsc = {
 	.gdscr = 0x9108,
 	.gds_hw_ctrl = 0x9168,
@@ -545,7 +584,7 @@ static struct gdsc gpu_cx_gdsc = {
 		.name = "gpu_cx_gdsc",
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = VOTABLE | RETAIN_FF_ENABLE,
+	.flags = VOTABLE | RETAIN_FF_ENABLE | ALWAYS_ON,
 };
 
 static struct gdsc gpu_gx_gdsc = {
@@ -560,7 +599,7 @@ static struct gdsc gpu_gx_gdsc = {
 		.power_on = gdsc_gx_do_nothing_enable,
 	},
 	.pwrsts = PWRSTS_OFF_ON,
-	.flags = CLAMP_IO | AON_RESET | SW_RESET | POLL_CFG_GDSCR,
+	.flags = CLAMP_IO | AON_RESET | SW_RESET | POLL_CFG_GDSCR | ALWAYS_ON,
 };
 
 static struct clk_regmap *gpu_cc_sm8650_clocks[] = {
@@ -591,6 +630,9 @@ static struct clk_regmap *gpu_cc_sm8650_clocks[] = {
 	[GPU_CC_PLL0] = &gpu_cc_pll0.clkr,
 	[GPU_CC_PLL1] = &gpu_cc_pll1.clkr,
 	[GPU_CC_SLEEP_CLK] = &gpu_cc_sleep_clk.clkr,
+
+	[GPU_CC_GX_GFX3D_CLK_SRC] = &gpu_cc_gx_gfx3d_src.clkr,
+	[GPU_CC_GX_GFX3D_CLK] = &gpu_cc_gx_gfx3d_clk.clkr,
 };
 
 static const struct qcom_reset_map gpu_cc_sm8650_resets[] = {
@@ -637,6 +679,9 @@ MODULE_DEVICE_TABLE(of, gpu_cc_sm8650_match_table);
 static int gpu_cc_sm8650_probe(struct platform_device *pdev)
 {
 	struct regmap *regmap;
+	static int x;
+	if (x++ < 4)
+		return -EPROBE_DEFER;
 
 	regmap = qcom_cc_map(pdev, &gpu_cc_sm8650_desc);
 	if (IS_ERR(regmap))

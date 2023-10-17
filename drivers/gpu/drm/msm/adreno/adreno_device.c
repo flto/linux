@@ -523,6 +523,20 @@ static const struct adreno_info gpulist[] = {
 		.zapfw = "a740_zap.mbn",
 		.hwcg = a740_hwcg,
 		.address_space_size = SZ_16G,
+	}, {
+		.chip_ids = ADRENO_CHIP_IDS(0x07090000),
+		.revn = 750,
+		.fw = {
+			[ADRENO_FW_SQE] = "a750_sqe.fw",
+		},
+		.gmem = 3 * SZ_1M,
+		.inactive_period = 3600*1000,
+		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT |
+			ADRENO_QUIRK_HAS_HW_APRIV,
+		.init = a7xx_gpu_init,
+		.zapfw = "a750_zap.mbn",
+		.hwcg = a740_hwcg,
+		.address_space_size = SZ_16G,
 	},
 };
 

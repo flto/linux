@@ -35,6 +35,7 @@
 #define GPU_CC_PLL0				24
 #define GPU_CC_PLL1				25
 #define GPU_CC_SLEEP_CLK			26
+#define GPU_CC_GX_GFX3D_CLK_SRC			27
 
 /* GDSCs */
 #define GPU_GX_GDSC				0
