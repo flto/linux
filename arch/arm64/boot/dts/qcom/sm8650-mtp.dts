@@ -14,7 +14,6 @@
 #include "pm8550ve.dtsi"
 #include "pm8550vs.dtsi"
 #include "pmk8550.dtsi"
-#include "pmr735d_a.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SM8650 MTP";
@@ -561,7 +560,7 @@
 };
 
 &sdhc_2 {
-	cd-gpios = <&pm8550_gpios 12 GPIO_ACTIVE_LOW>;
+	cd-gpios = <&pm8550_gpios 12 GPIO_ACTIVE_HIGH>;
 
 	vmmc-supply = <&vreg_l9b_2p9>;
 	vqmmc-supply = <&vreg_l8b_1p8>;
