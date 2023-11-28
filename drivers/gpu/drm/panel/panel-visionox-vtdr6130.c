@@ -291,6 +291,8 @@ static int visionox_vtdr6130_probe(struct mipi_dsi_device *dsi)
 	drm_panel_init(&ctx->panel, dev, &visionox_vtdr6130_panel_funcs,
 		       DRM_MODE_CONNECTOR_DSI);
 
+	ctx->panel.prepare_prev_first = true;
+
 	ctx->panel.backlight = visionox_vtdr6130_create_backlight(dsi);
 	if (IS_ERR(ctx->panel.backlight))
 		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
