@@ -75,6 +75,35 @@
 		regulator-always-on;
 		regulator-boot-on;
 	};
+
+	wlan_regulator: wlan-regulator {
+		compatible = "regulator-wlan";
+		regulator-name = "wlan";
+
+		enable-gpio = <&tlmm 16 GPIO_ACTIVE_HIGH>;
+
+		supply-count = <7>;
+
+		vin0-supply = <&vreg_s3c_0p9>; // VDD_PMU_AON_I / VDD095_PMU_BT / VDD09_PMU_RFA_I
+		vin1-supply = <&vreg_s4i_0p85>; // VDD095_PMU
+		vin2-supply = <&vreg_s2c_0p8>; // VDD095_MX_PMU
+		vin3-supply = <&vreg_s1c_1p2>; // VDD13_PMU_RFA_I / VDD13_PMU_PCIE_I
+		vin4-supply = <&vreg_s6c_1p8>; // VDD19_PMU_RFA_I / VDD19_PMU_PCIE_I
+		vin5-supply = <&vreg_l15b_1p8>; // VDD18_AON
+		vin6-supply = <&vreg_l3c_1p2>; // VDD12_18_IO
+		voltage-list = <916000 944000 976000 1316000 1864000 1800000 1200000>;
+		// l6k: 1800000
+		// s1c: 1316000
+		// s6c: 1864000
+		// s3c: 916000
+		// s2c: 976000
+		// s4i: 940000 (rounded to 944000 because of driver problem)
+		// l3c: 1200000
+		// l15b: 1800000
+
+		clocks = <&rpmhcc RPMH_RF_CLK1>;
+		clock-names = "TCXOI";
+	};
 };
 
 &apps_rsc {
@@ -268,7 +297,7 @@
 
 		vreg_s3c_0p9: smps3 {
 			regulator-name = "vreg_s3c_0p9";
-			regulator-min-microvolt = <976000>;
+			regulator-min-microvolt = <904000>;
 			regulator-max-microvolt = <1064000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
@@ -484,6 +513,8 @@
 };
 
 &pcie0 {
+	vdda-supply = <&wlan_regulator>;
+
 	wake-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
 	perst-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
 

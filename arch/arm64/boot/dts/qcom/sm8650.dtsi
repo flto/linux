@@ -2252,6 +2252,7 @@
 
 			power-domains = <&gcc PCIE_0_GDSC>;
 
+			iommus = <&apps_smmu 0x1400 0x7f>;
 			iommu-map = <0     &apps_smmu 0x1400 0x1>,
 				    <0x100 &apps_smmu 0x1401 0x1>;
 
@@ -2361,6 +2362,7 @@
 
 			power-domains = <&gcc PCIE_1_GDSC>;
 
+			iommus = <&apps_smmu 0x1480 0x7f>;
 			iommu-map = <0     &apps_smmu 0x1480 0x1>,
 				    <0x100 &apps_smmu 0x1481 0x1>;
 

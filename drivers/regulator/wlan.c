@@ -26,6 +26,7 @@ struct wlan_data {
 	struct regulator_desc desc;
 	struct regulator_dev *dev;
 	struct regulator **regulators;
+	u32 voltage[100];
 	unsigned int count;
 	struct gpio_desc *enable;
 	bool enabled;
@@ -36,12 +37,16 @@ static int regulator_wlan_enable(struct regulator_dev *rdev)
 	struct wlan_data *priv = rdev_get_drvdata(rdev);
 	int ret, i;
 
-	pr_info("%s\n", __func__);
-
 	if (priv->enabled)
 		return 0;
 
 	for (i = 0; i < priv->count; ++i) {
+		ret = regulator_set_voltage(priv->regulators[i], priv->voltage[i], priv->voltage[i]);
+		if (ret < 0) {
+			pr_info("%s fail to set voltage %d (%d)\n", __func__, i, ret);
+			return ret;
+		}
+
 		ret = regulator_enable(priv->regulators[i]);
 		if (ret < 0) {
 			pr_info("%s fail to enable %d (%d)\n", __func__, i, ret);
@@ -64,8 +69,6 @@ static int regulator_wlan_disable(struct regulator_dev *rdev)
 {
 	struct wlan_data *priv = rdev_get_drvdata(rdev);
 	int ret, i;
-
-	pr_info("%s\n", __func__);
 
 	if (!priv->enabled)
 		return 0;
@@ -110,8 +113,6 @@ static int regulator_wlan_probe(struct platform_device *pdev)
 	u32 count;
 	struct clk_bulk_data *clks;
 
-	pr_info("%s\n", __func__);
-
 	drvdata = devm_kzalloc(&pdev->dev, sizeof(struct wlan_data),
 			       GFP_KERNEL);
 	if (drvdata == NULL)
@@ -128,7 +129,9 @@ static int regulator_wlan_probe(struct platform_device *pdev)
 	if (count == 0)
 		return -EINVAL;
 
-	pr_info("%s count %d\n", __func__, count);
+	ret = device_property_read_u32_array(&pdev->dev, "voltage-list", drvdata->voltage, count);
+	if (ret < 0)
+		return dev_err_probe(&pdev->dev, ret, "Failed to obtain voltage-list\n");
 
 	drvdata->regulators = devm_kmalloc_array(&pdev->dev, sizeof(struct regulator *),
 						 count, GFP_KERNEL);
@@ -167,8 +170,6 @@ static int regulator_wlan_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, drvdata);
-
-	pr_info("%s probed\n", __func__);
 
 	return 0;
 }
