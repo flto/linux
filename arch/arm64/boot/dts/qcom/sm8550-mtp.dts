@@ -13,8 +13,6 @@
 #include "pm8550ve.dtsi"
 #include "pm8550vs.dtsi"
 #include "pmk8550.dtsi"
-#include "pmr735d_a.dtsi"
-#include "pmr735d_b.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SM8550 MTP";
@@ -559,42 +557,6 @@
 	status = "okay";
 };
 
-&mdss_dsi0 {
-	vdda-supply = <&vreg_l3e_1p2>;
-	status = "okay";
-
-	panel@0 {
-		compatible = "visionox,vtdr6130";
-		reg = <0>;
-
-		pinctrl-names = "default", "sleep";
-		pinctrl-0 = <&sde_dsi_active>, <&sde_te_active>;
-		pinctrl-1 = <&sde_dsi_suspend>, <&sde_te_suspend>;
-
-		vddio-supply = <&vreg_l12b_1p8>;
-		vci-supply = <&vreg_l13b_3p0>;
-		vdd-supply = <&vreg_l11b_1p2>;
-
-		reset-gpios = <&tlmm 133 GPIO_ACTIVE_LOW>;
-
-		port {
-			panel0_in: endpoint {
-				remote-endpoint = <&mdss_dsi0_out>;
-			};
-		};
-	};
-};
-
-&mdss_dsi0_out {
-	remote-endpoint = <&panel0_in>;
-	data-lanes = <0 1 2 3>;
-};
-
-&mdss_dsi0_phy {
-	vdds-supply = <&vreg_l1e_0p88>;
-	status = "okay";
-};
-
 &mdss_dp0 {
 	status = "okay";
 };
@@ -682,7 +644,7 @@
 };
 
 &sdhc_2 {
-	cd-gpios = <&pm8550_gpios 12 GPIO_ACTIVE_LOW>;
+	cd-gpios = <&pm8550_gpios 12 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&sdc2_default &sdc2_card_det_n>;
 	pinctrl-1 = <&sdc2_sleep &sdc2_card_det_n>;
