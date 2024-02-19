@@ -17,6 +17,10 @@ struct a7xx_gpu {
 	uint64_t shadow_iova;
 	uint32_t *shadow;
 	void *memstore;
+
+	struct msm_ringbuffer *cur_ring;
+	spinlock_t preempt_lock;
+	bool preempting;
 };
 
 #define to_a7xx_gpu(x) container_of(x, struct a7xx_gpu, base)

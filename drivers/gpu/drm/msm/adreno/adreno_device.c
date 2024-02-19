@@ -535,7 +535,6 @@ static const struct adreno_info gpulist[] = {
 			ADRENO_QUIRK_HAS_HW_APRIV,
 		.init = a7xx_gpu_init,
 		.zapfw = "a750_zap.mbn",
-		.hwcg = a740_hwcg,
 		.address_space_size = SZ_16G,
 	},
 };

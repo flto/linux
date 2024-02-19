@@ -99,6 +99,10 @@ struct msm_ringbuffer {
 	 * preemption.  Can be aquired from irq context.
 	 */
 	spinlock_t preempt_lock;
+
+	int64_t preempt_iova;
+	void *preempt_ptr;
+	struct drm_gem_object *preempt_bo;
 };
 
 struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int id,
