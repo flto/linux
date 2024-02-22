@@ -196,6 +196,8 @@ static void a7xx_flush(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
 
 	spin_lock_irqsave(&a7xx_gpu->preempt_lock, flags);
 
+	ring->cur = ring->next;
+
 	/* in-progress preemption: don't touch anything until preemption finishes */
 	if (a7xx_gpu->preempting) {
 		spin_unlock_irqrestore(&a7xx_gpu->preempt_lock, flags);
@@ -206,7 +208,6 @@ static void a7xx_flush(struct msm_gpu *gpu, struct msm_ringbuffer *ring)
 		/* no ring change: just update WPTR */
 
 		/* Copy the shadow to the actual register */
-		ring->cur = ring->next;
 
 		/*
 		* Mask wptr value that we calculate to fit in the HW range. This is
