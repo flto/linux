@@ -487,31 +487,36 @@ static void hangcheck_handler(struct timer_list *t)
 {
 	struct msm_gpu *gpu = from_timer(gpu, t, hangcheck_timer);
 	struct drm_device *dev = gpu->dev;
-	struct msm_ringbuffer *ring = gpu->funcs->active_ring(gpu);
-	uint32_t fence = ring->memptrs->fence;
+	int i;
 
-	if (fence != ring->hangcheck_fence) {
-		/* some progress has been made.. ya! */
-		ring->hangcheck_fence = fence;
-		ring->hangcheck_progress_retries = 0;
-	} else if (fence_before(fence, ring->fctx->last_fence) &&
-			!made_progress(gpu, ring)) {
-		/* no progress and not done.. hung! */
-		ring->hangcheck_fence = fence;
-		ring->hangcheck_progress_retries = 0;
-		DRM_DEV_ERROR(dev->dev, "%s: hangcheck detected gpu lockup rb %d!\n",
-				gpu->name, ring->id);
-		DRM_DEV_ERROR(dev->dev, "%s:     completed fence: %u\n",
-				gpu->name, fence);
-		DRM_DEV_ERROR(dev->dev, "%s:     submitted fence: %u\n",
-				gpu->name, ring->fctx->last_fence);
+	for (i = 0; i < gpu->nr_rings; i++) {
+		struct msm_ringbuffer *ring = gpu->rb[i];
+		uint32_t fence = ring->memptrs->fence;
 
-		kthread_queue_work(gpu->worker, &gpu->recover_work);
+		if (fence != ring->hangcheck_fence) {
+			/* some progress has been made.. ya! */
+			ring->hangcheck_fence = fence;
+			ring->hangcheck_progress_retries = 0;
+		} else if (fence_before(fence, ring->fctx->last_fence) &&
+				!made_progress(gpu, ring)) {
+			/* no progress and not done.. hung! */
+			ring->hangcheck_fence = fence;
+			ring->hangcheck_progress_retries = 0;
+			DRM_DEV_ERROR(dev->dev, "%s: hangcheck detected gpu lockup rb %d!\n",
+					gpu->name, ring->id);
+			DRM_DEV_ERROR(dev->dev, "%s:     completed fence: %u\n",
+					gpu->name, fence);
+			DRM_DEV_ERROR(dev->dev, "%s:     submitted fence: %u\n",
+					gpu->name, ring->fctx->last_fence);
+
+			kthread_queue_work(gpu->worker, &gpu->recover_work);
+			break;
+		}
+
+		/* if still more pending work, reset the hangcheck timer: */
+		if (fence_after(ring->fctx->last_fence, ring->hangcheck_fence))
+			hangcheck_timer_reset(gpu);
 	}
-
-	/* if still more pending work, reset the hangcheck timer: */
-	if (fence_after(ring->fctx->last_fence, ring->hangcheck_fence))
-		hangcheck_timer_reset(gpu);
 
 	/* workaround for missing irq: */
 	msm_gpu_retire(gpu);
