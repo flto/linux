@@ -348,7 +348,7 @@ int adreno_get_param(struct msm_gpu *gpu, struct msm_file_private *ctx,
 		}
 		return -EINVAL;
 	case MSM_PARAM_PRIORITIES:
-		*value = gpu->nr_rings * NR_SCHED_PRIORITIES;
+		*value = NR_SCHED_PRIORITIES;
 		return 0;
 	case MSM_PARAM_PP_PGTABLE:
 		*value = 0;
