@@ -4333,6 +4333,7 @@ drm_edp_backlight_init(struct drm_dp_aux *aux, struct drm_edp_backlight_info *bl
 		if (ret < 0)
 			return ret;
 	}
+	bl->max = 2047; // XXX: real max might be higher
 
 	ret = drm_edp_backlight_probe_state(aux, bl, current_mode);
 	if (ret < 0)
