@@ -189,8 +189,9 @@ efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 				  unsigned long *load_addr,
 				  unsigned long *load_size)
 {
-	const efi_char16_t *cmdline = efi_table_attr(image, load_options);
-	u32 cmdline_len = efi_table_attr(image, load_options_size);
+	static const efi_char16_t _cmdline[] = L"" CONFIG_CMDLINE;
+	const efi_char16_t *cmdline = _cmdline;
+	u32 cmdline_len = sizeof(_cmdline)-sizeof(*_cmdline);
 	unsigned long efi_chunk_size = ULONG_MAX;
 	efi_file_protocol_t *volume = NULL;
 	efi_file_protocol_t *file;
