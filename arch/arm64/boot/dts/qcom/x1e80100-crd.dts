@@ -1156,7 +1156,7 @@
 };
 
 &usb_1_ss0_dwc3 {
-	dr_mode = "host";
+	dr_mode = "peripheral";
 };
 
 &usb_1_ss0_dwc3_hs {
