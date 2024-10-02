@@ -3022,14 +3022,12 @@
 				 <&gcc GCC_PCIE_6A_CFG_AHB_CLK>,
 				 <&tcsr TCSR_PCIE_4L_CLKREF_EN>,
 				 <&gcc GCC_PCIE_6A_PHY_RCHNG_CLK>,
-				 <&gcc GCC_PCIE_6A_PIPE_CLK>,
-				 <&gcc GCC_PCIE_6A_PIPEDIV2_CLK>;
+				 <&gcc GCC_PCIE_6A_PIPE_CLK>;
 			clock-names = "aux",
 				      "cfg_ahb",
 				      "ref",
 				      "rchng",
-				      "pipe",
-				      "pipediv2";
+				      "pipe";
 
 			resets = <&gcc GCC_PCIE_6A_PHY_BCR>,
 				 <&gcc GCC_PCIE_6A_NOCSR_COM_PHY_BCR>;
@@ -3148,14 +3146,12 @@
 				 <&gcc GCC_PCIE_5_CFG_AHB_CLK>,
 				 <&tcsr TCSR_PCIE_2L_5_CLKREF_EN>,
 				 <&gcc GCC_PCIE_5_PHY_RCHNG_CLK>,
-				 <&gcc GCC_PCIE_5_PIPE_CLK>,
-				 <&gcc GCC_PCIE_5_PIPEDIV2_CLK>;
+				 <&gcc GCC_PCIE_5_PIPE_CLK>;
 			clock-names = "aux",
 				      "cfg_ahb",
 				      "ref",
 				      "rchng",
-				      "pipe",
-				      "pipediv2";
+				      "pipe";
 
 			resets = <&gcc GCC_PCIE_5_PHY_BCR>;
 			reset-names = "phy";
@@ -3282,14 +3278,12 @@
 				 <&gcc GCC_PCIE_4_CFG_AHB_CLK>,
 				 <&tcsr TCSR_PCIE_2L_4_CLKREF_EN>,
 				 <&gcc GCC_PCIE_4_PHY_RCHNG_CLK>,
-				 <&gcc GCC_PCIE_4_PIPE_CLK>,
-				 <&gcc GCC_PCIE_4_PIPEDIV2_CLK>;
+				 <&gcc GCC_PCIE_4_PIPE_CLK>;
 			clock-names = "aux",
 				      "cfg_ahb",
 				      "ref",
 				      "rchng",
-				      "pipe",
-				      "pipediv2";
+				      "pipe";
 
 			resets = <&gcc GCC_PCIE_4_PHY_BCR>;
 			reset-names = "phy";
