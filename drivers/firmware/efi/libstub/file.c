@@ -208,6 +208,18 @@ efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 	if (IS_ENABLED(CONFIG_X86) && !efi_nochunk)
 		efi_chunk_size = EFI_READ_CHUNK_SIZE;
 
+	if (IS_ENABLED(CONFIG_CMDLINE_EXTEND) ||
+	    IS_ENABLED(CONFIG_CMDLINE_FORCE) ||
+	    cmdline_len == 0) {
+		if (!IS_ENABLED(CONFIG_CMDLINE_FORCE) && cmdline_len > 0) {
+			/* both CONFIG_CMDLINE and load_options should be used */
+			efi_warn("ignoring %ls from CONFIG_CMDLINE\n", optstr);
+		} else {
+			cmdline = L"" CONFIG_CMDLINE;
+			cmdline_len = ARRAY_SIZE(L"" CONFIG_CMDLINE) - 1;
+		}
+	}
+
 	alloc_addr = alloc_size = 0;
 	do {
 		struct finfo fi;
