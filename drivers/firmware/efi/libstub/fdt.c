@@ -271,6 +271,53 @@ efi_status_t allocate_new_fdt_and_exit_boot(void *handle,
 	if (!fdt_addr)
 		efi_info("Generating empty DTB\n");
 
+	efi_info("Loading slbounce.efi...\n");
+	{
+		const efi_char16_t file_name[] = L"slbounce.efi";
+		efi_guid_t dp_proto = EFI_DEVICE_PATH_PROTOCOL_GUID;
+		efi_device_path_protocol_t *dev_path, *path;
+		efi_handle_t drv_handle;
+		u32 buf[256];
+
+		status = efi_bs_call(handle_protocol, efi_table_attr(image, device_handle),
+			     &dp_proto, (void **)&dev_path);
+		if (status != EFI_SUCCESS) {
+			efi_err("HandleProtocol failed.\n");
+			goto fail;
+		}
+
+		path = (void*) buf;
+
+		while (dev_path->type != 0x7f) {
+			memcpy(path, dev_path, dev_path->length);
+
+			dev_path = (void*) dev_path + dev_path->length;
+			path = (void*) path + path->length;
+		}
+
+		path->type = EFI_DEV_MEDIA;
+		path->sub_type = EFI_DEV_MEDIA_FILE;
+		path->length = sizeof(*path) + sizeof(file_name);
+		memcpy(((struct efi_file_path_dev_path *)path)->filename, file_name, sizeof(file_name));
+		path = (void*) path + path->length;
+
+		path->type = 0x7f;
+		path->sub_type = 0xff;
+		path->length = sizeof(*path);
+
+		status = efi_bs_call(load_image, false, handle, (void*)buf, NULL, 0, &drv_handle);
+		if (status != EFI_SUCCESS) {
+			efi_err("LoadImage failed %ld.\n", status & ~(1l<<63));
+			goto fail;
+		}
+
+		status = efi_bs_call(start_image, drv_handle, NULL, NULL);
+		if (status != EFI_SUCCESS) {
+			efi_err("StartImage failed.\n");
+			goto fail;
+		}
+	}
+
 	efi_info("Exiting boot services...\n");
 
 	status = efi_allocate_pages(MAX_FDT_SIZE, new_fdt_addr, ULONG_MAX);
