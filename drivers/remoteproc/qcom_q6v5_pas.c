@@ -76,18 +76,14 @@ struct qcom_adsp {
 
 	int proxy_pd_count;
 
-	const char *dtb_firmware_name;
 	int pas_id;
 	int dtb_pas_id;
 	int lite_pas_id;
-	unsigned int minidump_id;
+	//unsigned int minidump_id;
 	int crash_reason_smem;
 	unsigned int smem_host_id;
 	bool decrypt_shutdown;
 	const char *info_name;
-
-	const struct firmware *firmware;
-	const struct firmware *dtb_firmware;
 
 	struct completion start_done;
 	struct completion stop_done;
@@ -137,6 +133,7 @@ static void adsp_segment_dump(struct rproc *rproc, struct rproc_dump_segment *se
 	memcpy_fromio(dest, adsp->mem_region + total_offset, size);
 }
 
+#if 0
 static void adsp_minidump(struct rproc *rproc)
 {
 	struct qcom_adsp *adsp = rproc->priv;
@@ -146,6 +143,7 @@ static void adsp_minidump(struct rproc *rproc)
 
 	qcom_minidump(rproc, adsp->minidump_id, adsp_segment_dump);
 }
+#endif
 
 static int adsp_pds_enable(struct qcom_adsp *adsp, struct device **pds,
 			   size_t pd_count)
@@ -217,52 +215,15 @@ static int adsp_unprepare(struct rproc *rproc)
 
 static int adsp_load(struct rproc *rproc, const struct firmware *fw)
 {
-	struct qcom_adsp *adsp = rproc->priv;
-	int ret;
-
-	/* Store firmware handle to be used in adsp_start() */
-	adsp->firmware = fw;
-
-	if (adsp->lite_pas_id)
-		ret = qcom_scm_pas_shutdown(adsp->lite_pas_id);
-
-	if (adsp->dtb_pas_id) {
-		ret = request_firmware(&adsp->dtb_firmware, adsp->dtb_firmware_name, adsp->dev);
-		if (ret) {
-			dev_err(adsp->dev, "request_firmware failed for %s: %d\n",
-				adsp->dtb_firmware_name, ret);
-			return ret;
-		}
-
-		ret = qcom_mdt_pas_init(adsp->dev, adsp->dtb_firmware, adsp->dtb_firmware_name,
-					adsp->dtb_pas_id, adsp->dtb_mem_phys,
-					&adsp->dtb_pas_metadata);
-		if (ret)
-			goto release_dtb_firmware;
-
-		ret = qcom_mdt_load_no_init(adsp->dev, adsp->dtb_firmware, adsp->dtb_firmware_name,
-					    adsp->dtb_pas_id, adsp->dtb_mem_region,
-					    adsp->dtb_mem_phys, adsp->dtb_mem_size,
-					    &adsp->dtb_mem_reloc);
-		if (ret)
-			goto release_dtb_metadata;
-	}
-
 	return 0;
-
-release_dtb_metadata:
-	qcom_scm_pas_metadata_release(&adsp->dtb_pas_metadata);
-
-release_dtb_firmware:
-	release_firmware(adsp->dtb_firmware);
-
-	return ret;
 }
 
 static int adsp_start(struct rproc *rproc)
 {
 	struct qcom_adsp *adsp = rproc->priv;
 	int ret;
+
+	return 0;
 
 	ret = qcom_q6v5_prepare(&adsp->q6v5);
 	if (ret)
@@ -292,58 +253,8 @@ static int adsp_start(struct rproc *rproc)
 			goto disable_cx_supply;
 	}
 
-	if (adsp->dtb_pas_id) {
-		ret = qcom_scm_pas_auth_and_reset(adsp->dtb_pas_id);
-		if (ret) {
-			dev_err(adsp->dev,
-				"failed to authenticate dtb image and release reset\n");
-			goto disable_px_supply;
-		}
-	}
-
-	ret = qcom_mdt_pas_init(adsp->dev, adsp->firmware, rproc->firmware, adsp->pas_id,
-				adsp->mem_phys, &adsp->pas_metadata);
-	if (ret)
-		goto disable_px_supply;
-
-	ret = qcom_mdt_load_no_init(adsp->dev, adsp->firmware, rproc->firmware, adsp->pas_id,
-				    adsp->mem_region, adsp->mem_phys, adsp->mem_size,
-				    &adsp->mem_reloc);
-	if (ret)
-		goto release_pas_metadata;
-
-	qcom_pil_info_store(adsp->info_name, adsp->mem_phys, adsp->mem_size);
-
-	ret = qcom_scm_pas_auth_and_reset(adsp->pas_id);
-	if (ret) {
-		dev_err(adsp->dev,
-			"failed to authenticate image and release reset\n");
-		goto release_pas_metadata;
-	}
-
-	ret = qcom_q6v5_wait_for_start(&adsp->q6v5, msecs_to_jiffies(5000));
-	if (ret == -ETIMEDOUT) {
-		dev_err(adsp->dev, "start timed out\n");
-		qcom_scm_pas_shutdown(adsp->pas_id);
-		goto release_pas_metadata;
-	}
-
-	qcom_scm_pas_metadata_release(&adsp->pas_metadata);
-	if (adsp->dtb_pas_id)
-		qcom_scm_pas_metadata_release(&adsp->dtb_pas_metadata);
-
-	/* Remove pointer to the loaded firmware, only valid in adsp_load() & adsp_start() */
-	adsp->firmware = NULL;
-
 	return 0;
 
-release_pas_metadata:
-	qcom_scm_pas_metadata_release(&adsp->pas_metadata);
-	if (adsp->dtb_pas_id)
-		qcom_scm_pas_metadata_release(&adsp->dtb_pas_metadata);
-disable_px_supply:
-	if (adsp->px_supply)
-		regulator_disable(adsp->px_supply);
 disable_cx_supply:
 	if (adsp->cx_supply)
 		regulator_disable(adsp->cx_supply);
@@ -355,9 +266,6 @@ disable_proxy_pds:
 	adsp_pds_disable(adsp, adsp->proxy_pds, adsp->proxy_pd_count);
 disable_irqs:
 	qcom_q6v5_unprepare(&adsp->q6v5);
-
-	/* Remove pointer to the loaded firmware, only valid in adsp_load() & adsp_start() */
-	adsp->firmware = NULL;
 
 	return ret;
 }
@@ -377,50 +285,7 @@ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
 
 static int adsp_stop(struct rproc *rproc)
 {
-	struct qcom_adsp *adsp = rproc->priv;
-	int handover;
-	int ret;
-
-	ret = qcom_q6v5_request_stop(&adsp->q6v5, adsp->sysmon);
-	if (ret == -ETIMEDOUT)
-		dev_err(adsp->dev, "timed out on wait\n");
-
-	ret = qcom_scm_pas_shutdown(adsp->pas_id);
-	if (ret && adsp->decrypt_shutdown)
-		ret = adsp_shutdown_poll_decrypt(adsp);
-
-	if (ret)
-		dev_err(adsp->dev, "failed to shutdown: %d\n", ret);
-
-	if (adsp->dtb_pas_id) {
-		ret = qcom_scm_pas_shutdown(adsp->dtb_pas_id);
-		if (ret)
-			dev_err(adsp->dev, "failed to shutdown dtb: %d\n", ret);
-	}
-
-	handover = qcom_q6v5_unprepare(&adsp->q6v5);
-	if (handover)
-		qcom_pas_handover(&adsp->q6v5);
-
-	if (adsp->smem_host_id)
-		ret = qcom_smem_bust_hwspin_lock_by_host(adsp->smem_host_id);
-
-	return ret;
-}
-
-static void *adsp_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
-{
-	struct qcom_adsp *adsp = rproc->priv;
-	int offset;
-
-	offset = da - adsp->mem_reloc;
-	if (offset < 0 || offset + len > adsp->mem_size)
-		return NULL;
-
-	if (is_iomem)
-		*is_iomem = true;
-
-	return adsp->mem_region + offset;
+	return 0;
 }
 
 static unsigned long adsp_panic(struct rproc *rproc)
@@ -434,22 +299,22 @@ static const struct rproc_ops adsp_ops = {
 	.unprepare = adsp_unprepare,
 	.start = adsp_start,
 	.stop = adsp_stop,
-	.da_to_va = adsp_da_to_va,
-	.parse_fw = qcom_register_dump_segments,
+	//.parse_fw = qcom_register_dump_segments,
 	.load = adsp_load,
 	.panic = adsp_panic,
 };
 
+#if 0
 static const struct rproc_ops adsp_minidump_ops = {
 	.unprepare = adsp_unprepare,
 	.start = adsp_start,
 	.stop = adsp_stop,
-	.da_to_va = adsp_da_to_va,
 	.parse_fw = qcom_register_dump_segments,
 	.load = adsp_load,
 	.panic = adsp_panic,
 	.coredump = adsp_minidump,
 };
+#endif
 
 static int adsp_init_clock(struct qcom_adsp *adsp)
 {
@@ -688,7 +553,6 @@ static int adsp_probe(struct platform_device *pdev)
 	const struct adsp_data *desc;
 	struct qcom_adsp *adsp;
 	struct rproc *rproc;
-	const char *fw_name, *dtb_fw_name = NULL;
 	const struct rproc_ops *ops = &adsp_ops;
 	int ret;
 
@@ -699,24 +563,10 @@ static int adsp_probe(struct platform_device *pdev)
 	if (!qcom_scm_is_available())
 		return -EPROBE_DEFER;
 
-	fw_name = desc->firmware_name;
-	ret = of_property_read_string(pdev->dev.of_node, "firmware-name",
-				      &fw_name);
-	if (ret < 0 && ret != -EINVAL)
-		return ret;
+	//if (desc->minidump_id)
+	//	ops = &adsp_minidump_ops;
 
-	if (desc->dtb_firmware_name) {
-		dtb_fw_name = desc->dtb_firmware_name;
-		ret = of_property_read_string_index(pdev->dev.of_node, "firmware-name", 1,
-						    &dtb_fw_name);
-		if (ret < 0 && ret != -EINVAL)
-			return ret;
-	}
-
-	if (desc->minidump_id)
-		ops = &adsp_minidump_ops;
-
-	rproc = devm_rproc_alloc(&pdev->dev, pdev->name, ops, fw_name, sizeof(*adsp));
+	rproc = devm_rproc_alloc(&pdev->dev, pdev->name, ops, NULL, sizeof(*adsp));
 
 	if (!rproc) {
 		dev_err(&pdev->dev, "unable to allocate remoteproc\n");
@@ -729,7 +579,7 @@ static int adsp_probe(struct platform_device *pdev)
 	adsp = rproc->priv;
 	adsp->dev = &pdev->dev;
 	adsp->rproc = rproc;
-	adsp->minidump_id = desc->minidump_id;
+	//adsp->minidump_id = desc->minidump_id;
 	adsp->pas_id = desc->pas_id;
 	adsp->lite_pas_id = desc->lite_pas_id;
 	adsp->info_name = desc->sysmon_name;
@@ -739,10 +589,6 @@ static int adsp_probe(struct platform_device *pdev)
 	adsp->region_assign_count = min_t(int, MAX_ASSIGN_COUNT, desc->region_assign_count);
 	adsp->region_assign_vmid = desc->region_assign_vmid;
 	adsp->region_assign_shared = desc->region_assign_shared;
-	if (dtb_fw_name) {
-		adsp->dtb_firmware_name = dtb_fw_name;
-		adsp->dtb_pas_id = desc->dtb_pas_id;
-	}
 	platform_set_drvdata(pdev, adsp);
 
 	ret = device_init_wakeup(adsp->dev, true);
