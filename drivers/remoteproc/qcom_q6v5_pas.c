@@ -77,19 +77,15 @@ struct qcom_pas {
 
 	int proxy_pd_count;
 
-	const char *dtb_firmware_name;
 	int pas_id;
 	int dtb_pas_id;
 	int lite_pas_id;
 	int lite_dtb_pas_id;
-	unsigned int minidump_id;
+	//unsigned int minidump_id;
 	int crash_reason_smem;
 	unsigned int smem_host_id;
 	bool decrypt_shutdown;
 	const char *info_name;
-
-	const struct firmware *firmware;
-	const struct firmware *dtb_firmware;
 
 	struct completion start_done;
 	struct completion stop_done;
@@ -140,6 +136,7 @@ static void qcom_pas_segment_dump(struct rproc *rproc,
 	memcpy_fromio(dest, pas->mem_region + total_offset, size);
 }
 
+#if 0
 static void qcom_pas_minidump(struct rproc *rproc)
 {
 	struct qcom_pas *pas = rproc->priv;
@@ -149,6 +146,7 @@ static void qcom_pas_minidump(struct rproc *rproc)
 
 	qcom_minidump(rproc, pas->minidump_id, qcom_pas_segment_dump);
 }
+#endif
 
 static int qcom_pas_pds_enable(struct qcom_pas *pas, struct device **pds,
 			       size_t pd_count)
@@ -220,150 +218,12 @@ static int qcom_pas_unprepare(struct rproc *rproc)
 
 static int qcom_pas_load(struct rproc *rproc, const struct firmware *fw)
 {
-	struct qcom_pas *pas = rproc->priv;
-	int ret;
-
-	/* Store firmware handle to be used in qcom_pas_start() */
-	pas->firmware = fw;
-
-	if (pas->lite_pas_id)
-		qcom_scm_pas_shutdown(pas->lite_pas_id);
-	if (pas->lite_dtb_pas_id)
-		qcom_scm_pas_shutdown(pas->lite_dtb_pas_id);
-
-	if (pas->dtb_pas_id) {
-		ret = request_firmware(&pas->dtb_firmware, pas->dtb_firmware_name, pas->dev);
-		if (ret) {
-			dev_err(pas->dev, "request_firmware failed for %s: %d\n",
-				pas->dtb_firmware_name, ret);
-			return ret;
-		}
-
-		ret = qcom_mdt_pas_init(pas->dev, pas->dtb_firmware, pas->dtb_firmware_name,
-					pas->dtb_pas_id, pas->dtb_mem_phys,
-					&pas->dtb_pas_metadata);
-		if (ret)
-			goto release_dtb_firmware;
-
-		ret = qcom_mdt_load_no_init(pas->dev, pas->dtb_firmware, pas->dtb_firmware_name,
-					    pas->dtb_mem_region, pas->dtb_mem_phys,
-					    pas->dtb_mem_size, &pas->dtb_mem_reloc);
-		if (ret)
-			goto release_dtb_metadata;
-	}
-
 	return 0;
-
-release_dtb_metadata:
-	qcom_scm_pas_metadata_release(&pas->dtb_pas_metadata);
-
-release_dtb_firmware:
-	release_firmware(pas->dtb_firmware);
-
-	return ret;
 }
 
 static int qcom_pas_start(struct rproc *rproc)
 {
-	struct qcom_pas *pas = rproc->priv;
-	int ret;
-
-	ret = qcom_q6v5_prepare(&pas->q6v5);
-	if (ret)
-		return ret;
-
-	ret = qcom_pas_pds_enable(pas, pas->proxy_pds, pas->proxy_pd_count);
-	if (ret < 0)
-		goto disable_irqs;
-
-	ret = clk_prepare_enable(pas->xo);
-	if (ret)
-		goto disable_proxy_pds;
-
-	ret = clk_prepare_enable(pas->aggre2_clk);
-	if (ret)
-		goto disable_xo_clk;
-
-	if (pas->cx_supply) {
-		ret = regulator_enable(pas->cx_supply);
-		if (ret)
-			goto disable_aggre2_clk;
-	}
-
-	if (pas->px_supply) {
-		ret = regulator_enable(pas->px_supply);
-		if (ret)
-			goto disable_cx_supply;
-	}
-
-	if (pas->dtb_pas_id) {
-		ret = qcom_scm_pas_auth_and_reset(pas->dtb_pas_id);
-		if (ret) {
-			dev_err(pas->dev,
-				"failed to authenticate dtb image and release reset\n");
-			goto disable_px_supply;
-		}
-	}
-
-	ret = qcom_mdt_pas_init(pas->dev, pas->firmware, rproc->firmware, pas->pas_id,
-				pas->mem_phys, &pas->pas_metadata);
-	if (ret)
-		goto disable_px_supply;
-
-	ret = qcom_mdt_load_no_init(pas->dev, pas->firmware, rproc->firmware,
-				    pas->mem_region, pas->mem_phys, pas->mem_size,
-				    &pas->mem_reloc);
-	if (ret)
-		goto release_pas_metadata;
-
-	qcom_pil_info_store(pas->info_name, pas->mem_phys, pas->mem_size);
-
-	ret = qcom_scm_pas_auth_and_reset(pas->pas_id);
-	if (ret) {
-		dev_err(pas->dev,
-			"failed to authenticate image and release reset\n");
-		goto release_pas_metadata;
-	}
-
-	ret = qcom_q6v5_wait_for_start(&pas->q6v5, msecs_to_jiffies(5000));
-	if (ret == -ETIMEDOUT) {
-		dev_err(pas->dev, "start timed out\n");
-		qcom_scm_pas_shutdown(pas->pas_id);
-		goto release_pas_metadata;
-	}
-
-	qcom_scm_pas_metadata_release(&pas->pas_metadata);
-	if (pas->dtb_pas_id)
-		qcom_scm_pas_metadata_release(&pas->dtb_pas_metadata);
-
-	/* firmware is used to pass reference from qcom_pas_start(), drop it now */
-	pas->firmware = NULL;
-
 	return 0;
-
-release_pas_metadata:
-	qcom_scm_pas_metadata_release(&pas->pas_metadata);
-	if (pas->dtb_pas_id)
-		qcom_scm_pas_metadata_release(&pas->dtb_pas_metadata);
-disable_px_supply:
-	if (pas->px_supply)
-		regulator_disable(pas->px_supply);
-disable_cx_supply:
-	if (pas->cx_supply)
-		regulator_disable(pas->cx_supply);
-disable_aggre2_clk:
-	clk_disable_unprepare(pas->aggre2_clk);
-disable_xo_clk:
-	clk_disable_unprepare(pas->xo);
-disable_proxy_pds:
-	qcom_pas_pds_disable(pas, pas->proxy_pds, pas->proxy_pd_count);
-disable_irqs:
-	qcom_q6v5_unprepare(&pas->q6v5);
-
-	/* firmware is used to pass reference from qcom_pas_start(), drop it now */
-	pas->firmware = NULL;
-
-	return ret;
 }
 
 static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
@@ -381,50 +241,7 @@ static void qcom_pas_handover(struct qcom_q6v5 *q6v5)
 
 static int qcom_pas_stop(struct rproc *rproc)
 {
-	struct qcom_pas *pas = rproc->priv;
-	int handover;
-	int ret;
-
-	ret = qcom_q6v5_request_stop(&pas->q6v5, pas->sysmon);
-	if (ret == -ETIMEDOUT)
-		dev_err(pas->dev, "timed out on wait\n");
-
-	ret = qcom_scm_pas_shutdown(pas->pas_id);
-	if (ret && pas->decrypt_shutdown)
-		ret = qcom_pas_shutdown_poll_decrypt(pas);
-
-	if (ret)
-		dev_err(pas->dev, "failed to shutdown: %d\n", ret);
-
-	if (pas->dtb_pas_id) {
-		ret = qcom_scm_pas_shutdown(pas->dtb_pas_id);
-		if (ret)
-			dev_err(pas->dev, "failed to shutdown dtb: %d\n", ret);
-	}
-
-	handover = qcom_q6v5_unprepare(&pas->q6v5);
-	if (handover)
-		qcom_pas_handover(&pas->q6v5);
-
-	if (pas->smem_host_id)
-		ret = qcom_smem_bust_hwspin_lock_by_host(pas->smem_host_id);
-
-	return ret;
-}
-
-static void *qcom_pas_da_to_va(struct rproc *rproc, u64 da, size_t len, bool *is_iomem)
-{
-	struct qcom_pas *pas = rproc->priv;
-	int offset;
-
-	offset = da - pas->mem_reloc;
-	if (offset < 0 || offset + len > pas->mem_size)
-		return NULL;
-
-	if (is_iomem)
-		*is_iomem = true;
-
-	return pas->mem_region + offset;
+	return 0;
 }
 
 static unsigned long qcom_pas_panic(struct rproc *rproc)
@@ -438,12 +255,13 @@ static const struct rproc_ops qcom_pas_ops = {
 	.unprepare = qcom_pas_unprepare,
 	.start = qcom_pas_start,
 	.stop = qcom_pas_stop,
-	.da_to_va = qcom_pas_da_to_va,
-	.parse_fw = qcom_register_dump_segments,
+	//.da_to_va = qcom_pas_da_to_va,
+	//.parse_fw = qcom_register_dump_segments,
 	.load = qcom_pas_load,
 	.panic = qcom_pas_panic,
 };
 
+#if 0
 static const struct rproc_ops qcom_pas_minidump_ops = {
 	.unprepare = qcom_pas_unprepare,
 	.start = qcom_pas_start,
@@ -454,6 +272,7 @@ static const struct rproc_ops qcom_pas_minidump_ops = {
 	.panic = qcom_pas_panic,
 	.coredump = qcom_pas_minidump,
 };
+#endif
 
 static int qcom_pas_init_clock(struct qcom_pas *pas)
 {
@@ -681,7 +500,6 @@ static int qcom_pas_probe(struct platform_device *pdev)
 	const struct qcom_pas_data *desc;
 	struct qcom_pas *pas;
 	struct rproc *rproc;
-	const char *fw_name, *dtb_fw_name = NULL;
 	const struct rproc_ops *ops = &qcom_pas_ops;
 	int ret;
 
@@ -692,24 +510,7 @@ static int qcom_pas_probe(struct platform_device *pdev)
 	if (!qcom_scm_is_available())
 		return -EPROBE_DEFER;
 
-	fw_name = desc->firmware_name;
-	ret = of_property_read_string(pdev->dev.of_node, "firmware-name",
-				      &fw_name);
-	if (ret < 0 && ret != -EINVAL)
-		return ret;
-
-	if (desc->dtb_firmware_name) {
-		dtb_fw_name = desc->dtb_firmware_name;
-		ret = of_property_read_string_index(pdev->dev.of_node, "firmware-name", 1,
-						    &dtb_fw_name);
-		if (ret < 0 && ret != -EINVAL)
-			return ret;
-	}
-
-	if (desc->minidump_id)
-		ops = &qcom_pas_minidump_ops;
-
-	rproc = devm_rproc_alloc(&pdev->dev, desc->sysmon_name, ops, fw_name, sizeof(*pas));
+	rproc = devm_rproc_alloc(&pdev->dev, desc->sysmon_name, ops, NULL, sizeof(*pas));
 
 	if (!rproc) {
 		dev_err(&pdev->dev, "unable to allocate remoteproc\n");
@@ -722,7 +523,7 @@ static int qcom_pas_probe(struct platform_device *pdev)
 	pas = rproc->priv;
 	pas->dev = &pdev->dev;
 	pas->rproc = rproc;
-	pas->minidump_id = desc->minidump_id;
+	//pas->minidump_id = desc->minidump_id;
 	pas->pas_id = desc->pas_id;
 	pas->lite_pas_id = desc->lite_pas_id;
 	pas->lite_dtb_pas_id = desc->lite_dtb_pas_id;
@@ -733,10 +534,6 @@ static int qcom_pas_probe(struct platform_device *pdev)
 	pas->region_assign_count = min_t(int, MAX_ASSIGN_COUNT, desc->region_assign_count);
 	pas->region_assign_vmid = desc->region_assign_vmid;
 	pas->region_assign_shared = desc->region_assign_shared;
-	if (dtb_fw_name) {
-		pas->dtb_firmware_name = dtb_fw_name;
-		pas->dtb_pas_id = desc->dtb_pas_id;
-	}
 	platform_set_drvdata(pdev, pas);
 
 	ret = device_init_wakeup(pas->dev, true);
