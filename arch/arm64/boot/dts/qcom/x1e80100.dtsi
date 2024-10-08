@@ -5857,6 +5857,20 @@
 			#global-interrupts = <1>;
 		};
 
+		pcie_smmu: iommu@15400000 {
+			compatible = "arm,smmu-v3";
+			reg = <0 0x15400000 0 0x80000>;
+			interrupts = <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 134 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 136 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "eventq",
+					  "gerror",
+					  "cmdq-sync";
+			#iommu-cells = <1>;
+			dma-coherent;
+			status = "reserved"; /* Owned by QHEE firmware */
+		};
+
 		intc: interrupt-controller@17000000 {
 			compatible = "arm,gic-v3";
 			reg = <0 0x17000000 0 0x10000>,     /* GICD */
