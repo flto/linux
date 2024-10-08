@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2024, Jonathan Marek
+ */
+
+/* NOTE: many of the reserved-memory regions can be deleted,
+ * but most of them are excluded by EFI memory and just deleting
+ * them from DTB is not enough to make the memory available
+ */
+
+/ {
+	/delete-node/ smp2p-cdsp;
+	/delete-node/ sound;
+};
+
+&gpu {
+	/delete-node/ zap-shader;
+};
+
+&iris {
+	video-firmware {
+		iommus = <&apps_smmu 0x1942 0x0000>;
+	};
+};
+
+/delete-node/ &not_lpass_audiocc;
+/delete-node/ &not_lpasscc;
+
+&lpass_aoncc {
+	status = "okay";
+};
+
+&lpass_audiocc {
+	status = "okay";
+};
+
+&lpass_corecc {
+	status = "okay";
+};
+
+&lpass_hm {
+	status = "okay";
+};
+
+&lpass_rxtx_lpaif {
+	status = "okay";
+};
+
+&lpass_wsa_lpaif {
+	status = "okay";
+};
+
+&lpass_va_lpaif {
+	status = "okay";
+};
+
+&lpass_tlmm {
+	/delete-property/ clocks;
+	/delete-property/ clocks-names;
+};
+
+&lpass_txmacro {
+	clocks = <&lpass_aoncc LPASS_AON_CC_TX_MCLK_CLK>, <&lpass_vamacro>;
+	clock-names = "mclk", "fsgen";
+};
+
+&lpass_rxmacro {
+	clocks = <&lpass_audiocc LPASS_AUDIO_CC_RX_MCLK_CLK>, <&lpass_vamacro>;
+	clock-names = "mclk", "fsgen";
+};
+
+&lpass_vamacro {
+	clocks = <&lpass_aoncc LPASS_AON_CC_TX_MCLK_CLK>;
+	clock-names = "mclk";
+};
+
+&lpass_wsamacro {
+	clocks = <&lpass_audiocc LPASS_AUDIO_CC_WSA_MCLK_CLK>, <&lpass_vamacro>;
+	clock-names = "mclk", "fsgen";
+};
+
+&lpass_wsa2macro {
+	clocks = <&lpass_audiocc LPASS_AUDIO_CC_WSA2_MCLK_CLK>, <&lpass_vamacro>;
+	clock-names = "mclk", "fsgen";
+};
+
+&pcie4 {
+	iommu-map = <0 &pcie_smmu 0x40000 0x10000>;
+};
+
+&pcie6a {
+	iommu-map = <0 &pcie_smmu 0x60000 0x10000>;
+};
+
+&pcie_smmu {
+	status = "okay";
+};
+
+&remoteproc_adsp {
+	/delete-property/ firmware-name;
+	glink-edge {
+		/delete-node/ fastrpc;
+		/delete-node/ gpr;
+	};
+};
+
+/delete-node/ &remoteproc_cdsp;
+
+&swr0 {
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+};
+
+&swr1 {
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+};
+
+&swr2 {
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+};
+
+&swr3 {
+	/delete-property/ resets;
+	/delete-property/ reset-names;
+};
+
+/* XXX: create complete dt-bindings include for these */
+#define LPASS_RX_CODEC_DMA_0 17
+#define LPASS_RX_CODEC_DMA_1 18
+#define LPASS_RX_CODEC_DMA_2 19
+#define LPASS_RX_CODEC_DMA_3 20
+
+#define LPASS_TX_CODEC_DMA_0 49
+#define LPASS_TX_CODEC_DMA_1 50
+#define LPASS_TX_CODEC_DMA_2 51
+#define LPASS_TX_CODEC_DMA_3 52
