@@ -141,7 +141,7 @@ static int qcom_snps_eusb2_hsphy_set_mode(struct phy *p, enum phy_mode mode, int
 
 	phy->mode = mode;
 
-	return phy_set_mode_ext(phy->repeater, mode, submode);
+	return phy->repeater ? phy_set_mode_ext(phy->repeater, mode, submode) : 0;
 }
 
 static void qcom_snps_eusb2_hsphy_write_mask(void __iomem *base, u32 offset,
@@ -239,7 +239,7 @@ static int qcom_snps_eusb2_hsphy_init(struct phy *p)
 	if (ret)
 		return ret;
 
-	ret = phy_init(phy->repeater);
+	ret = phy->repeater ? phy_init(phy->repeater) : 0;
 	if (ret) {
 		dev_err(&p->dev, "repeater init failed. %d\n", ret);
 		goto disable_vreg;
@@ -352,7 +352,7 @@ static int qcom_snps_eusb2_hsphy_exit(struct phy *p)
 
 	regulator_bulk_disable(ARRAY_SIZE(phy->vregs), phy->vregs);
 
-	phy_exit(phy->repeater);
+	if (phy->repeater) phy_exit(phy->repeater);
 
 	return 0;
 }
@@ -402,8 +402,9 @@ static int qcom_snps_eusb2_hsphy_probe(struct platform_device *pdev)
 
 	phy->repeater = devm_of_phy_get_by_index(dev, np, 0);
 	if (IS_ERR(phy->repeater))
-		return dev_err_probe(dev, PTR_ERR(phy->repeater),
-				     "failed to get repeater\n");
+		phy->repeater = NULL;
+		//return dev_err_probe(dev, PTR_ERR(phy->repeater),
+		//		     "failed to get repeater\n");
 
 	generic_phy = devm_phy_create(dev, NULL, &qcom_snps_eusb2_hsphy_ops);
 	if (IS_ERR(generic_phy)) {

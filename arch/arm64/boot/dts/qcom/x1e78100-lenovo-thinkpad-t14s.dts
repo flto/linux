@@ -1078,3 +1078,29 @@
 &usb_1_ss1_qmpphy_out {
 	remote-endpoint = <&retimer_ss1_ss_in>;
 };
+
+&usb_mp {
+	status = "okay";
+};
+
+&usb_mp_dwc3 {
+	status = "okay";
+};
+
+/* XXX : phy power? */
+
+&usb_mp_hsphy0 {
+	status = "okay";
+};
+
+&usb_mp_hsphy1 {
+	status = "okay";
+};
+
+&usb_mp_qmpphy0 {
+	status = "okay";
+};
+
+&usb_mp_qmpphy1 {
+	status = "okay";
+};
