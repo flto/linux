@@ -6,6 +6,7 @@
 #include <dt-bindings/clock/qcom,rpmh.h>
 #include <dt-bindings/clock/qcom,sc8280xp-lpasscc.h>
 #include <dt-bindings/clock/qcom,sm8450-videocc.h>
+#include <dt-bindings/clock/qcom,sm8550-lpasscc.h>
 #include <dt-bindings/clock/qcom,x1e80100-dispcc.h>
 #include <dt-bindings/clock/qcom,x1e80100-gcc.h>
 #include <dt-bindings/clock/qcom,x1e80100-gpucc.h>
@@ -4223,7 +4224,7 @@
 
 			pinctrl-0 = <&wsa2_swr_active>;
 			pinctrl-names = "default";
-			resets = <&lpass_audiocc LPASS_AUDIO_SWR_WSA2_CGCR>;
+			resets = <&not_lpass_audiocc LPASS_AUDIO_SWR_WSA2_CGCR>;
 			reset-names = "swr_audio_cgcr";
 
 			qcom,din-ports = <4>;
@@ -4273,7 +4274,7 @@
 			pinctrl-0 = <&rx_swr_active>;
 			pinctrl-names = "default";
 
-			resets = <&lpass_audiocc LPASS_AUDIO_SWR_RX_CGCR>;
+			resets = <&not_lpass_audiocc LPASS_AUDIO_SWR_RX_CGCR>;
 			reset-names = "swr_audio_cgcr";
 			qcom,din-ports = <1>;
 			qcom,dout-ports = <11>;
@@ -4339,7 +4340,7 @@
 
 			pinctrl-0 = <&wsa_swr_active>;
 			pinctrl-names = "default";
-			resets = <&lpass_audiocc LPASS_AUDIO_SWR_WSA_CGCR>;
+			resets = <&not_lpass_audiocc LPASS_AUDIO_SWR_WSA_CGCR>;
 			reset-names = "swr_audio_cgcr";
 
 			qcom,din-ports = <4>;
@@ -4361,11 +4362,21 @@
 			status = "disabled";
 		};
 
-		lpass_audiocc: clock-controller@6b6c000 {
+		not_lpass_audiocc: clock-controller@6b6c000 {
 			compatible = "qcom,x1e80100-lpassaudiocc", "qcom,sc8280xp-lpassaudiocc";
 			reg = <0 0x06b6c000 0 0x1000>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
+		};
+
+		lpass_audiocc: clock-controller@6bc0000 {
+			reg = <0 0x06bc0000 0 0x38000>;
+			compatible = "qcom,sm8550-audiocc";
+			clocks = <&bi_tcxo_div2>;
+			clock-names = "bi_tcxo";
+			power-domains = <&lpass_aoncc LPASS_AON_CC_LPASS_AUDIO_HM_GDSCR>;
+			#clock-cells = <1>;
+			status = "reserved"; /* owned by ADSP */
 		};
 
 		swr2: soundwire@6d30000 {
@@ -4377,7 +4388,7 @@
 				     <GIC_SPI 520 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "core", "wakeup";
 			label = "TX";
-			resets = <&lpasscc LPASS_AUDIO_SWR_TX_CGCR>;
+			resets = <&not_lpasscc LPASS_AUDIO_SWR_TX_CGCR>;
 			reset-names = "swr_audio_cgcr";
 
 			pinctrl-0 = <&tx_swr_active>;
@@ -4415,6 +4426,17 @@
 			#clock-cells = <0>;
 			clock-output-names = "fsgen";
 			#sound-dai-cells = <1>;
+		};
+
+		lpass_aoncc: clock-controller@6e00000 {
+			reg = <0 0x06e00000 0 0x38000>;
+			compatible = "qcom,sm8550-aoncc";
+			clocks = <&bi_tcxo_div2>;
+			clock-names = "bi_tcxo";
+			#clock-cells = <1>;
+			#power-domain-cells = <1>;
+			power-domains = <&rpmhpd RPMHPD_LCX>; /* check this? */
+			status = "reserved"; /* owned by ADSP */
 		};
 
 		lpass_tlmm: pinctrl@6e80000 {
@@ -4535,11 +4557,124 @@
 			};
 		};
 
-		lpasscc: clock-controller@6ea0000 {
+		not_lpasscc: clock-controller@6ea0000 {
 			compatible = "qcom,x1e80100-lpasscc", "qcom,sc8280xp-lpasscc";
 			reg = <0 0x06ea0000 0 0x12000>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
+		};
+
+		lpass_corecc: clock-controller@7b08000 {
+			compatible = "qcom,sm8550-lpasscorecc";
+			reg = <0 0x07b08000 0 0x4f000>;
+			clocks = <&bi_tcxo_div2>;
+			clock-names = "bi_tcxo";
+			power-domains = <&lpass_hm LPASS_CORE_HM_GDSCR>;
+			#clock-cells = <1>;
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_hm: clock-controller@7e00000 {
+			compatible = "qcom,sm8550-lpasshm";
+			reg = <0 0x07e00000 0 0xa000>;
+			clocks = <&bi_tcxo_div2>;
+			clock-names = "bi_tcxo";
+			#clock-cells = <1>;
+			#power-domain-cells = <1>;
+			power-domains = <&rpmhpd RPMHPD_LCX>; /* check this? */
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_wsa_2ch_lpaif: lpaif@6a00000 {
+			compatible = "qcom,lpaif-v5";
+			reg = <0 0x06a00000 0 0x2b000>;
+			interrupts = <GIC_SPI 162 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			power-domains = <&lpass_aoncc LPASS_AON_CC_LPASS_AUDIO_HM_GDSCR>;
+
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_aud_lpaif: lpaif@6a40000 {
+			compatible = "qcom,lpaif-v5";
+			reg = <0 0x06a40000 0 0x2b000>;
+			interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			power-domains = <&lpass_aoncc LPASS_AON_CC_LPASS_AUDIO_HM_GDSCR>;
+
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_rxtx_lpaif: lpaif@6b40000 {
+			compatible = "qcom,lpaif-v5";
+			reg = <0 0x06b40000 0 0x2b000>;
+			interrupts = <GIC_SPI 180 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			power-domains = <&lpass_aoncc LPASS_AON_CC_LPASS_AUDIO_HM_GDSCR>;
+
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_wsa_lpaif: lpaif@6b80000 {
+			compatible = "qcom,lpaif-v5";
+			reg = <0 0x06b80000 0 0x2b000>;
+			interrupts = <GIC_SPI 179 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			power-domains = <&lpass_aoncc LPASS_AON_CC_LPASS_AUDIO_HM_GDSCR>;
+
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_va_lpaif: lpaif@6d00000 {
+			compatible = "qcom,lpaif-v5";
+			reg = <0 0x06d00000 0 0x2b000>;
+			interrupts = <GIC_SPI 176 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			power-domains = <&rpmhpd RPMHPD_LCX>; /* check this? */
+
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_hdmitx: lpaif@7be8000 {
+			compatible = "qcom,lpaif-hdmi";
+			reg = <0 0x07be8000 0 0x7000>,
+			      <0 0x07b88000 0 0x1000>;
+			interrupts = <GIC_SPI 268 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			clocks = <&lpass_corecc LPASS_CORE_CC_SYSNOC_MPORT_CORE_CLK>;
+
+			iommus = <&apps_smmu 0x1025 0>;
+
+			dma-coherent;
+
+			power-domains = <&lpass_hm LPASS_CORE_HM_GDSCR>;
+
+			status = "reserved"; /* owned by ADSP */
+		};
+
+		lpass_core_lpaif: lpaif@7d00000 {
+			compatible = "qcom,lpaif-v5";
+			reg = <0 0x07d00000 0 0x2b000>;
+			interrupts = <GIC_SPI 160 IRQ_TYPE_LEVEL_HIGH>;
+			#sound-dai-cells = <1>;
+
+			clocks = <&lpass_corecc LPASS_CORE_CC_SYSNOC_MPORT_CORE_CLK>;
+
+			iommus = <&apps_smmu 0x1020 0>,
+				 <&apps_smmu 0x1021 0>,
+				 <&apps_smmu 0x1022 0>;
+
+			dma-coherent;
+
+			power-domains = <&lpass_hm LPASS_CORE_HM_GDSCR>;
+
+			status = "reserved"; /* owned by ADSP */
 		};
 
 		lpass_ag_noc: interconnect@7e40000 {
