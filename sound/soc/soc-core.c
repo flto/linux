@@ -859,7 +859,7 @@ static int snd_soc_is_matching_component(
 	if (!dlc)
 		return 0;
 
-	if (dlc->dai_args) {
+	if (dlc->dai_args && component->num_dai) {
 		struct snd_soc_dai *dai;
 
 		for_each_component_dais(component, dai)
@@ -3524,8 +3524,14 @@ int snd_soc_get_dlc(const struct of_phandle_args *args, struct snd_soc_dai_link_
 	for_each_component(pos) {
 		struct device_node *component_of_node = soc_component_to_node(pos);
 
-		if (component_of_node != args->np || !pos->num_dai)
+		if (component_of_node != args->np)
 			continue;
+
+		if (!pos->num_dai) {
+			dlc->dai_name = NULL;
+			ret = 0;
+			break;
+		}
 
 		ret = snd_soc_component_of_xlate_dai_name(pos, args, &dlc->dai_name);
 		if (ret == -ENOTSUPP) {

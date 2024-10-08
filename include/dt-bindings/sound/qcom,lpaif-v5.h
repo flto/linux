@@ -1,0 +1,51 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef __DT_QCOM_LPAIF_V5_H
+#define __DT_QCOM_LPAIF_V5_H
+
+/* channel_mask is a (8-bit) mask of channels to skip/disable */
+#define LPAIF_INTF_CODEC(intf, channel_mask) ((intf)|(channel_mask)<<4|1<<15)
+
+/* LPAIF_AUD: 2 I2S, 4 CODEC RX, 5 CODEC TX */
+/* I2S clock is AUDIO_CC_EXT_IF4/5 */
+
+/* LPAIF_RXTX: 1 I2S, 10 CODEC RX, 7 CODEC TX */
+/* I2S clock is AUDIO_CC_EXT_IF1 */
+#define LPAIF_RXTX_CODEC_RX_01	LPAIF_INTF_CODEC(1, 0x3)
+#define LPAIF_RXTX_CODEC_RX_23	LPAIF_INTF_CODEC(2, 0x3)
+#define LPAIF_RXTX_CODEC_RX_4	LPAIF_INTF_CODEC(3, 0x1)
+#define LPAIF_RXTX_CODEC_RX_5	LPAIF_INTF_CODEC(4, 0x1)
+// LPAIF_INTF_CODEC(7, 0x3) haptics ?
+#define LPAIF_RXTX_CODEC_TX_ECHO LPAIF_INTF_CODEC(1, 0x7)
+#define LPAIF_RXTX_CODEC_TX	LPAIF_INTF_CODEC(4, 0xff)
+
+/* LPAIF_WSA: 1 I2S, 5 CODEC RX, 4 CODEC TX */
+#define LPAIF_WSA_LPASS_I2S2	1 /* clock is AUDIO_CC_EXT_IF2 */
+/* 4 channels, first pair to WSA, second pair to WSA2 */
+#define LPAIF_WSA_CODEC_RX_01	LPAIF_INTF_CODEC(1, 0xf)
+#define LPAIF_WSA_CODEC_RX_23	LPAIF_INTF_CODEC(2, 0xf)
+#define LPAIF_WSA_CODEC_RX_8	LPAIF_INTF_CODEC(3, 0x1) /* to both WSA/WSA2 */
+#define LPAIF_WSA_CODEC_RX_67	LPAIF_INTF_CODEC(5, 0x3) /* to both WSA/WSA2 */
+#define LPAIF_WSA_CODEC_TX_VI	LPAIF_INTF_CODEC(1, 0xf)
+#define LPAIF_WSA_CODEC_TX_ECHO	LPAIF_INTF_CODEC(2, 0xf)
+#define LPAIF_WSA_CODEC_TX_CPS	LPAIF_INTF_CODEC(3, 0xf)
+/* with the first 2 channels skipped to use WSA2 only: */
+#define LPAIF_WSA_CODEC_RX_01_WSA2	LPAIF_INTF_CODEC(1, 0xc)
+#define LPAIF_WSA_CODEC_RX_23_WSA2	LPAIF_INTF_CODEC(2, 0xc)
+#define LPAIF_WSA_CODEC_TX_VI_WSA2	LPAIF_INTF_CODEC(1, 0xc)
+#define LPAIF_WSA_CODEC_TX_ECHO_WSA2	LPAIF_INTF_CODEC(2, 0xc)
+#define LPAIF_WSA_CODEC_TX_CPS_WSA2	LPAIF_INTF_CODEC(3, 0xc)
+
+/* LPAIF_WSA_2CH: 0 I2S, 2 CODEC RX, 4 CODEC TX */
+/* both channels to both WSA and WSA2 (FS switch needed to play to WSA2 only) */
+#define LPAIF_WSA_2CH_CODEC_RX_45	LPAIF_INTF_CODEC(1, 0x3)
+#define LPAIF_WSA_2CH_CODEC_RX_67	LPAIF_INTF_CODEC(2, 0x3)
+/* VI/ECHO/CPS.. */
+
+/* LPAIF_VA: 1 I2S, 0 CODEC RX, 3 CODEC TX */
+/* I2S clock is AON_CC_EXT_IF1 */
+#define LPAIF_VA_CODEC_TX	LPAIF_INTF_CODEC(1, 0xff)
+
+/* LPAIF_CORE: 3 I2S */
+/* I2S clock is LPASS_CORE_CC_EXT_IF0/1/2 */
+
+#endif /* __DT_QCOM_LPAIF_V5_H */
