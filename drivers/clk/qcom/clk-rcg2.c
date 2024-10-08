@@ -152,17 +152,6 @@ static int clk_rcg2_set_parent(struct clk_hw *hw, u8 index)
 }
 
 /**
- * convert_to_reg_val() - Convert divisor values to hardware values.
- *
- * @f: Frequency table with pure m/n/pre_div parameters.
- */
-static void convert_to_reg_val(struct freq_tbl *f)
-{
-	f->pre_div *= 2;
-	f->pre_div -= 1;
-}
-
-/**
  * calc_rate() - Calculate rate based on m/n:d values
  *
  * @rate: Parent rate.
@@ -431,51 +420,59 @@ static inline void clk_rcg2_split_div(int multiplier, unsigned int *pre_div,
 	*pre_div = pre_div_max;
 }
 
-static void clk_rcg2_calc_mnd(u64 parent_rate, u64 rate, struct freq_tbl *f,
+static void clk_rcg2_calc_mnd(unsigned long parent_rate, unsigned long rate, struct freq_tbl *f,
 			unsigned int mnd_max, unsigned int pre_div_max)
 {
-	int i = 2;
-	unsigned int pre_div = 1;
-	unsigned long rates_gcd, scaled_parent_rate;
-	u16 m, n = 1, n_candidate = 1, n_max;
+	unsigned long rates_gcd, m, n, pre_div;
+
+	/* assume rate <= parent_rate */
+
+	pre_div_max += 1;
+	parent_rate *= 2; /* so that prediv is an integer */
+
+	/* prediv only case: */
+	if (!mnd_max || ((parent_rate % rate) == 0 && parent_rate / rate <= pre_div_max)) {
+		f->m = 0;
+		f->n = 0;
+		f->pre_div = MIN(pre_div_max, MAX(parent_rate / rate, 2)) - 1;
+		return;
+	}
 
 	rates_gcd = gcd(parent_rate, rate);
-	m = div64_u64(rate, rates_gcd);
-	scaled_parent_rate = div64_u64(parent_rate, rates_gcd);
-	while (scaled_parent_rate > (mnd_max + m) * pre_div_max) {
-		// we're exceeding divisor's range, trying lower scale.
-		if (m > 1) {
-			m--;
-			scaled_parent_rate = mult_frac(scaled_parent_rate, m, (m + 1));
-		} else {
-			// cannot lower scale, just set max divisor values.
-			f->n = mnd_max + m;
-			f->pre_div = pre_div_max;
-			f->m = m;
-			return;
+	m = rate / rates_gcd;
+	n = parent_rate / rates_gcd;
+	/* 2 constaints: m * 3 <= n * 2, and n <= mnd_max */
+
+	/* prediv - divide n by its largest factor <= pre_div_max */
+	/* "brute force" solution (pre_div_max has a maximum of 32) */
+	for (pre_div = MIN(pre_div_max, (n * 2) / (m * 3)); ; pre_div--) {
+		if (n % pre_div == 0) {
+			n /= pre_div;
+			break;
 		}
 	}
 
-	n_max = m + mnd_max;
+	if (pre_div == 1) { /* not a valid pre_div value */
+		pre_div = 2;
+		m *= 2;
+	}
 
-	while (scaled_parent_rate > 1) {
-		while (scaled_parent_rate % i == 0) {
-			n_candidate *= i;
-			if (n_candidate < n_max)
-				n = n_candidate;
-			else if (pre_div * i < pre_div_max)
-				pre_div *= i;
-			else
-				clk_rcg2_split_div(i, &pre_div, &n, pre_div_max);
+	if (n + m > mnd_max) {
+		/* exact freq not possible, need to approximate.. */
+		/* FIXME: as-is, rate gets rounded down twice (determine_rate() and set_rate()) */
 
-			scaled_parent_rate /= i;
-		}
-		i++;
+		/* choose prediv XXX */
+		pre_div = MIN(pre_div_max, MAX(parent_rate / (rate * 2), 2));
+		m = rate;
+		n = parent_rate / pre_div;
+		/* scale fraction to the available precision */
+		m = MAX(mult_frac(m, mnd_max, n), 1);
+		n = mnd_max;
 	}
 
 	f->m = m;
 	f->n = n;
-	f->pre_div = pre_div > 1 ? pre_div : 0;
+	f->pre_div = pre_div - 1;
 }
 
 static int clk_rcg2_determine_gp_rate(struct clk_hw *hw,
@@ -493,8 +490,7 @@ static int clk_rcg2_determine_gp_rate(struct clk_hw *hw,
 	if (!parent_rate)
 		return -EINVAL;
 
-	clk_rcg2_calc_mnd(parent_rate, req->rate, f, mnd_max, hid_max / 2);
-	convert_to_reg_val(f);
+	clk_rcg2_calc_mnd(parent_rate, req->rate, f, mnd_max, hid_max);
 	req->rate = calc_rate(parent_rate, f->m, f->n, f->n, f->pre_div);
 
 	return 0;
@@ -679,8 +675,7 @@ static int clk_rcg2_set_gp_rate(struct clk_hw *hw, unsigned long rate,
 	struct freq_tbl f_tbl = {}, *f = &f_tbl;
 	int ret;
 
-	clk_rcg2_calc_mnd(parent_rate, rate, f, mnd_max, hid_max / 2);
-	convert_to_reg_val(f);
+	clk_rcg2_calc_mnd(parent_rate, rate, f, mnd_max, hid_max);
 	ret = clk_rcg2_configure_gp(rcg, f);
 
 	return ret;
