@@ -45,3 +45,5 @@ obj-$(CONFIG_SND_SOC_X1E80100) += snd-soc-x1e80100.o
 
 #DSP lib
 obj-$(CONFIG_SND_SOC_QDSP6) += qdsp6/
+obj-y += lpaif.o
+obj-y += lpass-sndcard.o
