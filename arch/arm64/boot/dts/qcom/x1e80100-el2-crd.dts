@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2024, Jonathan Marek
+ */
+
+#include "x1e80100-crd.dts"
+#include "x1e80100-el2.dtsi"
+
+/ {
+	sound {
+		compatible = "qcom,lpass-sndcard";
+		model = "X1E80100-CRD-LPASS";
+
+
+		wcd-playback-dai-link {
+			link-name = "WCD Playback";
+			soundwire;
+
+			platform {
+				sound-dai = <&lpass_rxtx_lpaif LPASS_RX_CODEC_DMA_0>;
+			};
+
+			codec {
+				sound-dai = <&wcd938x 0>, <&swr1 0>, <&lpass_rxmacro 0>;
+			};
+		};
+
+		wcd-capture-dai-link {
+			link-name = "WCD Capture";
+			soundwire;
+			capture;
+
+			platform {
+				sound-dai = <&lpass_rxtx_lpaif LPASS_TX_CODEC_DMA_3>;
+			};
+
+			codec {
+				sound-dai = <&wcd938x 1>, <&swr2 1>, <&lpass_txmacro 0>;
+			};
+		};
+
+		wsa-dai-link {
+			link-name = "WSA Playback";
+			soundwire;
+
+			platform {
+				sound-dai = <&lpass_wsa_lpaif LPASS_RX_CODEC_DMA_0>;
+			};
+
+			codec {
+				sound-dai = <&left_woofer>, <&left_tweeter>,
+					    <&swr0 0>, <&lpass_wsamacro 0>,
+					    <&right_woofer>, <&right_tweeter>,
+					    <&swr3 0>, <&lpass_wsa2macro 0>;
+			};
+		};
+
+		/* HW mixing in wsa macro.. figure out how to support this
+		wsa-mix-dai-link {
+			link-name = "WSA MIX Playback";
+
+			platform {
+				sound-dai = <&lpass_wsa_lpaif LPASS_RX_CODEC_DMA_1>;
+			};
+
+			codec {
+				sound-dai = <&left_woofer>, <&left_tweeter>,
+					    <&swr0 0>, <&lpass_wsamacro 1>,
+					    <&right_woofer>, <&right_tweeter>,
+					    <&swr3 0>, <&lpass_wsa2macro 1>;
+			};
+		};
+		*/
+
+		va-dai-link {
+			link-name = "VA Capture";
+			capture;
+
+			platform {
+				sound-dai = <&lpass_va_lpaif LPASS_TX_CODEC_DMA_0>;
+			};
+
+			codec {
+				sound-dai = <&lpass_vamacro 0>;
+			};
+		};
+	};
+};
+
+&lpass_rxtx_lpaif {
+	lpm-config = <LPASS_RX_CODEC_DMA_0 0x4000>,
+		     <LPASS_TX_CODEC_DMA_3 0x4000>;
+};
+
+&lpass_wsa_lpaif {
+	lpm-config = <LPASS_RX_CODEC_DMA_0 0x4000>,
+		     <LPASS_RX_CODEC_DMA_1 0x4000>;
+};
