@@ -4083,6 +4083,8 @@
 
 				dma-coherent;
 
+				usb-role-switch;
+
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -4336,6 +4338,8 @@
 
 				dma-coherent;
 
+				usb-role-switch;
+
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -4433,6 +4437,8 @@
 				snps,usb3_lpm_capable;
 
 				dma-coherent;
+
+				usb-role-switch;
 
 				ports {
 					#address-cells = <1>;
