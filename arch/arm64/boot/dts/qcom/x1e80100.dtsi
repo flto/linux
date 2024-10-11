@@ -4851,6 +4851,8 @@
 
 				dma-coherent;
 
+				usb-role-switch;
+
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -5112,6 +5114,8 @@
 
 				dma-coherent;
 
+				usb-role-switch;
+
 				ports {
 					#address-cells = <1>;
 					#size-cells = <0>;
@@ -5211,6 +5215,8 @@
 				snps,dis-u2-entry-quirk;
 
 				dma-coherent;
+
+				usb-role-switch;
 
 				ports {
 					#address-cells = <1>;
