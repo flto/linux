@@ -13,6 +13,7 @@
 
 #include "iris_core.h"
 #include "iris_ctrls.h"
+#include "iris_firmware.h"
 #include "iris_vidc.h"
 
 static int iris_init_icc(struct iris_core *core)
@@ -198,6 +199,8 @@ static void iris_remove(struct platform_device *pdev)
 
 	iris_core_deinit(core);
 
+	iris_firmware_deinit(core);
+
 	video_unregister_device(core->vdev_dec);
 	video_unregister_device(core->vdev_enc);
 
@@ -277,13 +280,17 @@ static int iris_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_vdev_unreg_dec;
 
+	ret = iris_firmware_init(core);
+	if (ret)
+		goto err_vdev_unreg_enc;
+
 	platform_set_drvdata(pdev, core);
 
 	dma_mask = core->iris_platform_data->dma_mask;
 
 	ret = dma_set_mask_and_coherent(dev, dma_mask);
 	if (ret)
-		goto err_vdev_unreg_enc;
+		goto err_fw_deinit;
 
 	dma_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
 	dma_set_seg_boundary(&pdev->dev, DMA_BIT_MASK(32));
@@ -292,10 +299,12 @@ static int iris_probe(struct platform_device *pdev)
 	pm_runtime_use_autosuspend(core->dev);
 	ret = devm_pm_runtime_enable(core->dev);
 	if (ret)
-		goto err_vdev_unreg_enc;
+		goto err_fw_deinit;
 
 	return 0;
 
+err_fw_deinit:
+	iris_firmware_deinit(core);
 err_vdev_unreg_enc:
 	video_unregister_device(core->vdev_enc);
 err_vdev_unreg_dec:
