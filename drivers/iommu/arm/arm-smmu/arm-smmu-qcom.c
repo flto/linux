@@ -303,7 +303,7 @@ static int qcom_smmu_cfg_probe(struct arm_smmu_device *smmu)
 	 * so limit the groups to 128 until the behavior is fixed for the other
 	 * groups.
 	 */
-	if (smmu->num_mapping_groups > 128) {
+	if (smmu->num_mapping_groups > 128 && 0) {
 		dev_notice(smmu->dev, "\tLimiting the stream matching groups to 128\n");
 		smmu->num_mapping_groups = 128;
 	}
