@@ -341,6 +341,11 @@ static int qcom_smmu_cfg_probe(struct arm_smmu_device *smmu)
 			smr &= ~ARM_SMMU_SMR_VALID;
 			smmu->smrs[i].id = FIELD_GET(ARM_SMMU_SMR_ID, smr);
 			smmu->smrs[i].mask = FIELD_GET(ARM_SMMU_SMR_MASK, smr);
+
+			/* preserve only display and main ADSP mapping */
+			if (!(smmu->smrs[i].id == 0x1c00 || smmu->smrs[i].id == 0x1000))
+				continue;
+
 			smmu->smrs[i].valid = true;
 
 			smmu->s2crs[i].type = S2CR_TYPE_BYPASS;
