@@ -1814,6 +1814,7 @@ static int wsa884x_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
 					      0x0);
 
 	} else {
+		usleep_range(10000, 20000);
 		snd_soc_component_write_field(component, WSA884X_DRE_CTL_1,
 					      WSA884X_DRE_CTL_1_CSR_GAIN_EN_MASK,
 					      0x1);
