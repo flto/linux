@@ -178,6 +178,8 @@ struct wcd938x_priv {
 	bool comp2_enable;
 	bool ldoh;
 	bool mux_setup_done;
+	bool hphl_enable;
+	bool hphr_enable;
 };
 
 static const char * const wcd938x_supplies[] = {
@@ -468,6 +470,7 @@ static int wcd938x_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		wcd938x->hphl_enable = true;
 		snd_soc_component_write_field(component,
 				WCD938X_DIGITAL_CDC_DIG_CLK_CTL,
 				WCD938X_RXD0_CLK_EN_MASK, 0x01);
@@ -507,6 +510,7 @@ static int wcd938x_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 		snd_soc_component_write_field(component,
 			WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_R,
 			WCD938X_HPH_RES_DIV_MASK, 0x1);
+		wcd938x->hphl_enable = false;
 		break;
 	}
 
@@ -522,6 +526,7 @@ static int wcd938x_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		wcd938x->hphr_enable = true;
 		snd_soc_component_write_field(component,
 				WCD938X_DIGITAL_CDC_DIG_CLK_CTL,
 				WCD938X_RXD1_CLK_EN_MASK, 1);
@@ -558,6 +563,7 @@ static int wcd938x_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
 		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		wcd938x->hphr_enable = false;
 		snd_soc_component_write_field(component,
 			WCD938X_HPH_NEW_INT_RDAC_HD2_CTL_R,
 			WCD938X_HPH_RES_DIV_MASK, 0x01);
@@ -683,15 +689,12 @@ static int wcd938x_codec_aux_dac_event(struct snd_soc_dapm_widget *w,
 
 }
 
-static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
-					struct snd_kcontrol *kcontrol, int event)
+static void wcd938x_codec_enable_hphr_pa(struct snd_soc_component *component, int enable)
 {
-	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
 	int hph_mode = wcd938x->hph_mode;
 
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
+	if (enable) {
 		if (wcd938x->ldoh)
 			snd_soc_component_write_field(component, WCD938X_LDOH_MODE,
 						      WCD938X_LDOH_EN_MASK, 1);
@@ -714,8 +717,7 @@ static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		snd_soc_component_write_field(component,
 					      WCD938X_DIGITAL_PDM_WD_CTL1,
 					      WCD938X_PDM_WD_EN_MASK, 0x3);
-		break;
-	case SND_SOC_DAPM_POST_PMU:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -741,9 +743,10 @@ static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 			snd_soc_component_write_field(component, WCD938X_ANA_RX_SUPPLIES,
 					WCD938X_REGULATOR_MODE_MASK,
 					WCD938X_REGULATOR_MODE_CLASS_AB);
+		snd_soc_component_write_field(component, WCD938X_ANA_HPH,
+					      WCD938X_HPHR_EN_MASK, 1);
 		enable_irq(wcd938x->hphr_pdm_wd_int);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
+	} else {
 		disable_irq_nosync(wcd938x->hphr_pdm_wd_int);
 		/*
 		 * 7ms sleep is required if compander is enabled as per
@@ -759,8 +762,7 @@ static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		wcd_mbhc_event_notify(wcd938x->wcd_mbhc,
 					     WCD_EVENT_PRE_HPHR_PA_OFF);
 		set_bit(HPH_PA_DELAY, &wcd938x->status_mask);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -784,21 +786,15 @@ static int wcd938x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		if (wcd938x->ldoh)
 			snd_soc_component_write_field(component, WCD938X_LDOH_MODE,
 						      WCD938X_LDOH_EN_MASK, 0);
-		break;
 	}
-
-	return 0;
 }
 
-static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
-					struct snd_kcontrol *kcontrol, int event)
+static void wcd938x_codec_enable_hphl_pa(struct snd_soc_component *component, int enable)
 {
-	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
 	int hph_mode = wcd938x->hph_mode;
 
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
+	if (enable) {
 		if (wcd938x->ldoh)
 			snd_soc_component_write_field(component, WCD938X_LDOH_MODE,
 						      WCD938X_LDOH_EN_MASK, 1);
@@ -820,8 +816,7 @@ static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 		snd_soc_component_write_field(component,
 					WCD938X_DIGITAL_PDM_WD_CTL0,
 					WCD938X_PDM_WD_EN_MASK, 0x3);
-		break;
-	case SND_SOC_DAPM_POST_PMU:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -847,9 +842,10 @@ static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 			snd_soc_component_write_field(component, WCD938X_ANA_RX_SUPPLIES,
 					WCD938X_REGULATOR_MODE_MASK,
 					WCD938X_REGULATOR_MODE_CLASS_AB);
+		snd_soc_component_write_field(component, WCD938X_ANA_HPH,
+					      WCD938X_HPHL_EN_MASK, 1);
 		enable_irq(wcd938x->hphl_pdm_wd_int);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
+	} else {
 		disable_irq_nosync(wcd938x->hphl_pdm_wd_int);
 		/*
 		 * 7ms sleep is required if compander is enabled as per
@@ -864,8 +860,7 @@ static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 					      WCD938X_HPHL_EN_MASK, 0);
 		wcd_mbhc_event_notify(wcd938x->wcd_mbhc, WCD_EVENT_PRE_HPHL_PA_OFF);
 		set_bit(HPH_PA_DELAY, &wcd938x->status_mask);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -889,10 +884,7 @@ static int wcd938x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 		if (wcd938x->ldoh)
 			snd_soc_component_write_field(component, WCD938X_LDOH_MODE,
 						      WCD938X_LDOH_EN_MASK, 0);
-		break;
 	}
-
-	return 0;
 }
 
 static int wcd938x_codec_enable_aux_pa(struct snd_soc_dapm_widget *w,
@@ -2815,14 +2807,6 @@ static const struct snd_soc_dapm_widget wcd938x_dapm_widgets[] = {
 			   wcd938x_codec_enable_aux_pa,
 			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
 			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_PGA_E("HPHL PGA", WCD938X_ANA_HPH, 7, 0, NULL, 0,
-			   wcd938x_codec_enable_hphl_pa,
-			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
-			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_PGA_E("HPHR PGA", WCD938X_ANA_HPH, 6, 0, NULL, 0,
-			   wcd938x_codec_enable_hphr_pa,
-			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
-			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
 
 	SND_SOC_DAPM_DAC_E("RDAC1", NULL, SND_SOC_NOPM, 0, 0,
 			   wcd938x_codec_hphl_dac_event,
@@ -2935,8 +2919,7 @@ static const struct snd_soc_dapm_route wcd938x_audio_map[] = {
 	{"RX1", NULL, "RXCLK"},
 	{"RDAC1", NULL, "RX1"},
 	{"HPHL_RDAC", "Switch", "RDAC1"},
-	{"HPHL PGA", NULL, "HPHL_RDAC"},
-	{"HPHL", NULL, "HPHL PGA"},
+	{"HPHL", NULL, "HPHL_RDAC"},
 
 	{"IN2_HPHR", NULL, "VDD_BUCK"},
 	{"IN2_HPHR", NULL, "CLS_H_PORT"},
@@ -2944,8 +2927,7 @@ static const struct snd_soc_dapm_route wcd938x_audio_map[] = {
 	{"RDAC2", NULL, "RX2"},
 	{"RX2", NULL, "RXCLK"},
 	{"HPHR_RDAC", "Switch", "RDAC2"},
-	{"HPHR PGA", NULL, "HPHR_RDAC"},
-	{"HPHR", NULL, "HPHR PGA"},
+	{"HPHR", NULL, "HPHR_RDAC"},
 
 	{"IN3_AUX", NULL, "VDD_BUCK"},
 	{"IN3_AUX", NULL, "CLS_H_PORT"},
@@ -3290,6 +3272,19 @@ static int wcd938x_codec_free(struct snd_pcm_substream *substream,
 	return wcd938x_sdw_free(wcd, substream, dai);
 }
 
+static int wcd938x_codec_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
+{
+	struct wcd938x_priv *wcd938x = dev_get_drvdata(dai->dev);
+	struct snd_soc_component *component = dai->component;
+
+	if (wcd938x->hphl_enable)
+		wcd938x_codec_enable_hphl_pa(component, !mute);
+	if (wcd938x->hphr_enable)
+		wcd938x_codec_enable_hphr_pa(component, !mute);
+
+	return 0;
+}
+
 static int wcd938x_codec_set_sdw_stream(struct snd_soc_dai *dai,
 				  void *stream, int direction)
 {
@@ -3303,6 +3298,7 @@ static int wcd938x_codec_set_sdw_stream(struct snd_soc_dai *dai,
 static const struct snd_soc_dai_ops wcd938x_sdw_dai_ops = {
 	.hw_params = wcd938x_codec_hw_params,
 	.hw_free = wcd938x_codec_free,
+	.mute_stream = wcd938x_codec_mute_stream,
 	.set_stream = wcd938x_codec_set_sdw_stream,
 };
 
