@@ -209,6 +209,8 @@ struct wcd939x_priv {
 	bool comp1_enable;
 	bool comp2_enable;
 	bool ldoh;
+	bool hphl_enable;
+	bool hphr_enable;
 };
 
 static const char * const wcd939x_supplies[] = {
@@ -508,6 +510,7 @@ static int wcd939x_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		wcd939x->hphl_enable = true;
 		snd_soc_component_write_field(component, WCD939X_HPH_RDAC_CLK_CTL1,
 					      WCD939X_RDAC_CLK_CTL1_OPAMP_CHOP_CLK_EN,
 					      false);
@@ -547,6 +550,7 @@ static int wcd939x_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 					      WCD939X_RDAC_HD2_CTL_L_HD2_RES_DIV_CTL_L, 1);
 		snd_soc_component_write_field(component, WCD939X_DIGITAL_CDC_HPH_GAIN_CTL,
 					      WCD939X_CDC_HPH_GAIN_CTL_HPHL_RX_EN, false);
+		wcd939x->hphl_enable = false;
 		break;
 	}
 
@@ -565,6 +569,7 @@ static int wcd939x_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		wcd939x->hphr_enable = true;
 		snd_soc_component_write_field(component, WCD939X_HPH_RDAC_CLK_CTL1,
 					      WCD939X_RDAC_CLK_CTL1_OPAMP_CHOP_CLK_EN,
 					      false);
@@ -603,6 +608,7 @@ static int wcd939x_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
 					      WCD939X_RDAC_HD2_CTL_R_HD2_RES_DIV_CTL_R, 1);
 		snd_soc_component_write_field(component, WCD939X_DIGITAL_CDC_HPH_GAIN_CTL,
 					      WCD939X_CDC_HPH_GAIN_CTL_HPHR_RX_EN, false);
+		wcd939x->hphr_enable = false;
 		break;
 	}
 
@@ -641,16 +647,12 @@ static int wcd939x_codec_ear_dac_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
-					struct snd_kcontrol *kcontrol,
-					int event)
+static void wcd939x_codec_enable_hphr_pa(struct snd_soc_component *component, int enable)
 {
-	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wcd939x_priv *wcd939x = snd_soc_component_get_drvdata(component);
 	int hph_mode = wcd939x->hph_mode;
 
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
+	if (enable) {
 		if (wcd939x->ldoh)
 			snd_soc_component_write_field(component, WCD939X_LDOH_MODE,
 						      WCD939X_MODE_LDOH_EN, true);
@@ -679,8 +681,7 @@ static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		set_bit(HPH_PA_DELAY, &wcd939x->status_mask);
 		snd_soc_component_write_field(component, WCD939X_DIGITAL_PDM_WD_CTL1,
 					      WCD939X_PDM_WD_CTL1_PDM_WD_EN, 3);
-		break;
-	case SND_SOC_DAPM_POST_PMU:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -708,9 +709,11 @@ static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 						      WCD939X_RX_SUPPLIES_REGULATOR_MODE,
 						      true);
 
+		snd_soc_component_write_field(component, WCD939X_ANA_HPH,
+					      WCD939X_HPH_HPHR_ENABLE, true);
+
 		enable_irq(wcd939x->hphr_pdm_wd_int);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
+	} else {
 		disable_irq_nosync(wcd939x->hphr_pdm_wd_int);
 		/*
 		 * 7ms sleep is required if compander is enabled as per
@@ -728,8 +731,7 @@ static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		wcd_mbhc_event_notify(wcd939x->wcd_mbhc,
 				      WCD_EVENT_PRE_HPHR_PA_OFF);
 		set_bit(HPH_PA_DELAY, &wcd939x->status_mask);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -755,25 +757,15 @@ static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		if (wcd939x->ldoh)
 			snd_soc_component_write_field(component, WCD939X_LDOH_MODE,
 						      WCD939X_MODE_LDOH_EN, false);
-		break;
 	}
-
-	return 0;
 }
 
-static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
-					struct snd_kcontrol *kcontrol,
-					int event)
+static void wcd939x_codec_enable_hphl_pa(struct snd_soc_component *component, bool enable)
 {
-	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct wcd939x_priv *wcd939x = snd_soc_component_get_drvdata(component);
 	int hph_mode = wcd939x->hph_mode;
 
-	dev_dbg(component->dev, "%s wname: %s event: %d\n", __func__,
-		w->name, event);
-
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
+	if (enable) {
 		if (wcd939x->ldoh)
 			snd_soc_component_write_field(component, WCD939X_LDOH_MODE,
 						      WCD939X_MODE_LDOH_EN, true);
@@ -802,8 +794,7 @@ static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 		set_bit(HPH_PA_DELAY, &wcd939x->status_mask);
 		snd_soc_component_write_field(component, WCD939X_DIGITAL_PDM_WD_CTL0,
 					      WCD939X_PDM_WD_CTL0_PDM_WD_EN, 3);
-		break;
-	case SND_SOC_DAPM_POST_PMU:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -829,9 +820,12 @@ static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 			snd_soc_component_write_field(component, WCD939X_ANA_RX_SUPPLIES,
 						      WCD939X_RX_SUPPLIES_REGULATOR_MODE,
 						      true);
+
+		snd_soc_component_write_field(component, WCD939X_ANA_HPH,
+					      WCD939X_HPH_HPHL_ENABLE, true);
+
 		enable_irq(wcd939x->hphl_pdm_wd_int);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
+	} else {
 		disable_irq_nosync(wcd939x->hphl_pdm_wd_int);
 		/*
 		 * 7ms sleep is required if compander is enabled as per
@@ -848,8 +842,7 @@ static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 
 		wcd_mbhc_event_notify(wcd939x->wcd_mbhc, WCD_EVENT_PRE_HPHL_PA_OFF);
 		set_bit(HPH_PA_DELAY, &wcd939x->status_mask);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
+
 		/*
 		 * 7ms sleep is required if compander is enabled as per
 		 * HW requirement. If compander is disabled, then
@@ -873,10 +866,7 @@ static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 		if (wcd939x->ldoh)
 			snd_soc_component_write_field(component, WCD939X_LDOH_MODE,
 						      WCD939X_MODE_LDOH_EN, false);
-		break;
 	}
-
-	return 0;
 }
 
 static int wcd939x_codec_enable_ear_pa(struct snd_soc_dapm_widget *w,
@@ -2736,14 +2726,6 @@ static const struct snd_soc_dapm_widget wcd939x_dapm_widgets[] = {
 			   wcd939x_codec_enable_ear_pa,
 			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
 			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_PGA_E("HPHL PGA", WCD939X_ANA_HPH, 7, 0, NULL, 0,
-			   wcd939x_codec_enable_hphl_pa,
-			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
-			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_PGA_E("HPHR PGA", WCD939X_ANA_HPH, 6, 0, NULL, 0,
-			   wcd939x_codec_enable_hphr_pa,
-			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
-			   SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
 
 	SND_SOC_DAPM_DAC_E("RDAC1", NULL, SND_SOC_NOPM, 0, 0,
 			   wcd939x_codec_hphl_dac_event,
@@ -2858,8 +2840,7 @@ static const struct snd_soc_dapm_route wcd939x_audio_map[] = {
 	{"RX1", NULL, "RXCLK"},
 	{"RDAC1", NULL, "RX1"},
 	{"HPHL_RDAC", "Switch", "RDAC1"},
-	{"HPHL PGA", NULL, "HPHL_RDAC"},
-	{"HPHL", NULL, "HPHL PGA"},
+	{"HPHL", NULL, "HPHL_RDAC"},
 
 	{"IN2_HPHR", NULL, "VDD_BUCK"},
 	{"IN2_HPHR", NULL, "CLS_H_PORT"},
@@ -2867,8 +2848,7 @@ static const struct snd_soc_dapm_route wcd939x_audio_map[] = {
 	{"RDAC2", NULL, "RX2"},
 	{"RX2", NULL, "RXCLK"},
 	{"HPHR_RDAC", "Switch", "RDAC2"},
-	{"HPHR PGA", NULL, "HPHR_RDAC"},
-	{"HPHR", NULL, "HPHR PGA"},
+	{"HPHR", NULL, "HPHR_RDAC"},
 
 	{"IN3_EAR", NULL, "VDD_BUCK"},
 	{"RX3", NULL, "IN3_EAR"},
@@ -3258,6 +3238,19 @@ static int wcd939x_codec_free(struct snd_pcm_substream *substream,
 	return wcd939x_sdw_free(wcd, substream, dai);
 }
 
+static int wcd939x_codec_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
+{
+	struct wcd939x_priv *wcd939x = dev_get_drvdata(dai->dev);
+	struct snd_soc_component *component = dai->component;
+
+	if (wcd939x->hphl_enable)
+		wcd939x_codec_enable_hphl_pa(component, !mute);
+	if (wcd939x->hphr_enable)
+		wcd939x_codec_enable_hphr_pa(component, !mute);
+
+	return 0;
+}
+
 static int wcd939x_codec_set_sdw_stream(struct snd_soc_dai *dai,
 					void *stream, int direction)
 {
@@ -3270,6 +3263,7 @@ static int wcd939x_codec_set_sdw_stream(struct snd_soc_dai *dai,
 static const struct snd_soc_dai_ops wcd939x_sdw_dai_ops = {
 	.hw_params = wcd939x_codec_hw_params,
 	.hw_free = wcd939x_codec_free,
+	.mute_stream = wcd939x_codec_mute_stream,
 	.set_stream = wcd939x_codec_set_sdw_stream,
 };
 
