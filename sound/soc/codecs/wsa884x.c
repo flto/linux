@@ -1775,6 +1775,9 @@ static int wsa884x_hw_params(struct snd_pcm_substream *substream,
 	struct wsa884x_priv *wsa884x = dev_get_drvdata(dai->dev);
 	int i;
 
+	if (wsa884x->sruntime->state == SDW_STREAM_ENABLED)
+		return 0;
+
 	wsa884x->active_ports = 0;
 	for (i = 0; i < WSA884X_MAX_SWR_PORTS; i++) {
 		if (!wsa884x->port_enable[i])
@@ -1795,6 +1798,9 @@ static int wsa884x_hw_free(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *dai)
 {
 	struct wsa884x_priv *wsa884x = dev_get_drvdata(dai->dev);
+
+	if (wsa884x->sruntime->state == SDW_STREAM_ENABLED)
+		return 0;
 
 	sdw_stream_remove_slave(wsa884x->slave, wsa884x->sruntime);
 

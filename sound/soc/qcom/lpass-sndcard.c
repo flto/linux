@@ -11,38 +11,55 @@
 struct lpass_card_data {
 	struct snd_soc_card card;
 	/* extra per-dai_link data: */
-	union link_data {
+	struct link_data {
 		struct sdw_stream_runtime *sdw_stream;
 		struct clk *clk;
+		struct clk *clk2;
+		bool sdw_prepared;
 	} link_data[];
+};
+
+struct lpass_sdw_stream_runtime {
+	struct sdw_stream_runtime sdw; /* must be first */
+	unsigned extra_enable_count;
 };
 
 static int i2s_hw_params(struct snd_pcm_substream *substream, struct snd_pcm_hw_params *params)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct lpass_card_data *data = snd_soc_card_get_drvdata(rtd->card);
-	union link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
+	struct link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
 	unsigned long rate;
 	int ret;
 
 	rate = snd_soc_calc_bclk(params_rate(params), snd_pcm_format_width(params_format(params)),
 				 params_channels(params), 1);
 
-	ret = clk_set_rate(link->clk, rate);
-	if (ret)
-		return ret;
-
 	/* note that the clock enable could be done in a trigger() callback (atomic) */
-	return clk_prepare_enable(link->clk);
+
+	clk_set_rate(link->clk, rate);
+	if (link->clk2) {
+		clk_set_rate(link->clk2, rate);
+		ret = clk_prepare_enable(link->clk2);
+		if (ret)
+			return ret;
+	}
+
+	ret = clk_prepare_enable(link->clk);
+	if (ret && link->clk2)
+		clk_disable_unprepare(link->clk2);
+	return ret;
 }
 
 static int i2s_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct lpass_card_data *data = snd_soc_card_get_drvdata(rtd->card);
-	union link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
+	struct link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
 
 	clk_disable_unprepare(link->clk);
+	if (link->clk2)
+		clk_disable_unprepare(link->clk2);
 	return 0;
 }
 
@@ -52,7 +69,7 @@ lpass_sdw_alloc_stream(struct device *dev, const char *stream_name)
 {
 	struct sdw_stream_runtime *stream;
 
-	stream = devm_kzalloc(dev, sizeof(struct sdw_stream_runtime), GFP_KERNEL);
+	stream = devm_kzalloc(dev, sizeof(struct lpass_sdw_stream_runtime), GFP_KERNEL);
 	if (!stream)
 		return NULL;
 
@@ -69,12 +86,14 @@ static int sdw_hw_params(struct snd_pcm_substream *substream, struct snd_pcm_hw_
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct lpass_card_data *data = snd_soc_card_get_drvdata(rtd->card);
-	union link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
+	struct link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
 	struct sdw_stream_runtime *sdw_stream = link->sdw_stream;
 
 	/* reset stream params (needed because re-using sdw_stream) */
 	sdw_stream->params = (struct sdw_stream_params) {};
 
+	if (link->clk)
+		return i2s_hw_params(substream, params);
 	return 0;
 }
 
@@ -90,13 +109,21 @@ static int sdw_prepare(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct lpass_card_data *data = snd_soc_card_get_drvdata(rtd->card);
-	union link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
+	struct link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
 	struct sdw_stream_runtime *sdw_stream = link->sdw_stream;
 	int ret;
 
 	/* prepare() can be called again without a hw_free() */
-	if (sdw_stream->state == SDW_STREAM_ENABLED)
+	if (link->sdw_prepared)
 		return 0;
+
+	/* XXX: needs a lock on stream */
+
+	if (sdw_stream->state == SDW_STREAM_ENABLED) {
+		((struct lpass_sdw_stream_runtime*) sdw_stream)->extra_enable_count++;
+		link->sdw_prepared = true;
+		return 0;
+	}
 
 	ret = sdw_prepare_stream(sdw_stream);
 	if (ret)
@@ -108,6 +135,7 @@ static int sdw_prepare(struct snd_pcm_substream *substream)
 		return ret;
 	}
 
+	link->sdw_prepared = true;
 	return 0;
 }
 
@@ -115,14 +143,27 @@ static int sdw_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct lpass_card_data *data = snd_soc_card_get_drvdata(rtd->card);
-	union link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
+	struct link_data *link = &data->link_data[rtd->dai_link - rtd->card->dai_link];
 	struct sdw_stream_runtime *sdw_stream = link->sdw_stream;
+	struct lpass_sdw_stream_runtime *stream = (struct lpass_sdw_stream_runtime*) sdw_stream;
 
-	if (sdw_stream->state == SDW_STREAM_ENABLED) {
-		sdw_disable_stream(sdw_stream);
-		sdw_deprepare_stream(sdw_stream);
+	if (link->clk)
+		i2s_hw_free(substream);
+
+	if (!link->sdw_prepared)
+		return 0;
+
+	/* XXX: needs a lock on stream */
+
+	if (stream->extra_enable_count) {
+		stream->extra_enable_count--;
+		link->sdw_prepared = false;
+		return 0;
 	}
 
+	sdw_disable_stream(sdw_stream);
+	sdw_deprepare_stream(sdw_stream);
+	link->sdw_prepared = false;
 	return 0;
 }
 
@@ -145,6 +186,16 @@ static int lpass_card_late_probe(struct snd_soc_card *card)
 	struct sdw_stream_runtime *sdw_stream;
 	int ret, i, direction;
 
+	/* clear any previously set stream pointers */
+	for_each_card_rtds(card, rtd) {
+		direction = SNDRV_PCM_STREAM_PLAYBACK;
+		if (rtd->pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream_count == 0)
+			direction = SNDRV_PCM_STREAM_CAPTURE;
+
+		for_each_rtd_codec_dais(rtd, i, codec_dai)
+			snd_soc_dai_set_stream(codec_dai, NULL, direction);
+	}
+
 	/* find links that use soundwire codecs and set sdw_ops + allocate sdw_stream */
 	for_each_card_rtds(card, rtd) {
 		/* note: the qcom sdw codecs don't care about direction (set it right anyway) */
@@ -162,14 +213,16 @@ static int lpass_card_late_probe(struct snd_soc_card *card)
 		if (IS_ERR(sdw_stream))
 			continue; /* not a soundwire link */
 
-		sdw_stream = lpass_sdw_alloc_stream(card->dev, rtd->dai_link->name);
-		if (!sdw_stream)
-			return -ENOMEM;
+		if (!sdw_stream) {
+			sdw_stream = lpass_sdw_alloc_stream(card->dev, rtd->dai_link->name);
+			if (!sdw_stream)
+				return -ENOMEM;
 
-		for_each_rtd_codec_dais(rtd, i, codec_dai) {
-			ret = snd_soc_dai_set_stream(codec_dai, sdw_stream, direction);
-			if (ret && ret != -ENOTSUPP)
-				return ret;
+			for_each_rtd_codec_dais(rtd, i, codec_dai) {
+				ret = snd_soc_dai_set_stream(codec_dai, sdw_stream, direction);
+				if (ret && ret != -ENOTSUPP)
+					return ret;
+			}
 		}
 
 		data->link_data[rtd->dai_link - card->dai_link].sdw_stream = sdw_stream;
@@ -190,7 +243,7 @@ static int lpass_snd_platform_probe(struct platform_device *pdev)
 	struct snd_soc_dai_link *link;
 	struct snd_soc_dai_link_component *platform;
 	struct clk *clk;
-	int num_links, ret;
+	int num_links, ret, i;
 
 	num_links = of_get_available_child_count(dev->of_node);
 
@@ -227,7 +280,7 @@ static int lpass_snd_platform_probe(struct platform_device *pdev)
 		link->num_cpus = 1;
 
 		link->platforms = platform;
-		link->num_platforms = 1;
+		link->num_platforms = 0;
 
 		ret = of_property_read_string(np, "link-name", &link->name);
 		if (ret) {
@@ -254,13 +307,23 @@ static int lpass_snd_platform_probe(struct platform_device *pdev)
 			return dev_err_probe(dev, -EINVAL, "%s: Can't find platform DT node\n", link->name);
 		}
 
-		ret = snd_soc_of_get_dlc(node, &args, &link->platforms[0], 0);
-		of_node_put(node);
-		if (ret) {
-			of_node_put(np);
-			return dev_err_probe(dev, ret, "%s: error getting platform dai name\n", link->name);
+		for (i = 0; i < 2; i++) {
+			ret = snd_soc_of_get_dlc(node, &args, &link->platforms[i], i);
+			if (ret) {
+				if (i)
+					break;
+				of_node_put(node);
+				of_node_put(np);
+				return dev_err_probe(dev, ret,
+						"%s: error getting platform dai name\n", link->name);
+			}
+			if (i == 0)
+				link->id = args.args[0];
+			else
+				link->id |= args.args[0] << 16;
+			link->num_platforms++;
 		}
-		link->id = args.args[0];
+		of_node_put(node);
 
 		clk = devm_get_clk_from_child(dev, np, NULL);
 		if (IS_ERR(clk)) {
@@ -272,6 +335,13 @@ static int lpass_snd_platform_probe(struct platform_device *pdev)
 		} else {
 			data->link_data[link - card->dai_link].clk = clk;
 			link->ops = &i2s_ops;
+
+			clk = devm_get_clk_from_child(dev, np, "slave");
+			if (!IS_ERR(clk)) {
+				data->link_data[link - card->dai_link].clk2 = clk;
+				// XXX hack for i2s speakers:
+				link->playback_only = true;
+			}
 		}
 
 		link->stream_name = link->name;

@@ -1,4 +1,5 @@
 #include <linux/clk.h>
+#include <linux/iommu.h>
 #include <linux/of_device.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/module.h>
@@ -101,6 +102,10 @@ struct lpaif {
 		void __iomem *base;
 		struct snd_pcm_substream *substream;
 		u32 intf;
+
+		struct lpaif_channel *link_chan;
+		struct lpaif_channel *slave_chan;
+		struct snd_dma_buffer slave_buf;
 	} dma[RDDMA_MAX + WRDMA_MAX];
 };
 
@@ -134,13 +139,19 @@ free_dma_channel(struct lpaif *lpaif, struct lpaif_channel *ch)
 	ch->substream = NULL; /* write must be atomic */
 }
 
+static inline bool
+is_slave(struct lpaif *lpaif, struct lpaif_channel *ch)
+{
+	return (unsigned long) (ch - lpaif->dma) >= ARRAY_SIZE(lpaif->dma);
+}
+
 static int
 lpaif_open(struct snd_soc_component *component, struct snd_pcm_substream *substream)
 {
 	struct lpaif *lpaif = snd_soc_component_get_drvdata(component);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_pcm_runtime *soc_runtime = snd_soc_substream_to_rtd(substream);
-	struct lpaif_channel *ch;
+	struct lpaif_channel *ch, *slave_ch;
 	int max_channels, ret;
 
 	ret = clk_bulk_prepare_enable(lpaif->num_clks, lpaif->clks);
@@ -151,6 +162,34 @@ lpaif_open(struct snd_soc_component *component, struct snd_pcm_substream *substr
 	if (!ch) {
 		ret = -ENOMEM;
 		goto fail_alloc;
+	}
+
+	if (runtime->private_data) { /* slave */
+		ch->intf = soc_runtime->dai_link->id >> 16;
+		if (ch->intf & LPASS_INTF_CODEC) {
+			max_channels = hweight8(LPASS_INTF_CODEC_MASK(ch->intf));
+			snd_pcm_hw_constraint_minmax(runtime, SNDRV_PCM_HW_PARAM_CHANNELS, 1, max_channels);
+		}
+
+		slave_ch = ch;
+		ch = runtime->private_data;
+		ch->slave_chan = slave_ch;
+
+		/* XXX: only 64 bytes are used */
+		ret = snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, lpaif->dev, 0x2000, &ch->slave_buf);
+		if (ret) {
+			free_dma_channel(lpaif, slave_ch);
+			goto fail_alloc;
+		}
+
+		/* XXX: hacky, get the master lpaif to allocate channel */
+		component = soc_runtime->components[soc_runtime->num_components - 2];
+		lpaif = snd_soc_component_get_drvdata(component);
+
+		ch->link_chan = alloc_dma_channel(lpaif, substream, !substream->stream);
+		WARN_ON(!ch->link_chan); /* TODO: fail and cleanup */
+
+		return 0;
 	}
 
 	ch->intf = soc_runtime->dai_link->id;
@@ -177,7 +216,7 @@ lpaif_open(struct snd_soc_component *component, struct snd_pcm_substream *substr
 		max_channels = hweight8(LPASS_INTF_CODEC_MASK(ch->intf));
 	} else {
 		/* non-CODEC intf. only 1/2 channel i2s supported for now */
-		max_channels = 2;
+		max_channels = 8; // XXX allow any channel count for chain case
 		runtime->hw.formats |= SNDRV_PCM_FMTBIT_S24_3LE;
 	}
 
@@ -205,6 +244,16 @@ lpaif_close(struct snd_soc_component *component, struct snd_pcm_substream *subst
 
 	clk_bulk_disable_unprepare(lpaif->num_clks, lpaif->clks);
 
+	if (is_slave(lpaif, ch))
+		return 0;
+
+	if (ch->slave_chan) {
+		free_dma_channel(NULL, ch->slave_chan);
+		ch->slave_chan = NULL;
+		snd_dma_free_pages(&ch->slave_buf);
+		free_dma_channel(lpaif, ch->link_chan);
+	}
+
 	free_dma_channel(lpaif, ch);
 
 	snd_dma_free_pages(&substream->dma_buffer);
@@ -214,7 +263,34 @@ lpaif_close(struct snd_soc_component *component, struct snd_pcm_substream *subst
 static int
 lpaif_prepare(struct snd_soc_component *component, struct snd_pcm_substream *substream)
 {
+	struct lpaif *lpaif = snd_soc_component_get_drvdata(component);
 	struct lpaif_channel *ch = substream->runtime->private_data;
+
+	if (is_slave(lpaif, ch))
+		return 0;
+
+	if (ch->slave_chan) {
+		/* - both sides are configured in "burst4" mode (16 byte read/writes)
+		 * - the fifo watermark is set to 8 (32 bytes)
+		 * both are started at the same time, the reading side will immediately
+		 * read 32 bytes and be 32 bytes "ahead" of the writing side,
+		 * which is equivalent to being (LEN-32) bytes "behind"
+		 * the buffer size ("LEN") is what determines the added latency
+		 *
+		 * use LEN = 64 bytes which should be enough for this situation
+		 * this is up to 0.333 ms of latency for 2ch 16-bit
+		 * (can probably go lower by changing fifo watermark?)
+		 */
+		void __iomem *base = ch->slave_chan->base;
+		writel_relaxed(ch->slave_buf.addr, base + REG_DMA_BASE);
+		writel_relaxed(0xf, base + REG_DMA_LEN);
+		writel_relaxed(~0u, base + REG_DMA_PER_LEN); /* no period interrupts */
+
+		base = ch->link_chan->base;
+		writel_relaxed(ch->slave_buf.addr, base + REG_DMA_BASE);
+		writel_relaxed(0xf, base + REG_DMA_LEN);
+		writel_relaxed(~0u, base + REG_DMA_PER_LEN); /* no period interrupts */
+	}
 
 	writel_relaxed(substream->runtime->dma_addr, ch->base + REG_DMA_BASE);
 	writel_relaxed((snd_pcm_lib_buffer_bytes(substream) >> 2) - 1, ch->base + REG_DMA_LEN);
@@ -235,10 +311,19 @@ lpaif_trigger(struct snd_soc_component *component,
 	u32 codec_intf, i2s_ctl;
 	u32 intf = ch->intf;
 	u32 dma_ctl = DMA_CTL_DEFAULT;
+	u32 dma_ctl2 = DMA_CTL_DEFAULT_CAPTURE;
 	int i, j;
+	bool is_master = !is_slave(lpaif, ch) && ch->slave_chan;
 
-	if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
+	if (is_slave(lpaif, ch)) {
+		base = ch->slave_chan->base;
+		intf = ch->slave_chan->intf;
+	}
+
+	if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK) {
 		dma_ctl = DMA_CTL_DEFAULT_CAPTURE;
+		dma_ctl2 = DMA_CTL_DEFAULT;
+	}
 
 	if (intf & LPASS_INTF_CODEC) {
 		u32 ch_mask = LPASS_INTF_CODEC_MASK(intf);
@@ -258,6 +343,7 @@ lpaif_trigger(struct snd_soc_component *component,
 			codec_intf |= DMA_CODEC_INTF_CODEC_ENABLE_16BIT_PACKING;
 	} else {
 		dma_ctl |= DMA_CTL_AUDIO_INTF(intf & 0xf);
+		dma_ctl2 |= DMA_CTL_AUDIO_INTF(intf & 0xf);
 		i2s_base = lpaif->base + I2S_BASE((intf & 0xf) - 1);
 
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -274,6 +360,9 @@ lpaif_trigger(struct snd_soc_component *component,
 			i2s_ctl |= I2S_CTL_BIT_WIDTH(1);
 		else if (substream->runtime->format == SNDRV_PCM_FORMAT_S32_LE)
 			i2s_ctl |= I2S_CTL_BIT_WIDTH(2);
+
+		if (is_master)
+			i2s_ctl = I2S_CTL_SPKR_MODE(1) | I2S_CTL_SPKR_EN | I2S_CTL_MIC_MODE(1) | I2S_CTL_MIC_EN | I2S_CTL_LOOPBACK;
 	}
 
 	switch (cmd) {
@@ -281,6 +370,8 @@ lpaif_trigger(struct snd_soc_component *component,
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		writel_relaxed(dma_ctl, base + REG_DMA_CTL);
+		if (is_master)
+			writel_relaxed(dma_ctl2, ch->link_chan->base + REG_DMA_CTL);
 		if (intf & LPASS_INTF_CODEC)
 			writel_relaxed(codec_intf, base + REG_DMA_CODEC_INTF);
 		else
@@ -294,9 +385,10 @@ lpaif_trigger(struct snd_soc_component *component,
 		else
 			writel_relaxed(0, i2s_base + REG_I2S_CTL);
 		writel_relaxed(0, base + REG_DMA_CTL);
+		if (is_master)
+			writel_relaxed(0, ch->link_chan->base + REG_DMA_CTL);
 		break;
 	}
-
 	return 0;
 }
 
@@ -348,6 +440,11 @@ static int lpaif_probe(struct platform_device *pdev)
 	ret = of_reserved_mem_device_init(dev);
 	if (ret && ret != -ENODEV)
 		return ret;
+
+	if (ret == -ENODEV) { // XXX
+		struct iommu_domain *domain = iommu_get_dma_domain(dev);
+		iommu_map(domain, 0x06000000, 0x06000000, SZ_16M, IOMMU_READ|IOMMU_WRITE, GFP_KERNEL);
+	}
 
 	lpaif = devm_kzalloc(dev, sizeof(*lpaif), GFP_KERNEL);
 	if (!lpaif)

@@ -220,6 +220,18 @@ static int lpass_aon_cc_sm8550_probe(struct platform_device *pdev)
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
+	/* ADSP lite sets aon_cc_main_clk_src to 19.2MHz, but the source is a PLL
+	 * that multiplies the sleep clock, and the rate not exactly the same as
+	 * the 19.2MHz ref clock
+	 *
+	 * this clock parents the bit clocks of the lpass codecs
+	 *
+	 * for LPAIF chaining, clock rates need to match exactly
+	 * this switches it back to the 19.2MHz ref clock
+	 */
+	regmap_write(regmap, 0x1b008, 0x00100000);
+	regmap_write(regmap, 0x1b004, 1);
+
 	return qcom_cc_really_probe(&pdev->dev, &lpass_aon_cc_sm8550_desc, regmap);
 }
 

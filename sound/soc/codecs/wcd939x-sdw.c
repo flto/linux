@@ -136,6 +136,9 @@ int wcd939x_sdw_hw_params(struct wcd939x_sdw_priv *wcd,
 	unsigned long ch_mask;
 	int i, j;
 
+	if (wcd->sruntime->state == SDW_STREAM_ENABLED)
+		return 0;
+
 	wcd->sconfig.ch_count = 1;
 	wcd->active_ports = 0;
 	for (i = 0; i < WCD939X_MAX_SWR_PORTS; i++) {
@@ -169,6 +172,9 @@ int wcd939x_sdw_free(struct wcd939x_sdw_priv *wcd,
 		     struct snd_pcm_substream *substream,
 		     struct snd_soc_dai *dai)
 {
+	if (wcd->sruntime->state == SDW_STREAM_ENABLED)
+		return 0;
+
 	sdw_stream_remove_slave(wcd->sdev, wcd->sruntime);
 
 	return 0;
