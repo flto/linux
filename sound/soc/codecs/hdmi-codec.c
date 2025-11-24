@@ -662,7 +662,7 @@ static int hdmi_codec_i2s_set_fmt(struct snd_soc_dai *dai,
 	case SND_SOC_DAIFMT_CBC_CFC:
 		break;
 	default:
-		return -EINVAL;
+		return 0;//-EINVAL;
 	}
 
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
