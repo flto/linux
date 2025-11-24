@@ -1,0 +1,169 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2024, Jonathan Marek
+ */
+
+#include "x1e80100-crd.dts"
+#include "x1e80100-el2.dtsi"
+#include <dt-bindings/sound/qcom,lpaif-v5.h>
+
+/ {
+	sound {
+		compatible = "qcom,lpass-sndcard";
+		model = "X1E80100-CRD-LPASS";
+
+		wcd-playback {
+			link-name = "WCD Playback";
+
+			clocks = <&lpass_corecc LPASS_CORE_CC_EXT_IF0_IBIT_CLK>;
+
+			platform {
+				sound-dai = <&lpass_core_lpaif 1>, <&lpass_rxtx_lpaif LPAIF_RXTX_CODEC_RX_01>;
+			};
+
+			codec {
+				sound-dai = <&wcd938x 0>, <&swr1 0>, <&lpass_rxmacro 0>;
+			};
+		};
+
+		wcd-mix-playback {
+			link-name = "WCD MIX Playback";
+
+			platform {
+				sound-dai = <&lpass_rxtx_lpaif LPAIF_RXTX_CODEC_RX_23>;
+			};
+
+			codec {
+				sound-dai = <&wcd938x 0>, <&swr1 0>, <&lpass_rxmacro 1>;
+			};
+		};
+
+		wsa {
+			link-name = "WSA Playback";
+
+			clocks = <&lpass_corecc LPASS_CORE_CC_EXT_IF1_IBIT_CLK>;
+
+			platform {
+				sound-dai = <&lpass_core_lpaif 2>, <&lpass_wsa_lpaif LPAIF_WSA_CODEC_RX_01>;
+			};
+
+			codec {
+				sound-dai = <&left_woofer>, <&left_tweeter>,
+					    <&swr0 0>, <&lpass_wsamacro 0>,
+					    <&right_woofer>, <&right_tweeter>,
+					    <&swr3 0>, <&lpass_wsa2macro 0>;
+			};
+		};
+
+		wsa-mix {
+			link-name = "WSA MIX Playback";
+
+			platform {
+				sound-dai = <&lpass_wsa_lpaif LPAIF_WSA_CODEC_RX_23>;
+			};
+
+			codec {
+				sound-dai = <&left_woofer>, <&left_tweeter>,
+					    <&swr0 0>, <&lpass_wsamacro 1>,
+					    <&right_woofer>, <&right_tweeter>,
+					    <&swr3 0>, <&lpass_wsa2macro 1>;
+			};
+		};
+
+		wcd-capture {
+			link-name = "WCD Capture";
+
+			platform {
+				sound-dai = <&lpass_rxtx_lpaif LPAIF_RXTX_CODEC_TX>;
+			};
+
+			codec {
+				sound-dai = <&wcd938x 1>, <&swr2 1>, <&lpass_txmacro 0>;
+			};
+		};
+
+		wcd-echo {
+			link-name = "WCD ECHO Capture";
+
+			platform {
+				sound-dai = <&lpass_rxtx_lpaif LPAIF_WSA_CODEC_TX_ECHO>;
+			};
+
+			codec {
+				sound-dai = <&lpass_rxmacro 4>;
+			};
+		};
+
+		wsa-vi {
+			link-name = "WSA VI Capture";
+
+			platform {
+				sound-dai = <&lpass_wsa_lpaif LPAIF_WSA_CODEC_TX_VI>;
+			};
+
+			codec {
+				sound-dai = <&lpass_wsamacro 2>;
+			};
+		};
+
+		wsa-echo {
+			link-name = "WSA ECHO Capture";
+
+			platform {
+				sound-dai = <&lpass_wsa_lpaif LPAIF_WSA_CODEC_TX_ECHO>;
+			};
+
+			codec {
+				sound-dai = <&lpass_wsamacro 3>;
+			};
+		};
+
+		dmic {
+			link-name = "VA Capture";
+
+			platform {
+				sound-dai = <&lpass_va_lpaif LPAIF_VA_CODEC_TX>;
+			};
+
+			codec {
+				sound-dai = <&lpass_vamacro 0>;
+			};
+		};
+
+		dp0 {
+			link-name = "DisplayPort0 Playback";
+
+			platform {
+				sound-dai = <&lpass_hdmitx 0>;
+			};
+
+			codec {
+				sound-dai = <&mdss_dp0>;
+			};
+		};
+
+		dp1 {
+			link-name = "DisplayPort1 Playback";
+
+			platform {
+				sound-dai = <&lpass_hdmitx 1>;
+			};
+
+			codec {
+				sound-dai = <&mdss_dp1>;
+			};
+		};
+
+		dp2 {
+			link-name = "DisplayPort2 Playback";
+
+			platform {
+				sound-dai = <&lpass_hdmitx 2>;
+			};
+
+			codec {
+				sound-dai = <&mdss_dp2>;
+			};
+		};
+	};
+};

@@ -1053,6 +1053,7 @@
 
 &mdss_dp0 {
 	status = "okay";
+	sound-name-prefix = "DisplayPort0";
 };
 
 &mdss_dp0_out {
@@ -1061,6 +1062,7 @@
 
 &mdss_dp1 {
 	status = "okay";
+	sound-name-prefix = "DisplayPort1";
 };
 
 &mdss_dp1_out {
@@ -1069,6 +1071,7 @@
 
 &mdss_dp2 {
 	status = "okay";
+	sound-name-prefix = "DisplayPort2";
 };
 
 &mdss_dp2_out {
