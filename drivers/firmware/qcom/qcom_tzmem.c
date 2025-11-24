@@ -71,6 +71,8 @@ static void qcom_tzmem_cleanup_area(struct qcom_tzmem_area *area)
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/of.h>
 
+#define QCOM_SHM_BRIDGE_SELF_OWNER BIT(1)
+#define QCOM_SHM_BRIDGE_SELF_OWNER_PERM_SHIFT 2
 #define QCOM_SHM_BRIDGE_NUM_VM_SHIFT 9
 
 static bool qcom_tzmem_using_shm_bridge;
@@ -132,10 +134,11 @@ int qcom_tzmem_shm_bridge_create(phys_addr_t paddr, size_t size, u64 *handle)
 
 	pfn_and_ns_perm = paddr | QCOM_SCM_PERM_RW;
 	ipfn_and_s_perm = paddr | QCOM_SCM_PERM_RW;
-	size_and_flags = size | (1 << QCOM_SHM_BRIDGE_NUM_VM_SHIFT);
+	size_and_flags = size | QCOM_SHM_BRIDGE_SELF_OWNER |
+		(QCOM_SCM_PERM_RW << QCOM_SHM_BRIDGE_SELF_OWNER_PERM_SHIFT);
 
 	ret = qcom_scm_shm_bridge_create(pfn_and_ns_perm, ipfn_and_s_perm,
-					 size_and_flags, QCOM_SCM_VMID_HLOS,
+					 size_and_flags, 0,
 					 handle);
 	if (ret) {
 		dev_err(qcom_tzmem_dev,
